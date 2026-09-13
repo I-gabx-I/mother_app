@@ -77,6 +77,214 @@ continúa solo después de ver la respuesta.
 
 <!-- Las entradas de cada fase van aquí abajo, en orden -->
 
+## Fase 01 — Capa de datos núcleo
+
+**Inicio:** 2026-09-13
+**Cierre:** 2026-09-13
+**Commit:** ver hash en `git log` (commit único de esta entrada, rama `fase/01-room-core`, ramificada desde `docs/fix-fase-01-scope`)
+**Tag:** *(pendiente — parada antes del tag, como se pidió)*
+
+**Nota sobre la base de la rama:** `fase/01-room-core` no arranca desde
+`main` sino desde `docs/fix-fase-01-scope` (que a su vez sale de
+`fase-00-ok`). Es deliberado: `ESQUEMA.md`/`FASES.md`/`CLAUDE.md` corregidos
+en esa rama (todas las tablas en v1, `default_markup_percent`, archivos
+permitidos de Fase 01, regla de Robolectric) son la base real contra la que
+se implementó esta fase. Implementar contra el `main` viejo (que todavía
+tiene `default_markup_multiplier` y el esquema partido) habría sido
+implementar contra reglas ya reemplazadas.
+
+### Qué se hizo
+
+- Agregadas las dependencias nuevas, **una a la vez, compilando entre cada
+  una** (CLAUDE.md §2.1): plugin KSP (ya estaba de Fase 00) → Room
+  (`room-runtime` + `room-ktx` + `room-compiler` vía KSP) →
+  `kotlinx-coroutines-core`/`-test` → Robolectric + `androidx.test:core` →
+  Truth + Turbine. Cada paso con su propio `./gradlew assembleDebug`/
+  `testDebugUnitTest` en verde antes de seguir.
+- `ksp { arg("room.schemaLocation", "$projectDir/schemas") }` en
+  `app/build.gradle.kts` para que Room exporte el schema.
+- `testOptions { unitTests { isIncludeAndroidResources = true } }`
+  (obligatorio, D-012).
+- Las **diez entidades** de `ESQUEMA.md` en `data/local/entity/`
+  (`CategoryEntity`, `ProductEntity`, `PriceHistoryEntity`, `PurchaseEntity`,
+  `PurchaseItemEntity`, `CustomerEntity`, `SaleEntity`, `SaleItemEntity`,
+  `PaymentEntity`, `AppSettingEntity`), con sus foreign keys, `onDelete` y
+  índices tal como los describe `ESQUEMA.md`.
+- `AppDatabase` (`data/local/AppDatabase.kt`) con las diez entidades
+  registradas, `version = 1`, `exportSchema = true`, y un
+  `RoomDatabase.Callback.onCreate` (`SeedCallback`) que siembra las 5
+  categorías y las 6 claves de `app_setting` con `execSQL` parametrizado
+  (síncrono: termina antes de que `onCreate` devuelva el control, sin
+  ninguna corrutina de por medio que pueda dejar la semilla a medias).
+- DAOs solo para `category`, `product` y `app_setting`
+  (`data/local/dao/*.kt`), como exige la fase.
+- `AppSettingKeys.kt` con las 6 claves como constantes (evita strings
+  mágicos repetidos entre el seed, el DAO y el generador de `uid`).
+- `ProductUidGenerator` (`data/local/ProductUidGenerator.kt`): lee e
+  incrementa `next_product_uid_seq` dentro de un solo
+  `db.withTransaction { }`, formatea con `String.format(Locale.ROOT,
+  "XP-%06d", seq)` (regla nueva de CLAUDE.md sección 5). Ver más abajo la
+  verificación de que esto es realmente atómico, no solo "debería serlo".
+- `di/DatabaseModule.kt`: Hilt provee `AppDatabase` (con el `SeedCallback`
+  enganchado) y los tres DAOs.
+- Tests: `ProductDaoTest` (insertar/actualizar/archivar/consultar, con
+  Robolectric), `SeedDataTest` (las 5 categorías y las 6 claves de
+  `app_setting` quedan sembradas y son parseables a entero),
+  `ProductUidGeneratorTest` (secuencial + concurrencia real, Robolectric) y
+  su copia exacta `ProductUidGeneratorInstrumentedTest` en `androidTest`,
+  corrida una vez en el emulador `Medium_Phone_API_35`.
+- Se agregó `--add-opens` de JVM a `tasks.withType<Test>` en
+  `app/build.gradle.kts` — ver "Bloqueo resuelto" más abajo.
+
+### Verificación de la atomicidad del generador de `uid` (no solo el diseño — la corrida real)
+
+Tal como me comprometí en la sección anterior de este mismo archivo, antes
+de dar por buena la implementación:
+
+1. Escribí a propósito la versión **rota** de `ProductUidGenerator.next()`
+   (el `SELECT` y el `UPDATE` como dos llamadas sueltas al DAO, sin
+   `withTransaction`).
+2. Corrí `concurrent_calls_never_produce_duplicate_uids` (100 llamadas
+   concurrentes reales, `Dispatchers.IO` + `async` + `awaitAll`) **3 veces**
+   contra esa versión rota. **Falló las 3 veces**, y de la forma más
+   contundente posible: `iterable was: [XP-000001]` con tamaño **1**, no
+   100 — las 100 corrutinas leyeron el contador antes de que ninguna lo
+   escribiera, así que las 100 mintieron el mismo `uid`.
+3. Restauré la versión correcta (`db.withTransaction { }`) y corrí el mismo
+   test **2 veces más** (más las 3 corridas previas a hacer el ejercicio,
+   total 5). **Pasó las 5 veces**, sin excepción.
+4. Corrí la copia idéntica en `androidTest`
+   (`ProductUidGeneratorInstrumentedTest`) una vez sobre SQLite real en el
+   emulador `Medium_Phone_API_35`: **pasó** (`concurrent_calls_never_produce_duplicate_uids`
+   en 11.296s, `sequential_calls_produce_increasing_uids` en 0.684s, 2/2,
+   0 fallos).
+
+Esto no es "el test debería fallar con la versión rota" — falló de hecho,
+documentado acá, y dejó de fallar de hecho al arreglar la implementación.
+
+### Bloqueo resuelto: Robolectric + JDK 24
+
+**Error textual** (los 9 tests nuevos fallaban todos con el mismo error al
+primer intento):
+
+```
+java.lang.RuntimeException: Failed to interact with raw FileDescriptor internals; perhaps JRE has changed?
+	at org.robolectric.interceptors.AndroidInterceptors$FileDescriptorInterceptor.setInt(AndroidInterceptors.java:88)
+Caused by: java.lang.IllegalAccessException: class org.robolectric.interceptors.AndroidInterceptors$FileDescriptorInterceptor
+cannot access class jdk.internal.access.SharedSecrets (in module java.base)
+because module java.base does not export jdk.internal.access to unnamed module
+```
+
+**Causa:** el JDK de este entorno es Java 24 (`java -version` →
+`24.0.1`). Robolectric hace reflexión profunda sobre internals de la JDK
+(`jdk.internal.access.SharedSecrets`, etc.) para simular el runtime de
+Android; el module system de JDK 17+ bloquea ese acceso por defecto.
+
+**Arreglo:** agregar los flags `--add-opens` correspondientes a la JVM que
+corre los tests, vía `tasks.withType<Test>().configureEach { jvmArgs(...) }`
+en `app/build.gradle.kts`. No es una dependencia nueva ni un cambio de
+versión — es una bandera de arranque de la JVM de test. Confirmado con el
+error completo leído antes de tocar nada (CLAUDE.md §2.1); no hizo falta un
+segundo intento fallido.
+
+### Archivos tocados
+
+Dentro de "Archivos permitidos" de Fase 01 (ya corregido para incluir
+`gradle/libs.versions.toml` y `app/build.gradle.kts`):
+- `gradle/libs.versions.toml`, `app/build.gradle.kts`
+- `app/src/main/java/gt/marcos/joyeria/data/local/**` (entidades, DAOs,
+  `AppDatabase`, `AppSettingKeys`, `ProductUidGenerator`)
+- `app/src/main/java/gt/marcos/joyeria/di/DatabaseModule.kt`
+- `app/src/test/java/gt/marcos/joyeria/data/**`
+- `app/schemas/**`
+
+⚠️ Fuera de lo permitido, tocados igual, con motivo:
+- **`CLAUDE.md`, `ESTADO.md`** — igual que en Fase 00: son los archivos de
+  proceso que la sección 7 obliga a mantener, y las ediciones de `CLAUDE.md`
+  en esta ronda (Locale.ROOT, regla de Robolectric) fueron pedidas
+  explícitamente por el humano antes de autorizar la fase.
+- **`app/src/androidTest/java/gt/marcos/joyeria/data/local/ProductUidGeneratorInstrumentedTest.kt`**
+  — no está en "Archivos permitidos" de Fase 01 (que solo lista
+  `app/src/test/java/**/data/**`). Se agregó por pedido explícito del
+  humano: correr el mismo test de concurrencia una vez sobre SQLite real,
+  no solo sobre Robolectric.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | `./gradlew testDebugUnitTest` pasa | Corrido repetidamente durante la fase; corrida final: 10 tests, 0 fallos (`ProductDaoTest` 5, `ProductUidGeneratorTest` 2, `SeedDataTest` 2, `ExampleUnitTest` 1) | ✅ |
+| 2 | Tests de DAO con Room in-memory: insertar, actualizar, archivar, consultar producto | `ProductDaoTest`: `insert_and_getById_returns_the_stored_product`, `update_changes_the_stored_fields`, `archive_sets_archived_true_and_removes_it_from_the_active_query`, `getByUid_finds_the_product_by_its_uid`, `getByUid_returns_null_for_an_unknown_uid` | ✅ |
+| 3 | Dos productos creados en paralelo nunca reciben el mismo `uid` | `ProductUidGeneratorTest.concurrent_calls_never_produce_duplicate_uids` (100 llamadas reales concurrentes) + copia en `androidTest` corrida en emulador. Verificado además que el test falla de verdad contra una implementación rota (ver sección de arriba) | ✅ |
+| 4 | Existe `app/schemas/1.json` commiteado, con las diez tablas | Generado en `app/schemas/gt.marcos.joyeria.data.local.AppDatabase/1.json` (ruta estándar de Room: `app/schemas/<paquete>.<Clase>/<versión>.json`, no literalmente `app/schemas/1.json` — así es como Room nombra el archivo siempre, no fue una decisión mía). Contiene las 10 `entities` | ✅ |
+| 5 | `grep -r "fallbackToDestructiveMigration" app/src` no devuelve nada | `Grep` sobre `app/src` → 0 resultados | ✅ |
+
+Verificación adicional (no numerada): `./gradlew assembleDebug` →
+`BUILD SUCCESSFUL`, sin warnings nuevos (el único warning presente ya
+existía desde el scaffold de Fase 00). `grep -r "Double\|Float"
+app/src/main` → 0 resultados (ajusté un comentario que mencionaba la
+palabra "Double" para que ni siquiera el comentario diera un falso
+positivo).
+
+Prohibido de la fase, verificado: ningún Composable agregado; ningún DAO ni
+lógica de negocio para `price_history`, `purchase`, `purchase_item`,
+`customer`, `sale`, `sale_item` o `payment` (solo sus entidades existen).
+
+### Tests agregados
+
+- `ProductDaoTest` (5) — insertar, actualizar, archivar (y que desaparece de
+  la consulta de activos), buscar por `uid` (encontrado y no encontrado).
+- `SeedDataTest` (2) — las 5 categorías y las 6 claves de `app_setting`
+  quedan sembradas en la primera apertura, con los valores exactos de
+  `ESQUEMA.md` (incluido `default_markup_percent = 200`), parseables a
+  entero.
+- `ProductUidGeneratorTest` (2, `app/src/test`, Robolectric) —
+  `sequential_calls_produce_increasing_uids`,
+  `concurrent_calls_never_produce_duplicate_uids` (100 llamadas paralelas
+  reales, `Set` completo sin duplicados).
+- `ProductUidGeneratorInstrumentedTest` (2, `app/src/androidTest`) — copia
+  exacta de la anterior, corrida una vez sobre SQLite real en el emulador.
+
+### Suposiciones que tomé
+
+- Índices en columnas FK que `ESQUEMA.md` no listó explícitamente
+  (`price_history.product_id`, `purchase_item.purchase_id`,
+  `purchase_item.product_id`, `sale_item.sale_id`, `sale_item.product_id`):
+  los agregué porque Room los pide para no hacer table scan completo en
+  cada operación sobre la tabla padre. No son columnas nuevas, son índices;
+  `ESQUEMA.md` no los prohíbe, solo no los mencionó para estas tablas en
+  particular (sí los menciona para `product`, `sale` y `payment`).
+- Semilla por `execSQL` síncrono en `onCreate`, no por corrutina +
+  `Provider<AppDatabase>` (patrón que también es común en Hilt+Room): elegí
+  la versión síncrona porque es determinística y no necesita ningún
+  mecanismo de sincronización para que el test no se adelante a la semilla.
+- El nombre del archivo de base de datos es `joyeria.db`. No está definido
+  en ningún documento; es una decisión menor sin impacto en ningún criterio.
+
+### Lo que NO hice
+
+- No taguée `fase-01-ok` ni mergeé la rama — como se pidió.
+- No escribí DAO, repositorio ni pantalla para `price_history`, `purchase`,
+  `purchase_item`, `customer`, `sale`, `sale_item` ni `payment` — solo sus
+  entidades, como exige la fase.
+- No agregué `kotlinx-coroutines-android` (da `Dispatchers.Main`): no hace
+  falta todavía, no hay ningún `ViewModel` en esta fase. Se agrega cuando
+  la fase que lo necesite lo pida.
+- No mergeé ni tagueé `docs/fix-fase-01-scope` — sigue como rama aparte,
+  a la espera de que el humano decida cuándo integrarla a `main` (Fase 01
+  depende de su contenido pero no la reemplaza).
+
+### Deuda técnica que dejé
+
+- Ninguna deliberada.
+
+### Bloqueos / preguntas para el humano
+
+- Ninguno abierto. El único bloqueo que hubo (Robolectric + JDK 24) se
+  resolvió en el mismo intento, documentado arriba.
+
+---
+
 ## Fase 00 — Andamiaje del proyecto
 
 **Inicio:** 2026-09-13
@@ -539,3 +747,55 @@ falló** cuando la corrí.
 **No implementé nada de esto todavía.** Esta sección es la explicación
 pedida; sigo esperando confirmación antes de abrir `fase/01-room-core` o
 tocar cualquier archivo de código.
+
+---
+
+## Corrección: por qué la transacción es atómica (el "por qué" de arriba estaba mal)
+
+**Fecha:** 2026-09-13. El humano aprobó el diseño y la conclusión, pero
+corrigió el mecanismo que expliqué arriba. Dejo la sección original tal como
+está (no se borran entradas viejas) y agrego acá la corrección, como se hace
+en `DECISIONES.md`.
+
+**Lo que dije mal:** "SQLite solo permite una transacción de escritura
+activa a la vez sobre el archivo... una segunda transacción que también
+quiere escribir queda bloqueada." Esto da a entender que un **lock de
+archivo de SQLite** es lo que impide que la segunda corrutina lea el valor
+viejo. Es engañoso por una razón concreta que el humano señaló: un `BEGIN`
+normal en SQLite es una transacción **deferred** — no toma ningún lock de
+escritura en el momento de abrirse, solo lo toma recién en la **primera
+sentencia de escritura**. Un `SELECT` dentro de una transacción deferred no
+pide más que un lock compartido (`SHARED`), que **no** bloquea a otro
+`SELECT` de otra transacción deferred concurrente. Si la única protección
+fuera "el lock de escritura de SQLite", dos transacciones podrían hacer su
+`SELECT` en paralelo sin ningún problema, leer las dos el mismo `seq`, y
+recién chocar (o ni eso) en el momento del `UPDATE` — y para entonces cada
+una ya calculó su `uid` en memoria con el valor viejo. El lock de escritura
+de SQLite protege la integridad del archivo, pero no evita por sí solo esta
+carrera de "leer viejo, escribir basado en lo viejo".
+
+**El mecanismo real:** en Android, `SQLiteDatabase` no habla directo con el
+archivo — administra un **pool de conexiones** (`SQLiteConnectionPool`).
+Aunque haya varias conexiones de lectura (más con WAL), hay **una sola
+conexión designada para escribir** a la vez. Para ejecutar una transacción
+que va a escribir, primero hay que **adquirir esa conexión** del pool —y esa
+adquisición es una operación bloqueante a nivel del framework de Android/
+Java, no una sentencia SQL—: si otra transacción ya la tiene, la que llega
+después queda bloqueada ahí, **antes de mandar siquiera su `BEGIN`**, hasta
+que la primera termina y la libera. `RoomDatabase.withTransaction` corre
+todo el bloque (lectura y escritura juntas) dentro de esa única adquisición
+de conexión: mientras la corrutina A tiene la conexión de escritura tomada
+para su transacción, la corrutina B no puede ni empezar la suya — su
+`SELECT` incluido — hasta que A suelta la conexión (commit o rollback). Por
+eso no importa que el `BEGIN` de SQLite sea deferred y que el `SELECT` por sí
+solo no tome ningún lock fuerte: **la serialización pasa un nivel más
+arriba, en cómo Android/Room reparten la única conexión de escritura**, no
+en el lock SQL del `SELECT` ni del `UPDATE`.
+
+**La conclusión no cambia:** con `withTransaction`, la corrutina B nunca
+puede leer el contador mientras A todavía no escribió el suyo, porque B ni
+siquiera puede arrancar su transacción hasta que A termine la suya
+completa. Los `uid` generados siguen siendo siempre distintos. Lo que
+cambia es el motivo correcto: no es un lock de fila ni de archivo a nivel
+SQL, es la adquisición serializada de la conexión de escritura de Android
+que Room usa para correr el bloque de `withTransaction` de punta a punta.

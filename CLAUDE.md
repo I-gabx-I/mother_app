@@ -153,6 +153,16 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
 - Los ViewModels exponen un único `StateFlow<UiState>`. Nada de `LiveData`.
 - Los Composables son `@Preview`-ables y no reciben ViewModels: reciben estado y lambdas.
 - Un archivo por pantalla. Si un archivo pasa de ~300 líneas, se divide.
+- **Todo formateo de un dato que se persiste o se imprime usa
+  `Locale.ROOT`** (`String.format(Locale.ROOT, ...)`, nunca la sobrecarga sin
+  locale). Ejemplo: el `uid` de producto (`XP-%06d`), cualquier código que
+  termine en una etiqueta de barras, cualquier valor que se guarda en Room o
+  se compara como clave. Razón: sin `Locale.ROOT`, en un teléfono con locale
+  de dígitos no arábigos (ej. algunos locales árabes o de Asia) el mismo
+  `String.format("XP-%06d", n)` puede producir dígitos no ASCII — y ese
+  string es una clave única que además se imprime en un código de barras. El
+  formateo pensado para que la usuaria lo lea (fechas, montos en pantalla) sí
+  usa su locale — la distinción es persistido/impreso vs. mostrado en UI.
 - Nada de `!!`. Nada de `runBlocking` fuera de tests. Nada de `GlobalScope`.
 - Nada de `TODO()` ni stubs vacíos que compilen y mientan. Si algo no se implementó
   en esta fase, no existe en el código todavía.
