@@ -1,0 +1,322 @@
+# FASES.md — Plan de ejecución
+
+Una fase a la vez. Al cerrar cada fase: actualizar `ESTADO.md`, commit, tag, **parar**.
+No se empieza la siguiente sin autorización humana explícita.
+
+Comandos de verificación estándar:
+
+```bash
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
+```
+
+Leyenda:
+- **[TESTS OBLIGATORIOS]** — la fase no se cierra sin tests nuevos que pasen.
+- **Archivos permitidos** — lista cerrada. Tocar algo fuera de ella es motivo de parada.
+
+MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
+
+---
+
+## Fase 00 — Andamiaje del proyecto
+
+**Objetivo:** proyecto Android compilable, con estructura de paquetes, DI y tema, sin ninguna funcionalidad.
+
+**Archivos permitidos:** `settings.gradle.kts`, `build.gradle.kts` (raíz y `app`), `gradle/libs.versions.toml`, `app/src/main/AndroidManifest.xml`, `app/src/main/java/**/JoyeriaApp.kt`, `app/src/main/java/**/ui/theme/**`, `app/src/main/java/**/MainActivity.kt`, `app/src/main/res/values/strings.xml`, `.gitignore`, `README.md`
+
+**Entregable:**
+- Estructura `data/` `domain/` `ui/` creada (vacía pero con los paquetes).
+- Hilt configurado con `@HiltAndroidApp`.
+- Tema Material 3 con tipografía de cuerpo a 18sp mínimo.
+- `MainActivity` muestra una pantalla vacía con el nombre de la app.
+
+**Criterios de aceptación:**
+1. `./gradlew assembleDebug` termina sin error ni warning nuevo.
+2. `gradle/libs.versions.toml` existe y **ninguna** versión usa `+` o `latest`.
+3. `grep -r "Double\|Float" app/src/main` no devuelve nada.
+4. La app instala y abre sin crash.
+
+**Prohibido:** crear entidades, DAOs, pantallas o lógica de negocio.
+
+**Commit:** `fase-00: project scaffolding` → tag `fase-00-ok`
+
+---
+
+## Fase 01 — Capa de datos núcleo **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** base de datos Room versión 1 con `category`, `product` y `app_setting`.
+
+**Archivos permitidos:** `app/src/main/java/**/data/local/**`, `app/src/main/java/**/di/DatabaseModule.kt`, `app/src/test/java/**/data/**`, `app/schemas/**`
+
+**Entregable:**
+- Entidades, DAOs y `AppDatabase` exactamente como los define `ESQUEMA.md`.
+- `exportSchema = true`, JSON de esquema commiteado.
+- Semilla de las 5 categorías y de las claves de `app_setting` en la primera apertura.
+- Generador de `uid` basado en `next_product_uid_seq`, transaccional.
+
+**Criterios de aceptación:**
+1. `./gradlew testDebugUnitTest` pasa.
+2. Existen tests de DAO con Room in-memory para insertar, actualizar, archivar y consultar producto.
+3. Existe test que verifica que dos productos creados en paralelo **nunca** reciben el mismo `uid`.
+4. Existe `app/schemas/1.json` commiteado.
+5. `grep -r "fallbackToDestructiveMigration" app/src` no devuelve nada.
+
+**Prohibido:** cualquier Composable. Esta fase no tiene UI.
+
+**Commit:** `fase-01: room core schema` → tag `fase-01-ok`
+
+---
+
+## Fase 02 — Motor de dinero y precios **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** toda la aritmética del negocio, pura, sin Android, sin UI.
+
+**Archivos permitidos:** `app/src/main/java/**/domain/model/Money.kt`, `app/src/main/java/**/domain/pricing/**`, `app/src/test/java/**/domain/**`
+
+**Entregable:**
+- `Money` (value class sobre `Long` en centavos) con suma, resta, multiplicación por `Int`, comparación y `format()`.
+- `PricingCalculator` con: `profit`, `marginOnSale`, `markupOnCost`, `suggestedPrice(cost, multiplier, roundingStep)`.
+- Manejo explícito del caso `cost = 0` (resultado definido, sin división entre cero).
+
+**Criterios de aceptación:**
+1. `./gradlew testDebugUnitTest` pasa con al menos 20 tests nuevos.
+2. Test verifica el ejemplo canónico: costo Q40, venta Q100 → ganancia Q60, margen 60%, recargo 150%.
+3. Tests de redondeo en los límites: Q71 → Q75, Q75 → Q75, Q76 → Q80 con paso de Q5.
+4. Test de costo cero y de precio menor al costo (ganancia negativa permitida y correcta).
+5. `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/**/domain` no devuelve nada.
+6. Ningún archivo de `domain/` importa `android.*`.
+
+**Prohibido:** UI, Room, Hilt.
+
+**Commit:** `fase-02: money and pricing engine` → tag `fase-02-ok`
+
+---
+
+## Fase 03 — Alta rápida de pieza
+
+**Objetivo:** la pantalla que decide si la app se usa o no. Registrar una pieza en 3 taps.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/product/add/**`, `app/src/main/java/**/domain/usecase/AddProduct*.kt`, `app/src/main/java/**/data/repository/ProductRepository*.kt`, `app/src/main/java/**/util/ImageStorage.kt`, `app/src/main/res/values/strings.xml`, `AndroidManifest.xml` (solo permiso de cámara)
+
+**Entregable:**
+- Captura de foto con CameraX, comprimida a JPEG ≤ 1MB y lado mayor ≤ 1600px, guardada en almacenamiento interno.
+- Formulario con **solo 3 campos obligatorios**: foto, costo, precio de venta. Nombre, categoría, cantidad y notas son opcionales con valores por defecto sensatos.
+- Mientras escribe el costo, la app muestra en vivo el precio sugerido y la ganancia.
+- El `uid` se genera y se muestra al guardar.
+
+**Criterios de aceptación:**
+1. `./gradlew assembleDebug` y `testDebugUnitTest` pasan.
+2. Contar los campos `required` del formulario: exactamente 3.
+3. Ningún string literal en los Composables (`grep` de comillas dobles en `ui/product/add` solo debe dar recursos, logs o claves técnicas).
+4. Prueba manual documentada en `ESTADO.md`: tiempo real de registro de una pieza, medido con cronómetro. Si pasa de 20s, la fase no se cierra.
+5. La foto guardada pesa menos de 1MB (verificado y anotado).
+
+**Prohibido:** listados, edición, ventas.
+
+**Commit:** `fase-03: quick product capture` → tag `fase-03-ok`
+
+---
+
+## Fase 04 — Inventario, edición y compras
+
+**Objetivo:** ver, buscar y editar el inventario. Registrar compras a mayorista local.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/product/**`, `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/**`, `app/src/main/java/**/data/**`, `strings.xml`
+
+**Entregable:**
+- Listado con foto, nombre, `uid`, stock, precio y ganancia; búsqueda por nombre o `uid`; filtro por categoría.
+- Pantalla de detalle/edición. Al cambiar costo o precio se inserta fila en `price_history`.
+- Archivar pieza (no borrar).
+- Registro de compra con líneas, y prorrateo opcional de transporte local según `ESQUEMA.md`.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. **[TESTS OBLIGATORIOS]** El prorrateo tiene test: la suma de `allocated_extra_cents` es exactamente igual a `extra_cost_cents`, incluyendo un caso con residuo de redondeo (ej. Q10 entre 3 líneas).
+3. Test de que editar el precio de un producto inserta en `price_history`.
+4. No existe ningún `DELETE FROM product` en el código.
+
+**Commit:** `fase-04: inventory management and purchases` → tag `fase-04-ok`
+
+---
+
+## Fase 05 — Venta de contado **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** registrar una venta al contado con snapshots y descuento de stock.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/sale/**`, `app/src/main/java/**/domain/usecase/RegisterSale*.kt`, `app/src/main/java/**/data/**`, `strings.xml`
+
+**Entregable:**
+- Flujo de venta: elegir piezas, cantidades, descuento opcional, confirmar.
+- Al confirmar, en una sola transacción: crea `sale` + `sale_item` con snapshots, descuenta `stock_qty`.
+- Anulación de venta (`CANCELLED`) que devuelve el stock.
+- Pantalla "Ventas de hoy" con total vendido y ganancia del día.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Test: registrar venta, luego **cambiar el precio del producto**, y verificar que la ganancia de esa venta **no cambió**.
+3. Test: no se puede vender más unidades de las que hay en stock.
+4. Test: anular una venta devuelve exactamente el stock descontado.
+5. Test: la venta y sus líneas se crean atómicamente (si falla una línea, no queda venta huérfana).
+
+**Commit:** `fase-05: cash sales` → tag `fase-05-ok`
+
+> **Fin del MVP.** Aquí se hace la primera prueba real con la usuaria antes de continuar.
+
+---
+
+## Fase 06 — Clientes, crédito y abonos **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** el módulo que más valor da. Ella vende con "te pago después" y necesita saber quién le debe.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/customer/**`, `app/src/main/java/**/ui/credit/**`, `app/src/main/java/**/domain/usecase/*Payment*.kt`, `app/src/main/java/**/data/**`, `strings.xml`, migración Room nueva
+
+**Entregable:**
+- CRUD de clientes (archivar, no borrar).
+- Venta tipo `CREDIT` que nace `PENDING`, con o sin abono inicial.
+- Registro de abonos con fecha, monto y método.
+- Pantalla **"¿Quién me debe?"**: lista de clientes con saldo, ordenada por monto, con la deuda más vieja marcada.
+- Estado de cuenta por venta: total, abonos, saldo.
+- Al completarse el saldo, la venta pasa a `PAID` automáticamente.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Test: el saldo es siempre `total - descuento - Σ abonos`, y **no existe columna persistida de saldo** en el esquema.
+3. Test: un abono que excede el saldo es rechazado con error claro.
+4. Test: al cubrir el saldo exacto, el estado cambia a `PAID`; un centavo menos y sigue `PENDING`.
+5. Migración Room nueva con su test de migración, y `app/schemas/2.json` commiteado.
+
+**Commit:** `fase-06: customers, credit sales and installments` → tag `fase-06-ok`
+
+---
+
+## Fase 07 — Recordatorios y estado de cuenta por WhatsApp
+
+**Objetivo:** cobrar sin escribir el mensaje a mano. Sin backend.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/credit/**`, `app/src/main/java/**/util/WhatsAppLink.kt`, `strings.xml`
+
+**Entregable:**
+- Botón "Recordar por WhatsApp" que abre `https://wa.me/<numero>?text=<mensaje>` con el texto ya armado y respetuoso, en español guatemalteco.
+- El teléfono se normaliza a formato internacional (código 502 si viene sin código).
+- Si el cliente no tiene teléfono, el botón no aparece.
+- Compartir estado de cuenta como texto plano por cualquier app.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. **[TESTS OBLIGATORIOS]** Test de normalización de teléfonos: `5555-1234`, `55551234`, `+502 5555 1234`, `50255551234` producen todos el mismo resultado.
+3. Test de que el mensaje se URL-encodea correctamente (tildes, ñ, saltos de línea).
+4. La app **no** pide permiso de contactos ni de teléfono.
+
+**Commit:** `fase-07: whatsapp reminders` → tag `fase-07-ok`
+
+---
+
+## Fase 08 — Reportes **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** responder las cuatro preguntas del negocio.
+
+**Entregable:**
+- Ganancia del mes (y comparación con el anterior).
+- Capital invertido en inventario vs capital ya recuperado.
+- Top 5 piezas más vendidas y top 5 por ganancia.
+- **Capital estancado:** piezas sin vender en más de `stale_stock_days`, con el dinero que representan.
+- Alerta de bajo stock.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Test de agregación mensual con dataset fijo y resultado esperado calculado a mano.
+3. Test de que las ganancias se calculan **solo** desde snapshots de `sale_item`.
+4. Test de que las ventas `CANCELLED` se excluyen de todos los reportes.
+5. Test de frontera de mes: una venta a las 23:59 del día 31 cuenta en ese mes y no en el siguiente (zona horaria de Guatemala).
+
+**Commit:** `fase-08: reports` → tag `fase-08-ok`
+
+---
+
+## Fase 09 — Catálogo compartible
+
+**Objetivo:** vender sin que la clienta vaya a la casa.
+
+**Entregable:**
+- Seleccionar piezas y generar una imagen (o PDF) con foto, nombre y **precio de venta**.
+- **Nunca se muestra el costo ni la ganancia en el catálogo.** Requisito de seguridad del negocio.
+- Compartir por el share sheet de Android.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. **[TESTS OBLIGATORIOS]** Test que verifica que el modelo de datos del catálogo no contiene campos de costo ni ganancia.
+3. Catálogo de 20 piezas se genera en menos de 5 segundos (medido y anotado en `ESTADO.md`).
+
+**Commit:** `fase-09: shareable catalog` → tag `fase-09-ok`
+
+---
+
+## Fase 10 — Códigos de barras
+
+**Objetivo:** encontrar una pieza al instante escaneando su etiqueta.
+
+**Entregable:**
+- Generar imagen Code128 que codifica **el `uid`, nunca el precio**.
+- Hoja de etiquetas imprimible (varias por página).
+- Escaneo con ML Kit que abre la pieza correspondiente.
+- Si se escanea un código desconocido, mensaje claro, sin crash.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. **[TESTS OBLIGATORIOS]** Test: el contenido codificado es exactamente el `uid` y no contiene ningún monto.
+3. Test de round-trip: generar el código de `XP-000042` y decodificarlo devuelve `XP-000042`.
+4. Permiso de cámara solicitado solo al entrar al escáner, con explicación en español.
+
+**Commit:** `fase-10: barcode labels and scanning` → tag `fase-10-ok`
+
+---
+
+## Fase 11 — Respaldo, exportar e importar **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** que perder el teléfono no sea peor que perder el cuaderno.
+
+**Entregable:**
+- Exportar todo a un `.zip` (JSON + fotos) vía share sheet, para guardarlo en Drive o donde sea.
+- Exportar inventario y ventas a CSV legible en Excel.
+- Importar un respaldo, con vista previa de qué se va a restaurar y confirmación explícita.
+- Recordatorio en la app si pasaron más de 15 días desde el último respaldo.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Test round-trip: exportar una base con datos, importarla en una base vacía, y verificar igualdad campo por campo.
+3. Test: importar un archivo corrupto o de otra versión falla con mensaje claro y **deja la base intacta**.
+4. El CSV abre correctamente con tildes (UTF-8 con BOM).
+
+**Commit:** `fase-11: backup and export` → tag `fase-11-ok`
+
+---
+
+## Fase 12 — Pulido para la usuaria real
+
+**Objetivo:** cerrar la brecha entre "funciona" y "ella lo usa".
+
+**Entregable:**
+- Revisión completa de textos: cero jerga, todo en español claro.
+- Tamaños de fuente y áreas táctiles auditados contra la regla de `CLAUDE.md`.
+- Estados vacíos con instrucciones, no pantallas en blanco.
+- Confirmaciones en toda acción irreversible.
+- Modo de carga inicial rápida, pensado para pasar el cuaderno a la app de un solo.
+- Ícono y nombre de la app.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Checklist de accesibilidad completo en `ESTADO.md`, pantalla por pantalla.
+3. Lista completa de strings de UI revisada y pegada en `ESTADO.md` para aprobación humana.
+4. Prueba con la usuaria real documentada: qué logró sola, dónde se trabó.
+
+**Commit:** `fase-12: usability polish` → tag `fase-12-ok`
+
+---
+
+## Ideas para después (no implementar sin autorización)
+
+- Múltiples fotos por pieza.
+- Apartados con fecha límite y recordatorio automático.
+- Precios por mayoreo (si empieza a venderle a otras revendedoras).
+- Sincronización entre dos teléfonos.
+- Registro de gastos del negocio (bolsitas, cajitas, pulidor) para ganancia neta real.
