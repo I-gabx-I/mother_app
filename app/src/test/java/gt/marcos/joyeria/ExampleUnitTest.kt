@@ -1,4 +1,4 @@
-package com.example.motherapp
+package gt.marcos.joyeria
 
 import org.junit.Test
 

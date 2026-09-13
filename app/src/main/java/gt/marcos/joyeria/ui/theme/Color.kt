@@ -1,4 +1,4 @@
-package com.example.motherapp.ui.theme
+package gt.marcos.joyeria.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

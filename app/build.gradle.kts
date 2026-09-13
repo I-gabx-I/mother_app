@@ -1,16 +1,18 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt.android.plugin)
 }
 
 android {
-    namespace = "com.example.motherapp"
+    namespace = "gt.marcos.joyeria"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.motherapp"
+        applicationId = "gt.marcos.joyeria"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
@@ -44,6 +46,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

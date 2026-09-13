@@ -61,9 +61,12 @@ Los errores de versiones son la causa número uno de fases fallidas en Android.
 - Usá BOM siempre que exista (`androidx.compose:compose-bom`). Las librerías
   cubiertas por el BOM se declaran **sin versión**. Esto elimina de raíz una
   familia entera de incompatibilidades.
-- **La versión de KSP debe coincidir exactamente con la de Kotlin.** El formato
-  es `<kotlin>-<ksp>`, por ejemplo `2.0.21-1.0.25`. Si Kotlin es 2.0.21, un KSP
-  `2.0.20-x` NO sirve. Este es el error más frecuente de todos.
+- **KSP, desde la versión 2.3.0, tiene versionado independiente de Kotlin.**
+  Ya no usa el formato compuesto `<kotlin>-<ksp>` (ese formato solo aplica a
+  versiones de KSP anteriores a 2.3.0). Usá la última versión estable 2.3.x
+  verificada en `github.com/google/ksp/releases` o en el `maven-metadata.xml`
+  de `com.google.devtools.ksp`. No apliques la regla vieja de "debe coincidir
+  con Kotlin" a versiones de KSP ≥ 2.3.0.
 - Con Kotlin 2.0+, Compose se configura con el plugin
   `org.jetbrains.kotlin.plugin.compose`, **no** con
   `composeOptions { kotlinCompilerExtensionVersion }`. Si escribís lo segundo,
@@ -186,6 +189,7 @@ Estas son requisitos, no sugerencias estéticas.
 6. Agregás una entrada a `DECISIONES.md` si tomaste alguna decisión de diseño.
 7. Commit con el mensaje exacto de la fase y tag.
 8. **Parás. No empezás la siguiente fase sin autorización del humano.**
+9. **Todo análisis, resumen o hallazgo que me pidas lo escribís en un `.md` del repo antes de imprimirlo en consola. La consola se pierde, el archivo se audita.**
 
 ### Git
 
