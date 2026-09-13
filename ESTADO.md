@@ -241,3 +241,120 @@ También `compose-bom = "2026.02.01"` en `gradle/libs.versions.toml` línea 10.
 
 - **KSP `2.3.12`** — confirmado en `https://github.com/google/ksp/releases/tag/2.3.12` (publicado 2026-09-09) y en `maven-metadata.xml` de `com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin` en Maven Central (última versión listada, `lastUpdated` 20260909175426). El release notes de la versión `2.3.0` confirma el cambio de esquema: "KSP version is no longer tied to the Kotlin compiler version" — por lo tanto es compatible con Kotlin 2.2.10 sin necesitar sufijo.
 - **Hilt `2.60.1`** — confirmado en `maven-metadata.xml` de `com.google.dagger:hilt-android` en Maven Central (`lastUpdated` 20260706203408), y verificado que existen en Maven Central los tres artefactos necesarios (`hilt-android`, `hilt-compiler`, `hilt-android-gradle-plugin`) en esa versión exacta (HTTP 200 en cada `.pom`). No usé el buscador `search.maven.org` como fuente única porque su índice mostró una versión vieja (`2.56.2`) desactualizada respecto al `maven-metadata.xml` real.
+
+---
+
+## Correcciones de proceso y de reglas previas a Fase 01
+
+**Fecha:** 2026-09-13
+
+El humano aprobó, tagueó (`fase-00-ok`) y mergeó la Fase 00 a `main` (colapsando
+la rama a un solo commit con `git reset --soft`, deshaciendo mis commits
+intermedios). Antes de arrancar Fase 01, dio dos correcciones de proceso y tres
+correcciones de contenido sobre `ESQUEMA.md`/`FASES.md`. Este análisis se
+escribe acá, en `ESTADO.md`, antes de imprimirse en la conversación — es la
+primera vez que aplico esa regla nueva.
+
+### Correcciones de proceso (para mí, sin tocar archivos)
+
+1. **Un solo commit por fase** (CLAUDE.md §7). En Fase 00 hice 5 commits
+   intermedios (uno por sub-paso verificado); el humano los colapsó a mano.
+   De ahora en adelante hago un solo commit al cerrar cada fase — sigo
+   verificando build/tests en cada paso intermedio antes de escribir código
+   nuevo, pero no commiteo hasta que la fase completa esté lista, salvo que
+   necesite parar por un bloqueo real.
+2. **Todo análisis se escribe primero en `ESTADO.md`**, después se imprime en
+   la conversación. Ya lo venía haciendo desde el cierre de Fase 00; esta
+   entrada es la primera vez que se aplica también a un pedido de corrección
+   a mitad de proyecto, no solo al análisis inicial de una fase.
+
+### A) `default_markup_multiplier` → `default_markup_percent` (Int)
+
+Aplicado en `ESQUEMA.md`: la clave de `app_setting` pasa de
+`default_markup_multiplier` (`"2.0"`) a `default_markup_percent` (`200`,
+entero). Agregada nota explícita: los valores de `app_setting` se parsean
+siempre a `Long` o `Int`, nunca a `Double`. Registrado como **D-010** en
+`DECISIONES.md`.
+
+### B) Todas las tablas del esquema se crean en la versión 1 (Fase 01)
+
+Antes de tocar nada, confirmé con `grep -i "migraci\|schemas?/"` sobre
+`FASES.md` que **solo la Fase 06** tenía criterio de migración y referencia a
+`app/schemas/2.json** (línea 186 original) — las Fases 04 y 05 no
+mencionaban ninguna migración, así que no había nada que quitarles ahí más
+allá de la consistencia general del esquema.
+
+Aplicado:
+- `ESQUEMA.md`: nota en la sección de versión de base de datos explicando que
+  todas las tablas se crean en la v1/Fase 01. Los headers de `price_history`,
+  `purchase`, `purchase_item`, `customer` y `payment` (los únicos que tenían
+  una anotación `(fase 0X)`) ahora dicen "tabla en Fase 01; DAO y UI en
+  Fase 0X".
+- `FASES.md` Fase 01: objetivo y entregable reescritos para declarar las diez
+  tablas completas (antes decía solo `category`, `product`, `app_setting`);
+  los DAOs siguen siendo solo de esas tres en esta fase. Criterio 4 ahora dice
+  "con las diez tablas". Se agregó una prohibición explícita de escribir DAO o
+  lógica de negocio para las tablas que no usa esta fase.
+- `FASES.md` Fase 04 y Fase 06: una línea aclarando que sus tablas ya existen
+  desde la Fase 01. En Fase 06 se quitó el criterio 5 (migración +
+  `schemas/2.json`) y la mención "migración Room nueva" de "Archivos
+  permitidos".
+
+Registrado como **D-011** en `DECISIONES.md`.
+
+### C1) Fase 01, archivos permitidos: agregados `gradle/libs.versions.toml` y `app/build.gradle.kts`
+
+Aplicado directamente en `FASES.md` — hacían falta para declarar la versión
+de Room y `room.schemaLocation` (vía `ksp { arg(...) }` o
+`javaCompileOptions` en `app/build.gradle.kts`, según cómo se termine
+configurando en la fase misma). No es una decisión de diseño nueva, es
+corregir un olvido de la lista de archivos permitidos, así que no le puse
+entrada en `DECISIONES.md`.
+
+### C2) Propuesta: cómo testear DAOs de Room con un Context, en un solo `testDebugUnitTest`
+
+**El problema:** Room in-memory (`Room.inMemoryDatabaseBuilder`) necesita un
+`android.content.Context` para construirse. Un test unitario JVM puro
+(`app/src/test/**`, corrido por `testDebugUnitTest`) no tiene ningún runtime
+de Android disponible — no hay `Context`, no hay SQLite nativo de Android.
+La solución obvia (moverlos a `app/src/androidTest/**`) rompe el criterio 1
+de la Fase 01 tal como está escrito ("`./gradlew testDebugUnitTest` pasa"),
+porque `androidTest` corre con `connectedAndroidTest` sobre un
+emulador/dispositivo, no con `testDebugUnitTest`.
+
+**Propuesta:** usar **Robolectric** para correr los tests de DAO como tests
+unitarios JVM con un `Context` de Android simulado (incluye su propio SQLite,
+por eso Room funciona adentro). Es el patrón estándar y documentado para
+testear Room sin emulador.
+
+Dependencias nuevas propuestas para `app/build.gradle.kts` (`testImplementation`),
+verificadas contra `maven-metadata.xml` real, no inventadas:
+
+| Dependencia | Versión propuesta | Verificación |
+|---|---|---|
+| `org.robolectric:robolectric` | `4.17` | última versión estable (no beta) en `maven-metadata.xml` de Maven Central, `lastUpdated` 20260910204321; existencia confirmada con HTTP 200 en `robolectric-4.17.pom` |
+| `androidx.test:core` | `1.7.0` | última versión estable en `maven-metadata.xml` de Google Maven (`dl.google.com`), `lastUpdated` 20250730230830; existencia confirmada con HTTP 200 en `core-1.7.0.pom`. Da `ApplicationProvider.getApplicationContext()`, el `Context` que necesita `Room.inMemoryDatabaseBuilder`. |
+
+`androidx.test.ext:junit` (`androidx-junit`, ya pineado en `1.3.0`) no
+necesita cambio: es la misma versión más reciente disponible según su propio
+`maven-metadata.xml`.
+
+Los tests de DAO quedarían en `app/src/test/java/**/data/**` (JVM, tal como
+dice "Archivos permitidos" de la Fase 01), anotados
+`@RunWith(RobolectricTestRunner::class)` en vez de `AndroidJUnit4`, obteniendo
+el contexto con `ApplicationProvider.getApplicationContext<Context>()` y
+construyendo la base con
+`Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()`. Con
+eso, `./gradlew testDebugUnitTest` los ejecuta igual que cualquier otro test
+unitario — el criterio 1 de la Fase 01 se mantiene sin cambios.
+
+Nota aparte, no una dependencia: Robolectric recomienda
+`android { testOptions { unitTests { isIncludeAndroidResources = true } } }`
+en `app/build.gradle.kts` para que pueda resolver el manifest/recursos
+mergeados. Para un test que solo abre una base Room in-memory puede no hacer
+falta, pero lo dejo propuesto porque es la configuración estándar que
+recomienda la documentación de Robolectric, para evitar sorpresas.
+
+**Esto todavía no está aplicado** — es la propuesta pedida en el punto C,
+pendiente de aprobación. No toqué `libs.versions.toml` ni `app/build.gradle.kts`
+para esto.

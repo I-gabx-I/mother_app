@@ -19,6 +19,15 @@ Convenciones:
 
 ## Versión de base de datos: 1 (fase 01)
 
+**Todas las tablas de este documento se crean en esta versión 1, en la Fase 01**
+(ver D-011 en `DECISIONES.md`). No hay usuarios instalados hasta después de la
+Fase 05, así que repartir la creación de tablas en migraciones intermedias es
+ceremonia sin beneficio. Las fases posteriores agregan DAOs, repositorios y
+pantallas contra tablas que ya existen; no agregan columnas ni tablas nuevas
+salvo que este documento se actualice explícitamente. A partir de que exista
+una instalación real, un cambio de esquema sí incrementa la versión y agrega
+una `Migration` nueva con su test, como dice la regla de abajo.
+
 Cada cambio posterior incrementa la versión y agrega una `Migration` nueva con su test.
 
 ---
@@ -64,7 +73,7 @@ Notas:
 
 ---
 
-## `price_history` — Historial de precios (fase 04)
+## `price_history` — Historial de precios (tabla en Fase 01; DAO y UI en Fase 04)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -79,7 +88,7 @@ Se inserta una fila cada vez que cambia costo o precio. Sirve para responder
 
 ---
 
-## `purchase` — Compra a un mayorista local (fase 04)
+## `purchase` — Compra a un mayorista local (tabla en Fase 01; DAO y UI en Fase 04)
 
 Ella compra lotes en tiendas del país. **No hay importación, ni aduana, ni flete internacional.**
 El único gasto extra posible es transporte local (pasaje, parqueo), y es opcional.
@@ -94,7 +103,7 @@ El único gasto extra posible es transporte local (pasaje, parqueo), y es opcion
 
 ---
 
-## `purchase_item` — Línea de compra (fase 04)
+## `purchase_item` — Línea de compra (tabla en Fase 01; DAO y UI en Fase 04)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -116,7 +125,7 @@ Si `extra_cost_cents = 0`, que es el caso normal, el costo real es simplemente
 
 ---
 
-## `customer` — Cliente (fase 06)
+## `customer` — Cliente (tabla en Fase 01; DAO y UI en Fase 06)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -170,7 +179,7 @@ Los snapshots son obligatorios. El reporte de ganancia del mes pasado se calcula
 
 ---
 
-## `payment` — Abono (fase 06)
+## `payment` — Abono (tabla en Fase 01; DAO y UI en Fase 06)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -201,12 +210,17 @@ Claves iniciales:
 
 | Clave | Default | Significado |
 |---|---|---|
-| `default_markup_multiplier` | `2.0` | multiplicador para el precio sugerido |
+| `default_markup_percent` | `200` | recargo sobre costo para el precio sugerido, entero en porcentaje (200 = precio = costo × 2) |
 | `price_rounding_step_cents` | `500` | redondea el sugerido a múltiplos de Q5 |
 | `low_stock_threshold` | `2` | alerta de bajo inventario |
 | `stale_stock_days` | `90` | alerta de capital estancado |
 | `next_product_uid_seq` | `1` | contador del `uid` |
 | `owner_name` | `""` | para encabezar catálogos y estados de cuenta |
+
+**Los valores de `app_setting` se parsean siempre a `Long` o `Int`, nunca a
+`Double`** (ver D-010 en `DECISIONES.md`). `value` se persiste como `String`
+únicamente porque la tabla es genérica clave/valor; quien la lee siempre
+convierte al tipo entero que corresponda según la clave.
 
 ---
 

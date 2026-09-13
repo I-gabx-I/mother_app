@@ -182,6 +182,68 @@ CLAUDE.md §2.1.
 
 ---
 
+## D-010 — `default_markup_percent` (Int) en vez de `default_markup_multiplier` (decimal)
+
+**Contexto:** `ESQUEMA.md` tenía `default_markup_multiplier` = `2.0` como clave
+de `app_setting`, un valor decimal guardado como string. CLAUDE.md prohíbe
+`Float`/`Double` para dinero en cualquier capa; dejar un `"2.0"` en la
+configuración invita a parsearlo a `Double` en el momento de calcular el
+precio sugerido, aunque las tablas de transacciones ya estén correctas.
+
+**Decisión:** reemplazar `default_markup_multiplier` (`2.0`) por
+`default_markup_percent` (`200`, entero). El precio sugerido se calcula como
+`costo_cents * percent / 100` en `Long`. Todos los valores de `app_setting`
+se parsean siempre a `Long` o `Int`, nunca a `Double`.
+
+**Por qué:** mantiene la regla de "dinero siempre en enteros" también en la
+configuración, no solo en las tablas de ventas y compras. Un `"2.0"` parseado
+a `Double` para multiplicar centavos reintroduce exactamente el problema que
+`Money` (D-001) existe para evitar.
+
+**Descartado:** dejar el valor como string decimal (`"2.0"`) y parsearlo a
+`Double` o `BigDecimal` al calcular.
+
+**Consecuencia:** cuando se implemente `PricingCalculator.suggestedPrice`
+(Fase 02), su parámetro es un `percent: Int`, no un `multiplier: Double`, y
+calcula `cost * percent / 100`. El valor por defecto `200` es equivalente al
+`2.0` anterior: precio sugerido = costo × 2.
+
+---
+
+## D-011 — Todas las tablas del esquema se crean en la versión 1 (Fase 01)
+
+**Contexto:** el esquema original repartía la creación de tablas fase por
+fase (`price_history`/`purchase`/`purchase_item` en Fase 04,
+`customer`/`payment` en Fase 06), cada una con su propia migración Room y su
+`app/schemas/N.json`. No hay usuarios instalados hasta después de la Fase 05
+(fin del MVP), así que no existe ninguna instalación real que migrar todavía.
+
+**Decisión:** todas las tablas de `ESQUEMA.md` se declaran en la base de
+datos versión 1, en la Fase 01. Las fases posteriores (04, 05, 06...) siguen
+agregando DAOs, repositorios, casos de uso y pantallas fase por fase, contra
+tablas que ya existen desde la Fase 01. Se quitan los criterios de migración
+y la referencia a `app/schemas/2.json` de las fases que los tenían (solo la
+Fase 06 los tenía; las Fases 04 y 05 no hacían referencia a migraciones).
+
+**Por qué:** una migración intermedia sin ningún usuario instalado es
+ceremonia pura: no hay datos reales que preservar, y cada migración exige su
+propio test y su propio schema commiteado sin aportar nada hasta que exista
+una versión publicada. Cuando exista una instalación real, ahí sí las
+migraciones vuelven a ser necesarias y CLAUDE.md ya las exige aditivas,
+versionadas y testeadas.
+
+**Descartado:** mantener migraciones incrementales fase por fase desde el
+día 1.
+
+**Consecuencia:** la Fase 01 crece: ahora declara las diez tablas completas
+(`category`, `product`, `price_history`, `purchase`, `purchase_item`,
+`customer`, `sale`, `sale_item`, `payment`, `app_setting`), sus índices y su
+semilla, aunque varias no tengan DAO ni UI hasta fases posteriores.
+`app/schemas/1.json` es el único schema commiteado hasta que exista una
+necesidad real de migrar.
+
+---
+
 <!--
 ## D-00X — Título
 

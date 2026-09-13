@@ -44,12 +44,21 @@ MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
 
 ## Fase 01 — Capa de datos núcleo **[TESTS OBLIGATORIOS]**
 
-**Objetivo:** base de datos Room versión 1 con `category`, `product` y `app_setting`.
+**Objetivo:** base de datos Room versión 1 con **todas** las tablas de
+`ESQUEMA.md` (`category`, `product`, `price_history`, `purchase`,
+`purchase_item`, `customer`, `sale`, `sale_item`, `payment`, `app_setting`).
+Ver D-011 en `DECISIONES.md`: todas las tablas se crean acá aunque su DAO y su
+UI lleguen en fases posteriores; esto reemplaza el reparto original de tablas
+fase por fase.
 
-**Archivos permitidos:** `app/src/main/java/**/data/local/**`, `app/src/main/java/**/di/DatabaseModule.kt`, `app/src/test/java/**/data/**`, `app/schemas/**`
+**Archivos permitidos:** `app/src/main/java/**/data/local/**`, `app/src/main/java/**/di/DatabaseModule.kt`, `app/src/test/java/**/data/**`, `app/schemas/**`, `gradle/libs.versions.toml`, `app/build.gradle.kts`
 
 **Entregable:**
-- Entidades, DAOs y `AppDatabase` exactamente como los define `ESQUEMA.md`.
+- Entidades de **todas** las tablas de `ESQUEMA.md`, y `AppDatabase` con todas
+  ellas registradas, exactamente como los define `ESQUEMA.md`.
+- DAOs solo para `category`, `product` y `app_setting` (las que usa esta
+  fase). Las demás tablas quedan con su entidad declarada, sin DAO, hasta la
+  fase que las use.
 - `exportSchema = true`, JSON de esquema commiteado.
 - Semilla de las 5 categorías y de las claves de `app_setting` en la primera apertura.
 - Generador de `uid` basado en `next_product_uid_seq`, transaccional.
@@ -58,10 +67,13 @@ MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
 1. `./gradlew testDebugUnitTest` pasa.
 2. Existen tests de DAO con Room in-memory para insertar, actualizar, archivar y consultar producto.
 3. Existe test que verifica que dos productos creados en paralelo **nunca** reciben el mismo `uid`.
-4. Existe `app/schemas/1.json` commiteado.
+4. Existe `app/schemas/1.json` commiteado, con las diez tablas.
 5. `grep -r "fallbackToDestructiveMigration" app/src` no devuelve nada.
 
-**Prohibido:** cualquier Composable. Esta fase no tiene UI.
+**Prohibido:** cualquier Composable. Esta fase no tiene UI. Prohibido escribir
+DAO o lógica de negocio para las tablas que no usa esta fase (`price_history`,
+`purchase`, `purchase_item`, `customer`, `sale`, `sale_item`, `payment`) —
+solo se declara su entidad.
 
 **Commit:** `fase-01: room core schema` → tag `fase-01-ok`
 
@@ -120,6 +132,8 @@ MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
 ## Fase 04 — Inventario, edición y compras
 
 **Objetivo:** ver, buscar y editar el inventario. Registrar compras a mayorista local.
+Las tablas `price_history`, `purchase` y `purchase_item` ya existen desde la
+Fase 01 (D-011); esta fase agrega su DAO, repositorio y pantallas.
 
 **Archivos permitidos:** `app/src/main/java/**/ui/product/**`, `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/**`, `app/src/main/java/**/data/**`, `strings.xml`
 
@@ -167,8 +181,10 @@ MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
 ## Fase 06 — Clientes, crédito y abonos **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** el módulo que más valor da. Ella vende con "te pago después" y necesita saber quién le debe.
+Las tablas `customer` y `payment` ya existen desde la Fase 01 (D-011); esta
+fase agrega su DAO, repositorio y pantallas.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/customer/**`, `app/src/main/java/**/ui/credit/**`, `app/src/main/java/**/domain/usecase/*Payment*.kt`, `app/src/main/java/**/data/**`, `strings.xml`, migración Room nueva
+**Archivos permitidos:** `app/src/main/java/**/ui/customer/**`, `app/src/main/java/**/ui/credit/**`, `app/src/main/java/**/domain/usecase/*Payment*.kt`, `app/src/main/java/**/data/**`, `strings.xml`
 
 **Entregable:**
 - CRUD de clientes (archivar, no borrar).
@@ -183,7 +199,6 @@ MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
 2. Test: el saldo es siempre `total - descuento - Σ abonos`, y **no existe columna persistida de saldo** en el esquema.
 3. Test: un abono que excede el saldo es rechazado con error claro.
 4. Test: al cubrir el saldo exacto, el estado cambia a `PAID`; un centavo menos y sigue `PENDING`.
-5. Migración Room nueva con su test de migración, y `app/schemas/2.json` commiteado.
 
 **Commit:** `fase-06: customers, credit sales and installments` → tag `fase-06-ok`
 
