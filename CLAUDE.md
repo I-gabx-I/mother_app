@@ -210,6 +210,17 @@ se vuelve imposible y el proyecto se cae.
 - Toda función que toque dinero lleva test unitario con casos de borde:
   costo cero, precio menor al costo, cantidades grandes, redondeo justo en el límite.
 - Los DAOs se testean con Room in-memory.
+- **Robolectric es solo para tests de Room/DAO** (necesitan un `Context` de
+  Android que la JVM pura no tiene). Prohibido usarlo en `domain/` — los
+  tests de `Money`/`PricingCalculator` (Fase 02) y cualquier otro test de
+  lógica pura son aritmética sin Android y tienen que correr en milisegundos,
+  como JUnit4 normal. Si un test de `domain` necesita Robolectric o cualquier
+  runner que no sea `JUnit4` puro, el diseño está mal: `domain` no importa
+  Android (sección 5).
+- `app/build.gradle.kts` con Robolectric lleva
+  `testOptions { unitTests { isIncludeAndroidResources = true } }`. No es
+  opcional: sin eso Robolectric no resuelve el manifest ni los recursos y
+  falla con errores confusos en vez de un mensaje claro.
 - Comando de verificación: `./gradlew testDebugUnitTest`
 - Un test que no puede fallar no es un test. Prohibido `assertTrue(true)` y similares.
 

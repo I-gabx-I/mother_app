@@ -244,6 +244,45 @@ necesidad real de migrar.
 
 ---
 
+## D-012 — Robolectric para tests de DAO, nunca para tests de `domain`
+
+**Contexto:** los tests de DAO con Room in-memory necesitan un `Context` de
+Android, que no existe en un test JVM puro. La propuesta original (ver
+`ESTADO.md`, análisis previo a Fase 01) fue usar Robolectric para que esos
+tests sigan corriendo bajo `./gradlew testDebugUnitTest` sin emulador. El
+humano la aprobó con dos ajustes.
+
+**Decisión:**
+1. `org.robolectric:robolectric` `4.17` y `androidx.test:core` `1.7.0`
+   (`testImplementation`), verificados contra `maven-metadata.xml` real.
+2. `app/build.gradle.kts` lleva
+   `testOptions { unitTests { isIncludeAndroidResources = true } }`,
+   obligatorio, no opcional.
+3. Robolectric se usa **exclusivamente** para tests de Room/DAO
+   (`app/src/test/java/**/data/**`). Prohibido en `app/src/test/java/**/domain/**`:
+   los tests de `Money`/`PricingCalculator` (Fase 02) son aritmética pura y
+   corren con JUnit4 normal, en milisegundos. Regla anotada en `CLAUDE.md`
+   sección 8.
+
+**Por qué:** Robolectric simula un `Context` de Android completo (con su
+propio SQLite), que es exactamente lo que necesita Room y nada más liviano lo
+resuelve sin emulador. Pero es un runtime completo: cargarlo para tests que
+no lo necesitan (aritmética de `domain`) los volvería lentos sin ninguna
+razón, y además abriría la puerta a que código de `domain` dependa de Android
+sin que nadie lo note (viola la sección 5 de `CLAUDE.md`).
+
+**Descartado:** usar Robolectric en todos los tests unitarios por
+uniformidad; mover los tests de DAO a `androidTest` (rompe el criterio de un
+solo comando `testDebugUnitTest`).
+
+**Consecuencia:** dos perfiles de test conviven en `app/src/test`: los de
+`data/` (con Robolectric, más lentos, necesitan `Context`) y los de `domain/`
+(JUnit4 puro, rápidos). Si algún test de `domain` empieza a necesitar
+Robolectric, es una señal de que se filtró una dependencia de Android donde
+no debería haber ninguna.
+
+---
+
 <!--
 ## D-00X — Título
 

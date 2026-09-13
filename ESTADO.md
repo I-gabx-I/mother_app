@@ -358,3 +358,184 @@ recomienda la documentación de Robolectric, para evitar sorpresas.
 **Esto todavía no está aplicado** — es la propuesta pedida en el punto C,
 pendiente de aprobación. No toqué `libs.versions.toml` ni `app/build.gradle.kts`
 para esto.
+
+---
+
+## Corrección de proceso (2026-09-13, antes de escribir código de Fase 01)
+
+El humano aprobó C2 con dos ajustes (`isIncludeAndroidResources = true`
+obligatorio, y Robolectric restringido solo a tests de DAO — registrado como
+**D-012** en `DECISIONES.md`, regla anotada en `CLAUDE.md` §8) y movió el
+commit `94b4625` de `main` a una rama nueva, `docs/fix-fase-01-scope`, con la
+instrucción de que **los cambios de reglas también van en rama, nunca directo
+a `main`**. Lo aplico desde ahora: este mismo commit de documentación (regla
+de Robolectric + D-012 + esta entrada) va en `docs/fix-fase-01-scope`, no en
+`main`.
+
+Además, antes de esta entrada, empecé a buscar versiones de Room y de
+`kotlinx-coroutines` para implementar toda la Fase 01 de una sola vez. El
+humano me paró: eso viola CLAUDE.md §2.1 ("una dependencia a la vez,
+compilás y confirmás, y solo entonces la siguiente") y además ignoraba que
+en el mismo mensaje donde dio luz verde a la fase, pidió explícitamente que
+primero explicara la atomicidad del generador de `uid` acá, en `ESTADO.md`,
+antes de escribir nada. "Luz verde para la fase" no reemplaza una instrucción
+puntual dada en el mismo mensaje. No voy a repetir ese error: lo que sigue es
+**solo** la explicación pedida. No abrí la rama `fase/01-room-core`, no toqué
+`libs.versions.toml` ni ningún archivo de código, y no voy a hacerlo hasta
+que el humano confirme que esta explicación le sirve.
+
+---
+
+## Fase 01 — Diseño de la atomicidad del generador de `uid` (criterio 3)
+
+**Contexto:** `ESQUEMA.md` dice que el `uid` de `product` se genera con un
+contador persistido en `app_setting` (`next_product_uid_seq`), no con
+`MAX(id)+1`, justamente para que dos productos nunca puedan terminar con el
+mismo código. El criterio 3 de la Fase 01 exige un test que pruebe que dos
+productos creados **en paralelo** nunca reciben el mismo `uid`. La pregunta
+del humano es válida: leer el contador y escribirlo incrementado son, a
+simple vista, dos operaciones — si no están atadas entre sí, dos corrutinas
+pueden leer el mismo valor antes de que ninguna de las dos escriba, y las dos
+generan el mismo `uid` (una carrera clásica de "lost update").
+
+### Qué operación de Room garantiza la atomicidad
+
+La operación es **`RoomDatabase.withTransaction { ... }`** (extensión suspend
+de Kotlin sobre `RoomDatabase`), envolviendo la lectura y la escritura del
+contador en un solo bloque:
+
+```kotlin
+// data/local — no en domain, porque toca Room/Context.
+class ProductUidGenerator(
+    private val db: AppDatabase,
+    private val appSettingDao: AppSettingDao,
+) {
+    suspend fun next(): String = db.withTransaction {
+        val seq = appSettingDao.getLong(KEY_NEXT_PRODUCT_UID_SEQ)
+        appSettingDao.setLong(KEY_NEXT_PRODUCT_UID_SEQ, seq + 1)
+        "XP-%06d".format(seq)
+    }
+}
+```
+
+Lo que hace atómico esto **no es que esté "adentro de una función de
+Kotlin"** — una función normal no protege nada por sí sola. Lo que lo hace
+atómico es que `withTransaction` abre una única transacción de SQLite
+(`BEGIN` ... `COMMIT`) que envuelve el `SELECT` y el `UPDATE` juntos, y
+SQLite (y el framework de Android sobre el que corre Room) **solo permite una
+transacción de escritura activa a la vez sobre el mismo archivo de base de
+datos**. Cualquier transacción que va a escribir tiene que tomar esa
+exclusividad hasta que termina (`commit` o `rollback`); una segunda
+transacción que también quiere escribir queda **bloqueada** hasta que la
+primera libera.
+
+Compará con la versión rota (dos llamadas sueltas, sin transacción):
+
+```kotlin
+// ROTO — no usar. Cada línea es una llamada suspend separada a Room.
+suspend fun next(): String {
+    val seq = appSettingDao.getLong(KEY_NEXT_PRODUCT_UID_SEQ)   // (1) SELECT suelto
+    appSettingDao.setLong(KEY_NEXT_PRODUCT_UID_SEQ, seq + 1)    // (2) UPDATE suelto
+    return "XP-%06d".format(seq)
+}
+```
+
+Acá un `SELECT` no toma ningún bloqueo de escritura. Entre el paso (1) y el
+paso (2) de una corrutina A, SQLite no está protegiendo nada — es una ventana
+abierta. Si la corrutina B ejecuta su propio paso (1) justo en esa ventana,
+lee el mismo `seq` que A ya leyó, porque A todavía no escribió el valor
+incrementado. Las dos calculan el mismo `uid` y las dos terminan escribiendo
+`seq + 1` (una de las dos escrituras además se pierde, el contador solo
+avanza una vez en vez de dos).
+
+### Qué pasa con dos corrutinas llamando al generador "al mismo tiempo"
+
+Con la versión de `withTransaction`: sea cual sea la corrutina que logra
+arrancar su transacción primero, ejecuta **todo** su bloque (lectura +
+escritura + commit) de punta a punta antes de que la otra pueda siquiera
+empezar la suya — porque la otra transacción no puede tomar el lock de
+escritura hasta que la primera lo libera. No existe ningún punto en el que
+las dos puedan tener el contador "leído pero no escrito todavía" al mismo
+tiempo. El resultado: las dos llamadas quedan serializadas a nivel de base de
+datos aunque a nivel de Kotlin se hayan lanzado juntas, cada una ve un `seq`
+distinto y estrictamente creciente, y los dos `uid` son distintos siempre.
+
+### El test del criterio 3, y por qué uno "de mentira" no sirve
+
+Un test como este **no prueba nada**, y el humano tiene razón en desconfiar
+de él:
+
+```kotlin
+// NO ALCANZA — no hay concurrencia real acá.
+val uid1 = generator.next()
+val uid2 = generator.next()
+assertThat(uid1).isNotEqualTo(uid2)
+```
+
+Esto pasaría **incluso con la versión rota**: llamado dos veces en secuencia
+(sin overlap real), el contador avanza bien igual — la carrera solo aparece
+cuando dos llamadas están *en vuelo* al mismo tiempo, y acá nunca lo están.
+Un test que espera a que termine la primera llamada antes de lanzar la
+segunda no le da ninguna chance a la implementación rota de fallar.
+
+El test que sí tiene sentido:
+
+```kotlin
+@Test
+fun `concurrent uid generation never repeats`() = runTest {
+    val n = 100
+    val uids = (1..n)
+        .map { async(Dispatchers.IO) { generator.next() } }
+        .awaitAll()
+
+    assertThat(uids.toSet()).hasSize(n)
+}
+```
+
+Lo que hace que este test tenga dientes de verdad, no solo forma:
+
+- **`Dispatchers.IO`, no el dispatcher de test.** Si corrieran todas las
+  corrutinas en el dispatcher cooperativo de `runTest` (un solo hilo lógico),
+  nunca habría dos hilos de verdad tocando Room al mismo tiempo y el test
+  volvería a no probar nada, aunque "parezca" concurrente por tener `async`.
+  `Dispatchers.IO` reparte las 100 llamadas en un pool de hilos reales del
+  sistema operativo.
+- **`async` + `awaitAll`, no un loop secuencial con `await()` uno por uno.**
+  Lanzar las 100 antes de esperar ninguna maximiza cuántas están realmente
+  en vuelo al mismo tiempo.
+- **Se compara el `Set` completo (`hasSize(n)`), no pares sueltos.** El
+  criterio real es que **ninguno** de los 100 se repita con **ningún** otro,
+  no que dos elegidos al azar sean distintos.
+- **La implementación rota tiene una ventana real de suspensión entre el
+  `SELECT` y el `UPDATE`** — no es solo una entrelínea de código, es una
+  llamada `suspend` separada que pasa por el executor de Room cada vez. Con
+  100 llamadas en paralelo sobre un pool de hilos reales, esa ventana se
+  atraviesa muchísimas veces por corrida; en la práctica, la probabilidad de
+  que la versión rota **no** choque ninguna de las 100 veces es
+  despreciable.
+
+**La parte honesta que quiero dejar clara:** esto es "prácticamente
+determinístico bajo carga real" (con 100 llamadas concurrentes de verdad, una
+implementación rota va a fallar en la enorme mayoría de las corridas), pero
+no es una prueba matemática de que fallaría el 100% de las veces en
+cualquier hardware — un test 100% determinístico requeriría instrumentar la
+implementación rota con un punto de sincronización artificial (un
+`Mutex`/`CountDownLatch` que fuerce a la corrutina B a leer exactamente
+mientras A está entre su lectura y su escritura), lo cual complica el código
+de producción solo para el test y no lo voy a hacer sin que se apruebe
+explícitamente.
+
+En cambio, lo que sí voy a hacer cuando implemente la Fase 01, y voy a dejar
+documentado acá con el resultado real (no solo la promesa): **voy a
+implementar primero a propósito la versión rota** (dos llamadas sueltas, sin
+`withTransaction`), correr este mismo test de concurrencia, y confirmar que
+**falla** (que aparecen `uid` repetidos, o que `uids.toSet()` tiene menos de
+`n` elementos). Recién después cambio a la versión con `withTransaction` y
+confirmo que el mismo test **pasa**, corriéndolo varias veces para
+descartar que haya pasado por suerte. Esa es la prueba de que el test tiene
+dientes: no que "debería" fallar con la versión rota, sino que **de hecho
+falló** cuando la corrí.
+
+**No implementé nada de esto todavía.** Esta sección es la explicación
+pedida; sigo esperando confirmación antes de abrir `fase/01-room-core` o
+tocar cualquier archivo de código.
