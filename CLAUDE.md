@@ -58,6 +58,19 @@ Los errores de versiones son la causa número uno de fases fallidas en Android.
   alguna, parás y lo anotás en ESTADO.md.
 - **Nunca inventes un número de versión.** Si no estás seguro de que existe, no
   la escribas. Usá la que el proyecto ya tiene, o un BOM.
+- **Que una versión exista no significa que sea compatible.** Antes de fijar
+  la última versión de una librería, verificá que no exija un Kotlin, AGP o
+  `compileSdk` más nuevos que los de la línea base (`gradle/libs.versions.toml`
+  ya generado). Si los exige, bajá a la última versión de esa librería que sí
+  sea compatible, y registralo como decisión en `DECISIONES.md`. Cumplir la
+  regla anterior (versión verificada contra `maven-metadata.xml`) no alcanza
+  por sí solo: Coil `3.6.2` estaba verificada así y aun así rompió la
+  compilación de todo el proyecto porque exigía `kotlin-stdlib` más nuevo que
+  el Kotlin pineado (D-018 en `DECISIONES.md`, Fase 03).
+- **Prohibido subir Kotlin, AGP o Gradle para satisfacer a una librería.** Si
+  una dependencia solo funciona con una línea base más nueva que la del
+  proyecto, parás y preguntás — no se sube la versión de Kotlin/AGP/Gradle
+  por tu cuenta para acomodarla. La línea base no se mueve por una librería.
 - Usá BOM siempre que exista (`androidx.compose:compose-bom`). Las librerías
   cubiertas por el BOM se declaran **sin versión**. Esto elimina de raíz una
   familia entera de incompatibilidades.
