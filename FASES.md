@@ -135,7 +135,7 @@ solo se declara su entidad.
 
 **Objetivo:** la pantalla que decide si la app se usa o no. Registrar una pieza en 3 taps.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/product/add/**`, `app/src/main/java/**/ui/format/MoneyFormat.kt`, `app/src/main/java/**/domain/usecase/AddProduct*.kt`, `app/src/main/java/**/data/repository/ProductRepository*.kt`, `app/src/main/java/**/util/ImageStorage.kt`, `app/src/main/res/values/strings.xml`, `AndroidManifest.xml` (solo permiso de cámara)
+**Archivos permitidos:** `app/src/main/java/**/ui/product/add/**`, `app/src/main/java/**/ui/format/MoneyFormat.kt`, `app/src/main/java/**/domain/usecase/AddProduct*.kt`, `app/src/main/java/**/data/repository/ProductRepository*.kt`, `app/src/main/java/**/data/repository/AppSettingRepository.kt`, `app/src/main/java/**/util/ImageStorage.kt`, `app/src/main/java/**/MainActivity.kt` (solo para conectar esta pantalla: anotarla `@AndroidEntryPoint`, obtener el ViewModel con `by viewModels()`, y mostrar la pantalla de esta fase en vez de `HomePlaceholder` — nada más, ninguna otra lógica), `app/src/test/java/**/ui/product/add/MoneyDigitsInputTest.kt`, `app/src/test/java/**/util/ImageStorageScalingTest.kt` (las dos únicas excepciones a que esta fase no lleva tests: son funciones puras, sin Robolectric — ver más abajo), `app/src/main/res/values/strings.xml`, `AndroidManifest.xml` (solo permiso de cámara)
 
 **Entregable:**
 - `Money.format()` (única función de formateo de moneda, en `ui/format/MoneyFormat.kt`, per CLAUDE.md 3.3).
@@ -144,13 +144,31 @@ solo se declara su entidad.
 - Formulario con **solo 3 campos obligatorios**: foto, costo, precio de venta. Nombre, categoría, cantidad y notas son opcionales con valores por defecto sensatos.
 - Mientras escribe el costo, la app muestra en vivo el precio sugerido y la ganancia.
 - El `uid` se genera y se muestra al guardar.
+- El campo de costo/precio interpreta lo que ella escribe como centavos
+  (dígito a dígito, sin punto decimal que tipear ni ambigüedad de locale)
+  y la lógica de esa interpretación vive en una función pura, separada del
+  Composable, testeable sin Robolectric.
+- La rotación de la foto (`imageInfo.rotationDegrees` de CameraX) se aplica
+  antes de comprimir. Se confirma **visualmente** con una captura real
+  (no alcanza con el tamaño del archivo): una foto tomada en vertical se
+  guarda en vertical.
 
 **Criterios de aceptación:**
 1. `./gradlew assembleDebug` y `testDebugUnitTest` pasan.
 2. Contar los campos `required` del formulario: exactamente 3.
 3. Ningún string literal en los Composables (`grep` de comillas dobles en `ui/product/add` solo debe dar recursos, logs o claves técnicas).
-4. Prueba manual documentada en `ESTADO.md`: tiempo real de registro de una pieza, medido con cronómetro. Si pasa de 20s, la fase no se cierra.
-5. La foto guardada pesa menos de 1MB (verificado y anotado).
+4. Prueba manual documentada en `ESTADO.md`, hecha por **la usuaria final**
+   (no el equipo de desarrollo — quien construyó la pantalla no puede medir
+   su propia curva de aprendizaje) en un teléfono real, con cronómetro.
+   Dos mediciones, las dos documentadas: la primera vez que ve la pantalla,
+   y una segunda después de registrar 2-3 piezas más. **El criterio se
+   evalúa sobre la segunda medición** (el uso real es repetido, no una vez);
+   si esa segunda medición pasa de 20s, la fase no se cierra. Si la primera
+   medición es mucho peor que la segunda, se anota igual — es una señal de
+   que la pantalla no se explica sola, aunque no bloquee el cierre.
+5. La foto guardada pesa menos de 1MB (verificado y anotado). Test de la
+   función pura de redimensión: un lado mayor de 4000px con aspecto 4:3 da
+   exactamente 1600 y su proporción correcta.
 
 **Prohibido:** listados, edición, ventas.
 
