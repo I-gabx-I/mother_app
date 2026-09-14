@@ -164,13 +164,20 @@ solo se declara su entidad.
 Las tablas `price_history`, `purchase` y `purchase_item` ya existen desde la
 Fase 01 (D-011); esta fase agrega su DAO, repositorio y pantallas.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/product/**`, `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/**`, `app/src/main/java/**/data/**`, `strings.xml`
+**Archivos permitidos:** `app/src/main/java/**/ui/product/**`, `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/**`, `app/src/main/java/**/data/**`, `app/src/main/java/**/data/repository/CategoryRepository.kt`, `strings.xml`
 
 **Entregable:**
 - Listado con foto, nombre, `uid`, stock, precio y ganancia; búsqueda por nombre o `uid`; filtro por categoría.
 - Pantalla de detalle/edición. Al cambiar costo o precio se inserta fila en `price_history`.
 - Archivar pieza (no borrar).
 - Registro de compra con líneas, y prorrateo opcional de transporte local según `ESQUEMA.md`.
+- **Selector de categoría también en la pantalla de alta rápida** (Fase 03,
+  `ui/product/add/**`), no solo en la de edición — Fase 03 lo dejó afuera a
+  propósito (D-021 en `DECISIONES.md`) porque necesitaba `CategoryRepository`,
+  que no estaba en sus archivos permitidos. Se puede diferir sin costo: la
+  usuaria no empieza a usar la app hasta después de la Fase 05 (fin del MVP),
+  y esta fase (04) llega antes, así que nunca va a existir un inventario
+  cargado sin categorías por esta demora.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
