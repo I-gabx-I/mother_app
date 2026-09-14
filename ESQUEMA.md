@@ -21,8 +21,9 @@ Convenciones:
 
 **Todas las tablas de este documento se crean en esta versión 1, en la Fase 01**
 (ver D-011 en `DECISIONES.md`). No hay usuarios instalados hasta después de la
-Fase 05, así que repartir la creación de tablas en migraciones intermedias es
-ceremonia sin beneficio. Las fases posteriores agregan DAOs, repositorios y
+Fase 06 (Venta de contado, fin del MVP — ver D-022 sobre por qué el número
+cambió de la Fase 05 original), así que repartir la creación de tablas en
+migraciones intermedias es ceremonia sin beneficio. Las fases posteriores agregan DAOs, repositorios y
 pantallas contra tablas que ya existen; no agregan columnas ni tablas nuevas
 salvo que este documento se actualice explícitamente. A partir de que exista
 una instalación real, un cambio de esquema sí incrementa la versión y agrega
@@ -88,7 +89,7 @@ Se inserta una fila cada vez que cambia costo o precio. Sirve para responder
 
 ---
 
-## `purchase` — Compra a un mayorista local (tabla en Fase 01; DAO y UI en Fase 04)
+## `purchase` — Compra a un mayorista local (tabla en Fase 01; DAO y UI en Fase 05)
 
 Ella compra lotes en tiendas del país. **No hay importación, ni aduana, ni flete internacional.**
 El único gasto extra posible es transporte local (pasaje, parqueo), y es opcional.
@@ -103,7 +104,7 @@ El único gasto extra posible es transporte local (pasaje, parqueo), y es opcion
 
 ---
 
-## `purchase_item` — Línea de compra (tabla en Fase 01; DAO y UI en Fase 04)
+## `purchase_item` — Línea de compra (tabla en Fase 01; DAO y UI en Fase 05)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -125,7 +126,7 @@ Si `extra_cost_cents = 0`, que es el caso normal, el costo real es simplemente
 
 ---
 
-## `customer` — Cliente (tabla en Fase 01; DAO y UI en Fase 06)
+## `customer` — Cliente (tabla en Fase 01; DAO y UI en Fase 07)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -179,7 +180,7 @@ Los snapshots son obligatorios. El reporte de ganancia del mes pasado se calcula
 
 ---
 
-## `payment` — Abono (tabla en Fase 01; DAO y UI en Fase 06)
+## `payment` — Abono (tabla en Fase 01; DAO y UI en Fase 07)
 
 | Columna | Tipo | Notas |
 |---|---|---|
