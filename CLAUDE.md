@@ -80,6 +80,34 @@ Los errores de versiones son la causa número uno de fases fallidas en Android.
   verificada en `github.com/google/ksp/releases` o en el `maven-metadata.xml`
   de `com.google.devtools.ksp`. No apliques la regla vieja de "debe coincidir
   con Kotlin" a versiones de KSP ≥ 2.3.0.
+- **Un mensaje de KSP/Hilt de "tipo no se pudo resolver" no implica que la
+  causa sea una versión.** Antes de tocar KSP/Hilt/Kotlin, descartá primero
+  un comentario roto: ver la regla nueva de la sección 5 sobre `/*` dentro
+  de un comentario KDoc. Ver D-025 en `DECISIONES.md` (Fase 04): dos
+  versiones distintas de KSP, elegidas por fecha de publicación y hasta por
+  coincidencia exacta con la dependencia declarada en el POM de Dagger,
+  reprodujeron el error idéntico — la causa real no tenía nada que ver con
+  versiones.
+- **Si de verdad hay sospecha de incompatibilidad entre un procesador de
+  anotaciones y su motor (Hilt/Dagger sobre KSP, Room sobre KSP), el
+  método es leer el POM real de esa versión exacta del procesador, no
+  comparar fechas de publicación.** Comparar fechas de publicación es una
+  aproximación débil: dice qué versión del motor *existía* cuando se
+  publicó el procesador, no cuál declaró usar. El POM sí lo dice de forma
+  explícita — buscá la dependencia declarada en
+  `repo1.maven.org/maven2/<grupo>/<artefacto>/<versión>/<artefacto>-<versión>.pom`
+  (o el `dependencyInsight`/`dependencies --configuration
+  kspDebugKotlinProcessorClasspath` de Gradle, que resuelve el árbol real)
+  y fijá el motor exactamente en esa versión, no en la más nueva que exista
+  para esa fecha. D-025 en `DECISIONES.md` (Fase 04) usó este método para
+  encontrar que `dagger-compiler:2.60.1` declara
+  `com.google.devtools.ksp:symbol-processing-api:2.3.7` — un dato que la
+  fecha de publicación de Hilt no permitía deducir por sí sola. (En este
+  caso puntual la causa real terminó siendo otra cosa completamente
+  distinta, pero el método de leer el POM sigue siendo el correcto para
+  esta clase de sospecha, y es más preciso que D-018, que solo comparaba
+  la versión de `kotlin-stdlib` que cada candidata declaraba sin ir a
+  buscar la versión exacta que el proyecto necesitaba igualar.)
 - Con Kotlin 2.0+, Compose se configura con el plugin
   `org.jetbrains.kotlin.plugin.compose`, **no** con
   `composeOptions { kotlinCompilerExtensionVersion }`. Si escribís lo segundo,
@@ -192,6 +220,23 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
   string es una clave única que además se imprime en un código de barras. El
   formateo pensado para que la usuaria lo lea (fechas, montos en pantalla) sí
   usa su locale — la distinción es persistido/impreso vs. mostrado en UI.
+- **Prohibido escribir la secuencia literal `/*` dentro del texto de un
+  comentario de bloque (`/** ... */` o `/* ... */`).** Kotlin permite
+  comentarios de bloque **anidados** — a diferencia de Java/C. Un `/*`
+  suelto dentro del texto de un KDoc (por ejemplo, mencionando un glob de
+  archivos como `usecase/*.kt`) abre un segundo nivel de anidamiento que el
+  `*/` de cierre normal del comentario no cierra del todo, así que el
+  comentario sigue "abierto" y se traga código real después de él sin que
+  el compilador lo señale con un error de sintaxis obvio. Visto en Fase 04
+  (D-025 en `DECISIONES.md`): un `/*` así en el KDoc de `ProductRepository`
+  hizo que esa clase, desde la perspectiva del frontend, dejara de existir
+  como declaración real, y KSP/Hilt reportaba `'ProductRepository' could
+  not be resolved` como si fuera un problema de dependencias o de versión
+  de KSP — dos rondas de cambiar la versión de KSP no arreglaron nada,
+  porque el código nunca fue el problema de versiones que parecía ser. Si
+  necesitás mencionar un patrón de archivos en un comentario, escribilo sin
+  que quede un `/` seguido de `*` (ejemplo: "los archivos de
+  `domain/usecase`" en vez de "`domain/usecase/*.kt`").
 - Nada de `!!`. Nada de `runBlocking` fuera de tests. Nada de `GlobalScope`.
 - Nada de `TODO()` ni stubs vacíos que compilen y mientan. Si algo no se implementó
   en esta fase, no existe en el código todavía.
@@ -229,6 +274,13 @@ Estas son requisitos, no sugerencias estéticas.
 7. Commit con el mensaje exacto de la fase y tag.
 8. **Parás. No empezás la siguiente fase sin autorización del humano.**
 9. **Todo análisis, resumen o hallazgo que me pidas lo escribís en un `.md` del repo antes de imprimirlo en consola. La consola se pierde, el archivo se audita.**
+10. **Logs y capturas de una verificación manual (emulador, dispositivo)
+    se guardan dentro del proyecto, en `app/build/logs/` y
+    `app/build/screenshots/` — nunca en `%TEMP%` ni en un directorio fuera
+    del repo.** Quedan ignorados por git al estar bajo `build/` (no hay que
+    tocar `.gitignore`, ya lo cubre) y no chocan con el bloqueo de lecturas
+    fuera del árbol de trabajo. `ESTADO.md` referencia la ruta relativa de
+    cada archivo, no la pega entera ni la deja solo en la consola.
 
 ### Git
 

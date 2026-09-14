@@ -1,25 +1,8 @@
 package gt.marcos.joyeria.domain.usecase
 
+import gt.marcos.joyeria.data.repository.AddProductInput
 import gt.marcos.joyeria.data.repository.ProductRepository
-import gt.marcos.joyeria.domain.model.Money
 import javax.inject.Inject
-
-/**
- * Datos ya resueltos para dar de alta una pieza: el nombre y la cantidad
- * llegan con su valor por defecto ya aplicado (lo resuelve `ui`, porque
- * necesita `stringResource` para el nombre por defecto, y `domain` no
- * puede tocar recursos de Android — CLAUDE.md sección 5). `photoPath` es
- * obligatorio: sin foto no hay alta rápida posible (FASES.md Fase 03).
- */
-data class AddProductInput(
-    val name: String,
-    val categoryId: Long?,
-    val cost: Money,
-    val salePrice: Money,
-    val stockQty: Int,
-    val photoPath: String,
-    val notes: String?,
-)
 
 /**
  * Orquesta el alta de una pieza nueva. Hoy es un paso directo a

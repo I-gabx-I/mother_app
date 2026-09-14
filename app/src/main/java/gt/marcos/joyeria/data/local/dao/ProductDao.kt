@@ -26,4 +26,18 @@ interface ProductDao {
 
     @Query("SELECT * FROM product WHERE archived = 0 ORDER BY name")
     fun observeActive(): Flow<List<ProductEntity>>
+
+    // Búsqueda por nombre o uid, y filtro opcional por categoría (FASES.md
+    // Fase 04). `:query` vacío o `:categoryId` null desactivan ese filtro
+    // en particular -- no hace falta una consulta separada para "sin filtro".
+    @Query(
+        """
+        SELECT * FROM product
+        WHERE archived = 0
+        AND (:categoryId IS NULL OR category_id = :categoryId)
+        AND (:query = '' OR name LIKE '%' || :query || '%' OR uid LIKE '%' || :query || '%')
+        ORDER BY name
+        """,
+    )
+    fun observeFiltered(query: String, categoryId: Long?): Flow<List<ProductEntity>>
 }

@@ -4,14 +4,16 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import gt.marcos.joyeria.data.repository.AddProductInput
 import gt.marcos.joyeria.data.repository.AppSettingRepository
-import gt.marcos.joyeria.domain.usecase.AddProductInput
+import gt.marcos.joyeria.data.repository.CategoryRepository
 import gt.marcos.joyeria.domain.usecase.AddProductUseCase
 import gt.marcos.joyeria.util.ImageStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +27,7 @@ import javax.inject.Inject
 class AddProductViewModel @Inject constructor(
     private val addProductUseCase: AddProductUseCase,
     private val appSettingRepository: AppSettingRepository,
+    private val categoryRepository: CategoryRepository,
     private val imageStorage: ImageStorage,
 ) : ViewModel() {
 
@@ -36,6 +39,11 @@ class AddProductViewModel @Inject constructor(
             val bp = appSettingRepository.getDefaultMarkupBp()
             val step = appSettingRepository.getPriceRoundingStep()
             _uiState.update { it.copy(defaultMarkupBp = bp, roundingStep = step) }
+        }
+        viewModelScope.launch {
+            categoryRepository.observeActive().collectLatest { categories ->
+                _uiState.update { it.copy(categories = categories) }
+            }
         }
     }
 
@@ -121,6 +129,7 @@ class AddProductViewModel @Inject constructor(
                 _uiState.value = AddProductUiState(
                     defaultMarkupBp = state.defaultMarkupBp,
                     roundingStep = state.roundingStep,
+                    categories = state.categories,
                     savedUid = uid,
                 )
             } catch (e: Exception) {

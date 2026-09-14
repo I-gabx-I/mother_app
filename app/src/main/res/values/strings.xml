@@ -20,4 +20,35 @@
     <string name="add_product_camera_permission_rationale">Necesitamos usar tu cámara para tomar la foto de la pieza.</string>
     <string name="add_product_camera_permission_denied">No se puede tomar la foto sin permiso de cámara. Tocá de nuevo para intentarlo.</string>
     <string name="add_product_camera_cancel">Cancelar</string>
+    <string name="add_product_category_label">Categoría (opcional)</string>
+    <string name="add_product_category_none">Sin categoría</string>
+
+    <!-- Fase 04: inicio provisorio (D-024) -->
+    <string name="home_add_product">Agregar pieza</string>
+    <string name="home_inventory">Inventario</string>
+
+    <!-- Fase 04: listado de inventario -->
+    <string name="product_list_title">Inventario</string>
+    <string name="product_list_search_placeholder">Buscar por nombre o código</string>
+    <string name="product_list_category_filter_all">Todas las categorías</string>
+    <string name="product_list_empty">Todavía no agregaste ninguna pieza.</string>
+    <string name="product_list_profit">Ganancia: %1$s</string>
+    <string name="product_list_stock">Stock: %1$d</string>
+    <string name="nav_back">Volver</string>
+
+    <!-- Fase 04: detalle/edición -->
+    <string name="product_edit_title">Editar pieza</string>
+    <string name="product_edit_name_label">Nombre</string>
+    <string name="product_edit_category_label">Categoría</string>
+    <string name="product_edit_quantity_label">Cantidad</string>
+    <string name="product_edit_notes_label">Notas</string>
+    <string name="product_edit_supplier_label">Proveedor</string>
+    <string name="product_edit_save_button">Guardar cambios</string>
+    <string name="product_edit_saved_confirmation">Cambios guardados</string>
+    <string name="product_edit_archive_button">Archivar pieza</string>
+    <string name="product_edit_archive_confirm_title">¿Archivar esta pieza?</string>
+    <string name="product_edit_archive_confirm_message">Ya no va a aparecer en el inventario ni se va a poder vender. No se borra: el historial de esta pieza queda guardado.</string>
+    <string name="product_edit_archive_confirm_confirm">Sí, archivar</string>
+    <string name="product_edit_archive_confirm_cancel">Cancelar</string>
+    <string name="product_edit_archived_confirmation">Pieza archivada</string>
 </resources>

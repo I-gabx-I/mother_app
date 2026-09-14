@@ -44,7 +44,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.data.repository.Category
 import gt.marcos.joyeria.ui.format.format
+import gt.marcos.joyeria.ui.product.CategoryDropdown
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 
 /**
@@ -60,6 +62,7 @@ fun AddProductScreen(
     onCostDigitsChange: (String) -> Unit,
     onSalePriceDigitsChange: (String) -> Unit,
     onNameChange: (String) -> Unit,
+    onCategorySelected: (Long?) -> Unit,
     onQuantityChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
     onSaveClick: () -> Unit,
@@ -112,6 +115,9 @@ fun AddProductScreen(
                     onExpandedChange = { detailsExpanded = it },
                     name = state.name,
                     onNameChange = onNameChange,
+                    categories = state.categories,
+                    selectedCategoryId = state.categoryId,
+                    onCategorySelected = onCategorySelected,
                     quantityText = state.quantityText,
                     onQuantityChange = onQuantityChange,
                     notes = state.notes,
@@ -197,6 +203,9 @@ private fun MoreDetailsSection(
     onExpandedChange: (Boolean) -> Unit,
     name: String,
     onNameChange: (String) -> Unit,
+    categories: List<Category>,
+    selectedCategoryId: Long?,
+    onCategorySelected: (Long?) -> Unit,
     quantityText: String,
     onQuantityChange: (String) -> Unit,
     notes: String,
@@ -226,6 +235,12 @@ private fun MoreDetailsSection(
                     onValueChange = onNameChange,
                     label = { Text(stringResource(R.string.add_product_name_label)) },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                CategoryDropdown(
+                    categories = categories,
+                    selectedCategoryId = selectedCategoryId,
+                    onCategorySelected = onCategorySelected,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -265,6 +280,7 @@ private fun AddProductScreenPreview() {
             onCostDigitsChange = {},
             onSalePriceDigitsChange = {},
             onNameChange = {},
+            onCategorySelected = {},
             onQuantityChange = {},
             onNotesChange = {},
             onSaveClick = {},

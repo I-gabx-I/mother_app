@@ -8,18 +8,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import gt.marcos.joyeria.R
 
 /**
  * Único punto donde esta fase "conoce" el ViewModel (CLAUDE.md sección 5:
  * los Composables reciben estado y lambdas, no ViewModels -- este es el
- * borde delgado entre la Activity/Hilt y `AddProductScreen`, que sí es
- * puro estado+lambdas). Instanciado desde `MainActivity` con
- * `by viewModels()`.
+ * borde delgado entre la navegación/Hilt y `AddProductScreen`, que sí es
+ * puro estado+lambdas). `hiltViewModel()` lo acota a esta entrada del
+ * `NavHost` (Fase 04, D-023): al navegar afuera y volver, es una
+ * instancia nueva, con el formulario en blanco, no la de la visita
+ * anterior.
  */
 @Composable
-fun AddProductRoute(viewModel: AddProductViewModel, modifier: Modifier = Modifier) {
+fun AddProductRoute(viewModel: AddProductViewModel = hiltViewModel(), modifier: Modifier = Modifier) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var isCameraOpen by remember { mutableStateOf(false) }
     val defaultName = stringResource(R.string.add_product_default_name)
@@ -30,6 +33,7 @@ fun AddProductRoute(viewModel: AddProductViewModel, modifier: Modifier = Modifie
         onCostDigitsChange = viewModel::onCostDigitsChanged,
         onSalePriceDigitsChange = viewModel::onSalePriceDigitsChanged,
         onNameChange = viewModel::onNameChanged,
+        onCategorySelected = viewModel::onCategorySelected,
         onQuantityChange = viewModel::onQuantityChanged,
         onNotesChange = viewModel::onNotesChanged,
         onSaveClick = { viewModel.onSaveClick(defaultName) },

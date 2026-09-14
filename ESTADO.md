@@ -17,12 +17,15 @@ Reglas:
 
 ## Estado actual
 
-- **Fase en curso:** Fase 03 — Alta rápida de pieza (rama `fase/03-quick-add`).
-  Implementada y verificada (build, tests, y flujo funcional real en
-  emulador con `uid` generado, foto guardada <1MB y bien orientada).
-  **No cerrada:** falta el criterio 4 (cronómetro real, tiene que
-  medirlo la usuaria final) y confirmar D-021 (sin selector de
-  categoría, decisión tomada durante la implementación).
+- **Fases en curso (excepción autorizada, dos a la vez — ver sección
+  "Excepción al flujo de FASES.md" más abajo):**
+  - Fase 03 — Alta rápida de pieza (rama `fase/03-quick-add`). Implementada
+    y verificada. **No cerrada:** falta el criterio 4 (cronómetro real con
+    la usuaria final, medición mañana 2026-09-15). D-021 ya aprobada.
+  - Fase 04 — Inventario y edición (rama a abrir: `fase/04-inventory`,
+    desde `fase/03-quick-add`). Plan escrito, esperando OK del humano —
+    en particular, si se separa en Fase 04 (Inventario) + Fase 05
+    (Compras), con la renumeración que eso implica para las fases 05-12.
 - **Última fase cerrada:** `fix/seed-markup-bp` (tag `fix-seed-markup-bp`, mergeada a `main`); antes, Fase 02 — Motor de dinero y precios (tag `fase-02-ok`).
 - **Versión de base de datos:** 1
 - **Bloqueos abiertos:** ver "Fase 03 — Plan", sección "Bloqueos / preguntas para el humano" (6 preguntas)
@@ -2378,6 +2381,797 @@ plan. Queda pendiente de tu confirmación.
 ### Bloqueos / preguntas para el humano
 
 1. **Criterio 4** — pendiente de que tu mamá haga las dos mediciones
-   reales (sección de arriba).
-2. **D-021** — confirmar que está bien no tener selector de categoría
-   en esta fase, o pedir que lo agregue de otra forma.
+   reales (sección de arriba). La medición es mañana.
+2. ~~**D-021**~~ **Aprobada.** El humano confirmó que la decisión y el
+   razonamiento son correctos, y pidió dejar anotado en `FASES.md`
+   Fase 04 que el selector de categoría se suma también a la pantalla de
+   alta rápida — ya aplicado en el commit `docs: version compatibility
+   rule and fase-04 category selector` (rama `docs/version-compat-and-fase04-scope`,
+   mergeada a `main`).
+
+---
+
+## Excepción al flujo de `FASES.md`: dos fases abiertas a la vez (Fase 03 y Fase 04)
+
+**Fecha:** 2026-09-14. `FASES.md` dice "una fase a la vez... no se empieza
+la siguiente sin autorización humana explícita" y da a entender que una
+fase se cierra (tag) antes de que arranque la próxima. El humano autorizó
+explícitamente una excepción puntual a esto:
+
+- **Fase 03 sigue abierta**, sin tag `fase-03-ok`: todo lo demás está
+  hecho y verificado (ver la entrada de cierre de Fase 03 más arriba),
+  pero falta el criterio 4 — la medición real con cronómetro, que tiene
+  que hacer la usuaria final (su mamá) en un teléfono real. Esa medición
+  es mañana (2026-09-15).
+- **Fase 04 arranca igual**, sin esperar esa medición, porque el humano
+  lo autorizó explícitamente ("Podés arrancar la Fase 04 aunque la Fase
+  03 siga abierta").
+- **`fase/04-inventory` sale de `fase/03-quick-add`, no de `main`** —
+  instrucción explícita, con la razón escrita: Fase 04 necesita el
+  código de Fase 03 (la pantalla de alta rápida, que Fase 04 además va a
+  modificar para sumarle el selector de categoría). Si la medición de
+  mañana sale mal y hay que ajustar la pantalla de alta rápida, esos
+  cambios van en `fase/03-quick-add` (o una rama de corrección que salga
+  de ahí) y **después se propagan** a `fase/04-inventory` (merge o
+  rebase, a decidir en el momento según qué tan grande sea el ajuste) —
+  no se duplica el arreglo a mano en las dos ramas.
+- Cuando la medición salga bien y se taguee `fase-03-ok`, `fase/03-quick-add`
+  se mergea a `main` como siempre. `fase/04-inventory` en ese momento ya
+  tiene ese código (porque salió de ahí), así que no hace falta ningún
+  paso extra por ese lado — sigue su curso normal hasta su propio cierre.
+
+Esto es una excepción puntual autorizada, no un cambio a la regla general
+de `FASES.md` ("una fase a la vez"): la próxima fase después de la 04
+vuelve a esperar el cierre formal de la anterior, salvo que se autorice
+otra excepción explícita como esta.
+
+---
+
+## Fase 04 — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-14. Releí completos `CLAUDE.md`, `FASES.md` (Fase 04,
+ya con el selector de categoría sumado), `ESQUEMA.md` (`product`,
+`price_history`, `purchase`, `purchase_item`, `category`) y
+`DECISIONES.md`. No abrí `fase/04-inventory` todavía, no toqué código —
+sigo en `fase/03-quick-add`, esperando OK antes de crear la rama nueva
+(la instrucción de abrirla y la de "plan y parás" apuntan en direcciones
+distintas; elegí no crear nada hasta tener el OK, es lo más conservador
+y reversible).
+
+### La pregunta que pediste que conteste primero: ¿una fase o dos?
+
+**Honestamente, dos.** No es una preferencia estética — hay tres razones
+concretas:
+
+1. **Tocan tablas y flujos distintos, sin superposición real.**
+   Inventario opera sobre `product` (y ahora también `category` para el
+   selector) y escribe en `price_history` como efecto secundario de
+   editar un campo que ya existe. Compras crea filas nuevas en `purchase`
+   y `purchase_item` — una entidad de negocio completamente distinta
+   (una transacción con líneas), no una edición de algo que ya existe.
+   Que las dos toquen la tabla `product` de refilón (compras También
+   debería actualizar `stock_qty`, y probablemente `cost_cents` — ver
+   pregunta abajo) no las vuelve la misma pantalla ni el mismo trabajo.
+2. **"Compras" es estructuralmente una vista previa de "Venta" (Fase 05
+   actual), no un anexo de "Inventario".** Una compra es "elegís
+   productos existentes, les ponés cantidad y costo por línea, aplicás
+   un prorrateo opcional, confirmás una transacción con varias líneas".
+   Eso es el mismo patrón de UI y de dominio que va a tener el registro
+   de venta (Fase 05/06), no el patrón de "lista + formulario de edición
+   de un solo registro" que es Inventario. Meterlas juntas mezcla dos
+   arquitecturas de pantalla distintas bajo un solo nombre de fase.
+3. **El prorrateo ya pedía su propio rigor de tests** — el único
+   `[TESTS OBLIGATORIOS]` inline de toda la Fase 04 original está en el
+   criterio de prorrateo (criterio 2), no en el de `price_history`
+   (criterio 3, sin la etiqueta). Eso ya era una señal de que el bloque
+   de compras es del mismo calibre que fases que sí tuvieron el tag
+   completo (02, 01) — separarlo le da ese peso de verdad, con su propio
+   commit y su propio diff auditable, en vez de quedar diluido adentro
+   de una fase que también tiene que revisarse por el listado y la
+   edición.
+
+Un cuarto punto, más práctico: **"Archivos permitidos" de la Fase 04
+original ya era la lista más ancha de todo `FASES.md`**
+(`ui/product/**`, `ui/purchase/**`, `domain/usecase/**` completo,
+`data/**` completo) — más ancha que ninguna fase antes de esta. Eso va
+justo en contra de lo que dice la razón del ritual en `CLAUDE.md` sección
+7: "el humano audita... leyendo únicamente `ESTADO.md` y el diff del
+tag. Si mezclás fases... la auditoría se vuelve imposible." Una lista de
+archivos permitidos así de ancha ya era el síntoma.
+
+### Propuesta de split
+
+**Fase 04 — Inventario y edición** (lo que arrancaría ahora)
+- Listado, búsqueda, filtro por categoría, detalle/edición,
+  `price_history`, archivado, selector de categoría (también en alta
+  rápida).
+
+**Fase 05 — Compras a mayorista** (nueva, después de esta)
+- Registro de compra con líneas, prorrateo de transporte local.
+
+**Esto corre el número de todas las fases de la 05 en adelante en uno**
+(05 Venta de contado → 06, 06 Clientes → 07, 07 WhatsApp → 08, 08
+Reportes → 09, 09 Catálogo → 10, 10 Códigos de barras → 11, 11 Respaldo
+→ 12, 12 Pulido → 13). También cambia "MVP = fases 00 a 05" a "00 a 06"
+en el encabezado de `FASES.md` (Compras se suma al MVP, en el mismo
+lugar donde ya estaba, solo que ahora es su propio número). Y hay que
+corregir dos comentarios en el código ya commiteado de Fase 01
+(`PurchaseEntity.kt`, `PurchaseItemEntity.kt`: "su DAO y su UI llegan en
+Fase 04" → "Fase 05") y la nota equivalente en `ESQUEMA.md`.
+
+**Alternativa que descarto pero dejo anotada:** no renumerar y llamar a
+la segunda mitad "Fase 04b" o "Fase 04.1". La descarto porque rompe el
+único patrón de nombres que tiene todo el proyecto hasta ahora
+(`fase-NN-ok`, un entero por fase, sin excepciones) por ahorrarse una
+edición de texto — el costo de renumerar es de una sola vez, hoy; el
+costo de un nombre de fase inconsistente para siempre es peor.
+
+**Si estás de acuerdo con el split:** lo aplico en un commit de solo
+documentación (rama nueva desde `main`, mismo patrón que las anteriores)
+antes de tocar código de Fase 04, y registro la decisión como **D-022**
+en `DECISIONES.md`. Si preferís mantenerla como una sola fase, sigo con
+el plan de abajo pero sin separar "Compras" — decímelo y ajusto.
+
+### Una pregunta de diseño que el split deja explícita (no estaba resuelta ni en la fase original combinada)
+
+¿Una compra **actualiza** `product.cost_cents` (y por lo tanto también
+inserta en `price_history`, por la regla ya establecida en esta fase) y
+`product.stock_qty` del producto comprado? `ESQUEMA.md` no lo dice
+explícito para `purchase_item` — solo define cómo se calcula "el costo
+real unitario" de la línea (`unit_cost_cents + allocated_extra_cents /
+qty`), no qué hace la app con ese número después. Mi lectura, pero
+prefiero confirmarla antes de que sea relevante (en Fase 05, no en esta):
+sí a las dos — una compra sin que suba el stock no tendría sentido de
+negocio (para eso existe "compra"), y el costo real de la línea debería
+convertirse en el nuevo `cost_cents` del producto (con su fila de
+`price_history`), para que el precio sugerido y la ganancia reflejen lo
+que de verdad pagó la última vez. Lo dejo escrito acá para cuando
+llegue Fase 05, no hace falta resolverlo ahora.
+
+### Archivos que tocaría Fase 04 — Inventario (asumiendo el split)
+
+- `app/src/main/java/gt/marcos/joyeria/ui/product/list/**` (listado)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/edit/**` (detalle/edición)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/**` (ya existe,
+  Fase 03; se modifica para sumar el selector de categoría)
+- `app/src/main/java/gt/marcos/joyeria/data/repository/CategoryRepository.kt`
+  (ya en "Archivos permitidos", D-021/pedido explícito)
+- `app/src/main/java/gt/marcos/joyeria/data/repository/ProductRepository.kt`
+  (ya existe, Fase 03; se le agregan métodos de listado/búsqueda/edición/archivado)
+- `app/src/main/java/gt/marcos/joyeria/data/repository/PriceHistoryRepository.kt` (nuevo)
+- `app/src/main/java/gt/marcos/joyeria/data/local/dao/PriceHistoryDao.kt` (nuevo, la tabla ya existe desde Fase 01)
+- `app/src/main/java/gt/marcos/joyeria/di/DatabaseModule.kt` (proveer el DAO nuevo — técnicamente no está en "Archivos permitidos" de ninguna fase desde que se creó en Fase 01; lo marco como pedido de archivo extra, ver bloqueos)
+- `app/src/main/java/gt/marcos/joyeria/domain/usecase/**` (casos de uso de editar/archivar)
+- `app/src/main/res/values/strings.xml`
+
+**Navegación — esto es nuevo, y quiero que lo veas antes de que lo
+agregue:** hasta ahora la app tiene una sola pantalla (`MainActivity`
+muestra `AddProductRoute` directo, sin ningún tipo de navegación). Fase
+04 necesita moverse entre Listado ↔ Detalle/Edición ↔ Alta rápida. CLAUDE.md
+sección 2 (stack fijo) no incluye ninguna librería de navegación en la
+tabla. Propongo agregar **`androidx.navigation:navigation-compose`**
+(versión a verificar contra `maven-metadata.xml` real, y contra la regla
+nueva de CLAUDE.md 2.1: que no exija un Kotlin/AGP/`compileSdk` más
+nuevo que la línea base — la aplico de entrada esta vez) en vez de un
+"switch" de pantallas armado a mano, porque: la app ya tiene 3+ pantallas
+y va a seguir sumando (Fase 05 Compras, Fase 05/06 actual Venta, Fase 06/07
+Clientes...), y un manejo de pantallas hecho a mano termina reinventando
+mal una versión peor de lo mismo (manejo de back stack, restauración de
+estado). Es una dependencia nueva fuera del stack fijo original de
+`CLAUDE.md`, así que la marco para tu confirmación explícita en vez de
+agregarla por mi cuenta.
+
+**Pantalla de inicio, nota aparte:** CLAUDE.md sección 6 pide que la
+pantalla de inicio tenga "Vender" y "Agregar pieza" como las dos
+acciones grandes. "Vender" no existe todavía (llega en Fase 05/06
+según el número final). Un botón "Vender" que no hace nada sería
+exactamente el stub que miente que CLAUDE.md sección 5 prohíbe. Mi plan:
+un `MainActivity`/home provisorio con las dos acciones que sí existen
+hoy — "Agregar pieza" e "Inventario" — y dejo anotado que la pantalla de
+inicio "de verdad" (con "Vender") llega cuando Vender exista. Si
+preferís otra cosa, decímelo.
+
+### Pantallas
+
+**Listado** (`ui/product/list/ProductListScreen.kt` + ViewModel):
+- Cada fila: foto (Coil), nombre, `uid`, stock, precio (`Money.format()`),
+  ganancia (`PricingCalculator.profit`).
+- Buscador (texto libre, filtra por nombre o `uid` — como pide el
+  entregable).
+- Filtro por categoría (chips u dropdown, usando `CategoryRepository`).
+- Solo productos activos (`archived = false`) — igual que ya hace
+  `ProductDao.observeActive()`.
+- Tocar una fila navega al detalle/edición.
+
+**Detalle/edición** (`ui/product/edit/ProductEditScreen.kt` + ViewModel):
+- Todos los campos editables: nombre, categoría (selector), costo,
+  precio de venta (con el mismo campo de "buffer de dígitos" de Fase 03,
+  reusando `MoneyDigitsField`/`MoneyDigitsInput`), cantidad en stock,
+  notas, proveedor (este sí entra acá, aunque quedó fuera del alta
+  rápida por diseño — CLAUDE.md 1: "todo lo demás es opcional y se edita
+  después", y "después" es esta pantalla).
+- Al guardar: si `cost_cents` o `sale_price_cents` cambiaron respecto al
+  valor cargado, inserta una fila en `price_history` con el valor
+  **anterior** (o el nuevo — a definir con el test, ver criterios) antes
+  de actualizar `product`.
+- Botón "Archivar" con confirmación explícita (CLAUDE.md sección 6:
+  texto claro de qué va a pasar) — nunca `DELETE`.
+
+**Alta rápida** (`ui/product/add/**`, ya existe): se le agrega el
+selector de categoría (opcional, sigue sin ser uno de los 3 campos
+obligatorios) usando el mismo `CategoryRepository`.
+
+### Tests planeados **[TESTS OBLIGATORIOS] aplica a esta fase completa si se separa el prorrateo, porque el criterio de `price_history` deja de compartir fase con uno que no lo pedía**
+
+- `ProductRepositoryTest` o similar (Robolectric, Room in-memory, mismo
+  patrón que `ProductDaoTest`/`SeedDataTest` de Fase 01): editar
+  costo/precio de un producto inserta exactamente una fila en
+  `price_history` con los valores correctos; editar un campo que no es
+  costo/precio (ej. notas) **no** inserta ninguna fila — para que el
+  test no pase "de casualidad" por escribir siempre, pase lo que pase.
+- Test de que archivar no borra la fila (`SELECT` sigue encontrando el
+  producto, solo con `archived = true`), y que desaparece de
+  `observeActive()` — mismo patrón que `ProductDaoTest` de Fase 01.
+- `grep -r "DELETE FROM product" app/src` vacío (criterio 4 original,
+  literal).
+- Test de búsqueda/filtro si la lógica de filtrado vive en el
+  repositorio (no en SQL puro dentro de un `@Query` con `LIKE`, que ya
+  se autoverifica con Room).
+
+### Respuestas del humano a las 5 preguntas — todo resuelto
+
+1. **Split confirmado.** "Partila", con la razón 3 (el `[TESTS OBLIGATORIOS]`
+   inline del prorrateo) señalada como la más contundente. Aplicado en
+   rama `docs/split-fase-04` (desde `main`), commit `docs: split
+   fase-04 into inventory (04) and purchases (05), renumber 05-12 to
+   06-13`, mergeado a `fase/04-inventory`. Registrado como **D-022** en
+   `DECISIONES.md`. Verificadas y corregidas todas las referencias
+   cruzadas a números de fase en `FASES.md`, `ESQUEMA.md` y
+   `DECISIONES.md` (nota agregada a D-011, sin editar su texto
+   original); `CLAUDE.md` no tenía ninguna.
+2. **Navigation Compose: aprobado.** Es la primera ampliación del stack
+   fijo de CLAUDE.md sección 2 desde que se escribió — registrado como
+   **D-023** (ver abajo), con la comparación explícita contra la
+   alternativa (`when` sobre un estado en `MainActivity`) que pidió el
+   humano.
+3. **`DatabaseModule.kt` a "Archivos permitidos": aprobado.** Ya está en
+   la lista de Fase 04 (rama `docs/split-fase-04`).
+4. **Pantalla de inicio provisoria: aprobada**, con el razonamiento de
+   "no poner un botón muerto" confirmado como correcto. El humano pidió
+   explícitamente que quede registrada como desviación temporal de
+   CLAUDE.md sección 6, con fecha de vencimiento — hecho como **D-024**
+   (ver abajo).
+5. **Efecto de una compra sobre `product`: el humano lo rechazó
+   explícitamente** — no es una decisión que yo pueda dar por resuelta
+   con una lectura propia, porque cambia la ganancia histórica según la
+   opción, y eso no es un detalle técnico menor. Ver la sección nueva
+   abajo, "Compras y el costo del producto — decisión pendiente", con
+   las opciones y sus consecuencias, sin resolver, para que el humano
+   elija antes de que arranque Fase 05. No bloquea Fase 04.
+
+### D-023 y D-024 — registradas en `DECISIONES.md` antes de escribir el código correspondiente
+
+Con esto, el plan queda aprobado en su totalidad. Arranco la
+implementación de Fase 04 — Inventario y edición a continuación.
+
+---
+
+## Compras y el costo del producto — decisión pendiente (no bloquea Fase 04)
+
+**Fecha:** 2026-09-14. El humano rechazó explícitamente que yo resolviera
+esto con mi propia lectura ("sube el costo al último"), porque es una
+decisión de negocio con consecuencias reales sobre la ganancia histórica,
+no un detalle de implementación. Esto se decide antes de que arranque
+Fase 05 (Compras), no ahora.
+
+**El problema concreto:** compra el mismo anillo a Q40 hoy y a Q55 dentro
+de tres meses. ¿Qué pasa con `product.cost_cents` (y con `price_history`,
+que se inserta cada vez que cambia)?
+
+**Opción A — El costo pasa a ser el de la última compra (`unit_cost_cents`
+de la línea más reciente).**
+- Consecuencia: el precio sugerido y la ganancia que se muestran *hoy*
+  reflejan lo último que pagó, que es lo más útil para decidir el
+  próximo precio de venta.
+- Consecuencia sobre reportes: la ganancia de piezas que ya estaban en
+  stock **antes** de la compra nueva no cambia retroactivamente (gracias
+  a los snapshots de `sale_item`, D-002) — pero el "capital invertido en
+  inventario" (Fase 09/reportes) sí cambiaría de golpe para *todo* el
+  stock existente de ese producto, aunque la mitad se haya comprado a
+  Q40 y la otra mitad recién a Q55. Sobrestima o subestima el capital
+  real invertido según de qué lado caiga.
+
+**Opción B — Costo promedio ponderado por cantidad (`(stock_actual ×
+costo_actual + qty_comprada × costo_real_de_la_línea) / (stock_actual +
+qty_comprada)`).**
+- Consecuencia: el "capital invertido en inventario" de reportes es más
+  preciso (refleja lo que de verdad se gastó en el stock físico que hay
+  hoy), porque no trata todo el stock como si costara lo último que se
+  pagó.
+- Consecuencia: el precio sugerido ya no refleja "lo que pagué la última
+  vez" sino un promedio — puede sugerir un precio de venta más bajo del
+  que en realidad necesita para cubrir la compra más cara reciente, si
+  el promedio la diluye con stock viejo más barato.
+- Más complejo de calcular y de explicarle a la usuaria ("¿por qué dice
+  que me costó Q47 si la última vez pagué Q55?").
+
+**Opción C — El costo no se toca; se mantiene el que ya tenía el
+producto.**
+- Consecuencia: el precio sugerido y la ganancia mostrados quedan
+  desactualizados hasta que alguien edite el producto a mano (Fase 04,
+  pantalla de edición) — la compra registra el gasto real (`purchase`/
+  `purchase_item`, útil para saber cuánto se gastó en total), pero no
+  "se entera" el producto.
+- Consecuencia: es la opción más simple de implementar y la más difícil
+  de justificar — ¿para qué registrar el costo real de la compra si el
+  producto no lo usa para nada?
+
+**Lo que las tres comparten:** cualquiera de las tres, si actualiza
+`cost_cents`, tiene que insertar también una fila en `price_history`
+(regla ya establecida en Fase 04 — "al cambiar costo o precio se
+inserta fila en `price_history`") para que el historial de "por qué
+ganaba más antes con este anillo" (`ESQUEMA.md`) siga siendo honesto.
+Si se elige la Opción C, no hay nada que insertar (el costo no cambia).
+
+**No elijo ninguna acá.** Queda para que el humano decida antes de que
+Fase 05 arranque; se registra como decisión en `DECISIONES.md` recién
+cuando se elija.
+
+---
+
+## Fase 04 — Bloqueo: KSP no resuelve `ProductRepository` para Hilt, sin ningún error real de por medio
+
+**Fecha:** 2026-09-14. Todo el código de Fase 04 está escrito (Inventario:
+listado, detalle/edición, navegación, selector de categoría en alta
+rápida) pero **el build no compila**, y después de una sesión larga de
+diagnóstico metódico no encontré la causa real. Paro acá, como pide
+CLAUDE.md §2.1 después de intentos fallidos, y dejo todo documentado
+para que decidas cómo seguir.
+
+### El error, textual
+
+```
+e: [ksp] InjectProcessingStep was unable to process 'AddProductUseCase(ProductRepository)' because 'ProductRepository' could not be resolved.
+
+Dependency trace:
+    => element (CLASS): gt.marcos.joyeria.domain.usecase.AddProductUseCase
+    => element (CONSTRUCTOR): AddProductUseCase(ProductRepository)
+    => type (EXECUTABLE constructor): (ProductRepository)void
+    => type (ERROR parameter type): ProductRepository
+
+If type 'ProductRepository' is a generated type, check above for compilation errors that may have prevented the type from being generated. Otherwise, ensure that type 'ProductRepository' is on your classpath.
+```
+
+(Y lo mismo, palabra por palabra salvo el nombre de la clase, para
+`ArchiveProductUseCase`, `EditProductUseCase`, `ProductEditViewModel` y
+`ProductListViewModel` — los cinco consumidores de `ProductRepository`.)
+
+`./gradlew assembleDebug` falla en la tarea `:app:kspDebugKotlin` con
+`KSP failed with exit code: PROCESSING_ERROR`, sin llegar nunca a
+`compileDebugKotlin`.
+
+### Lo que verifiqué que **no** es la causa (cada uno probado con un build limpio de verdad)
+
+1. **No es caché.** Probado con `./gradlew clean`, `--rerun-tasks`,
+   `--no-configuration-cache`, borrando a mano `.gradle/configuration-cache`
+   y `app/build`, y `./gradlew --stop` (mata el daemon, fuerza uno nuevo).
+   El error persiste idéntico en un build 100% desde cero (`31 actionable
+   tasks: 31 executed`, ninguna `UP-TO-DATE`).
+2. **No es un ciclo de archivos `data.repository` ↔ `domain.usecase`.**
+   Moví `AddProductInput`/`EditProductInput` a un archivo nuevo
+   (`data/repository/ProductModels.kt`) para que `domain/usecase` solo
+   dependa de `data/repository` en un sentido. Mismo error.
+3. **No es `PriceHistoryDao`.** Lo saqué del constructor de
+   `ProductRepository` (y del método que lo usa) por completo. Mismo error.
+4. **No es el contenido de ningún archivo de UI.** Aislé el problema
+   sacando *físicamente* del árbol de compilación (fuera de
+   `app/src/main/java`, no solo renombrados) todos los archivos nuevos de
+   `ui/` uno por uno. Con **todos** afuera y `ProductRepository` reducido
+   a su forma exacta de Fase 03 (un solo método, un solo consumidor),
+   **compiló** (`kspDebugKotlin` en verde). Reconstruí todo de vuelta
+   método por método y consumidor por consumidor, confirmando cada paso
+   con un build — **todo pasó**, incluidos los 3 casos de uso y los dos
+   ViewModels. Pero apenas agregué el último archivo que faltaba
+   (`CategoryDropdown.kt`, que **no tiene ninguna relación con Hilt ni
+   con `ProductRepository`** — ni lo importa, ni lo usa) el error volvió
+   a aparecer exactamente igual. Para descartar que fuera el *contenido*
+   de ese archivo (usa `ExposedDropdownMenuBox`, una API que no había
+   probado antes), lo reemplacé por un `@Composable` trivial de una sola
+   línea (`Text("stub")`) que no usa nada raro — **el error volvió
+   igual**. O sea: no importa qué dice el archivo, solo que exista.
+5. **No es el modo incremental de KSP.** Probé
+   `ksp { arg("ksp.incremental", "false") }` — mismo error en un build
+   limpio.
+6. **No es memoria del JVM.** Probé con `org.gradle.jvmargs=-Xmx4096m`
+   (el doble del default del proyecto) — mismo error.
+
+### Lo que esto sugiere
+
+El único patrón que encontré: con **pocos** archivos nuevos en el
+módulo, KSP/Hilt resuelve `ProductRepository` bien; en algún punto,
+agregar **cualquier** archivo adicional (sin relación de tipos con
+`ProductRepository`) hace que dejen de resolverlo. Esto no es un error
+de mi código — es exactamente el mismo patrón, letra por letra, que ya
+encontramos una vez con Coil en Fase 03 (D-018): una herramienta muy
+nueva (`KSP 2.3.12`, backend "Analysis API" — el propio mensaje de error
+dice `KspAAWorkerAction`) con un límite o bug de resolución que no
+depende de que el código esté mal escrito. Mi sospecha, sin poder
+confirmarla: un límite de rondas de resolución incremental de KSP2/AA
+sensible a la cantidad total de archivos/símbolos del módulo, no al
+contenido de ninguno en particular.
+
+### Lo que NO probé (me quedé corto de tiempo/alcance para seguir adivinando)
+
+- **Bajar la versión de KSP** (2.3.12 → una 2.2.x o 2.3.x anterior,
+  verificada contra `maven-metadata.xml` como siempre). Es lo más
+  parecido a lo que ya funcionó con Coil (D-018), pero KSP no es "una
+  librería más" — está en el mismo nivel que Kotlin/AGP/Gradle en
+  CLAUDE.md §2.1, así que no quise tocarlo sin preguntarte primero,
+  aunque D-007 ya estableció que su versión SÍ se elige y verifica cada
+  vez (no es parte de la "línea base congelada" de AGP/Gradle/Kotlin/
+  compileSdk).
+- Probar el mismo build en Android Studio directo (mejores diagnósticos
+  que la CLI) en vez de `./gradlew` por línea de comandos.
+- Reportarlo como bug real al repositorio de KSP con un caso mínimo
+  reproducible (tengo casi armado el caso mínimo: el bisect de arriba).
+
+### Estado del código
+
+**Todo el código de Fase 04 está escrito y es, hasta donde pude
+verificar, correcto** — el problema es exclusivamente de la herramienta
+de build, no de diseño ni de lógica. Dejé el árbol de archivos completo,
+restaurado a su forma real (no quedó nada a medio sacar del bisect):
+listado, detalle/edición, navegación, selector de categoría, todo
+presente. Nada se commiteó todavía — sigo en `fase/04-inventory`, sin
+commit, con todo el trabajo en el árbol de trabajo.
+
+### Lo que necesito de vos
+
+Alguna de estas (o algo que se te ocurra que no probé):
+1. Autorización para bajar la versión de KSP y probar si eso lo resuelve.
+2. Que lo corras vos en Android Studio, con mejores herramientas de
+   diagnóstico que la CLI, a ver si aparece un error real que la CLI no
+   me mostró.
+3. Cualquier otra pista — quizás ya viste este patrón antes.
+
+No voy a seguir probando cosas al azar contra este error — ya pasé el
+límite razonable de intentos que pide CLAUDE.md §2.1, y seguir así sin
+una pista nueva es exactamente el "adivinar" que la regla prohíbe.
+
+---
+
+## Fase 04 — Corrección del bloqueo: no era versión de KSP/Hilt, era un comentario KDoc roto
+
+**Fecha:** 2026-09-14. El humano señaló que la conclusión de la entrada
+anterior ("límite de archivos de KSP") era equivocada, y dio una hipótesis
+concreta con evidencia (fechas de KSP `2.3.12` y Hilt `2.60.1`) para
+probar. **Esa hipótesis también resultó equivocada** — lo documento acá
+en detalle porque el camino hasta encontrar la causa real importa tanto
+como la causa misma.
+
+### Chequeo previo pedido, antes de tocar versiones
+
+`grep -rn "class ProductRepository\|interface ProductRepository"
+app/src/main` → una sola coincidencia
+(`data/repository/ProductRepository.kt:21`). No era el escenario de
+declaración duplicada; autorizado a mover versiones.
+
+### Intento 1: bajar KSP por fecha de publicación (falló)
+
+Verificado vía la API de releases de GitHub (no `search.maven.org`, cuyo
+índice mostró un Hilt desactualizado `2.56.2` — mismo patrón que ya
+advirtió D-009): Hilt `2.60.1` es el release más reciente de
+`google/dagger` (`2026-07-06T21:28:59Z`, no hay ninguno más nuevo), y KSP
+`2.3.9` (`2026-05-26T19:53:05Z`) es la última `2.3.x` publicada antes de
+esa fecha. Bajé `gradle/libs.versions.toml` de `ksp = "2.3.12"` a
+`ksp = "2.3.9"` y corrí `./gradlew clean :app:kspDebugKotlin
+--rerun-tasks --no-configuration-cache`. **El error se reprodujo
+idéntico, letra por letra**, con un build 100% limpio.
+
+### Intento 2: bajar KSP a la versión exacta que declara el POM de Dagger (falló)
+
+Con `./gradlew :app:dependencies --configuration
+kspDebugKotlinProcessorClasspath` encontré que `dagger-compiler:2.60.1`
+declara una dependencia dura a `com.google.devtools.ksp:symbol-processing-api:2.3.7`
+(no `2.3.9`) — evidencia más precisa que la fecha, tomada directo del POM
+real de la librería, mismo tipo de verificación que ya usó D-018 con
+`kotlin-stdlib` de Coil. Bajé KSP a `2.3.7` exacto. **El error se
+reprodujo idéntico otra vez**, confirmado también con `--info` completo
+(sin ningún diagnóstico adicional oculto).
+
+### Intento 3 y 4: descartar Room y descartar `AppDatabase` del constructor (fallaron los dos, pero acotaron el problema)
+
+Para separar "es una incompatibilidad de versión" de "es una interacción
+entre los dos procesadores de KSP del módulo (Room + Hilt)", saqué
+temporalmente `ksp(libs.androidx.room.compiler)` del `app/build.gradle.kts`
+por completo. **Error idéntico** — no es interacción con Room.
+
+Después, para probar si el parámetro `AppDatabase` del constructor de
+`ProductRepository` (la única diferencia real con `CategoryRepository`,
+que sí resolvía bien) era el disparador, lo saqué temporalmente junto con
+sus dos usos de `db.withTransaction`. **Error idéntico** — tampoco era
+eso. En este punto: tres versiones de KSP distintas y dos cambios
+estructurales al código, mismo error exacto las cinco veces. Evidencia
+suficiente de que la causa no era ninguna versión ni ninguna de esas dos
+hipótesis de contenido.
+
+### Causa real: un `/*` suelto dentro de un comentario KDoc
+
+Con la versión de KSP ya en `2.3.7` (para aislar una sola variable a la
+vez), reduje `ProductRepository.kt` a un solo método (la forma exacta de
+Fase 03) y **compiló**. Fui agregando los métodos de vuelta uno por uno
+(`archive`, `getDetail`, `observeFiltered`, `update`) — **todos
+compilaron**, incluso los cuatro juntos. Restauré el archivo original
+completo (con sus dos comentarios `/** ... */`) y **volvió a fallar**.
+La única diferencia entre la versión que compilaba y la que no eran los
+comentarios KDoc, no el código.
+
+Aislado: el KDoc de clase (líneas 15-19 del archivo original) contiene el
+texto `` `domain/usecase/*.kt` ``. Esa `/` seguida de `*` es, para el
+lexer de Kotlin, la apertura de un **comentario anidado** — Kotlin, a
+diferencia de Java/C, permite anidar `/* */`. El `/**` real de la línea 15
+abre profundidad 1; el `/*` embebido en `usecase/*.kt` (línea 18) la sube
+a profundidad 2; el `*/` de cierre (línea 20) solo la baja a profundidad
+1. El comentario nunca cierra del todo ahí y sigue tragándose código real
+después — en este caso, la propia declaración
+`class ProductRepository @Inject constructor(...) { ... }`. Confirmado
+contando delimitadores (`grep -o '/\*'` = 2, `grep -o '\*/'` = 1, con el
+KDoc de clase presente y el del método `update` ausente) y con el bisect
+inverso: agregar de vuelta *solo* el KDoc de clase (sin el de `update`)
+alcanza para reproducir la falla por sí solo.
+
+Desde la perspectiva del frontend que usa KSP, `ProductRepository`
+literalmente no existe como declaración — el mensaje
+"`ProductRepository` could not be resolved" no mentía, la causa nunca fue
+de dependencias ni de versión.
+
+### Qué se hizo
+
+- `app/src/main/java/gt/marcos/joyeria/data/repository/ProductRepository.kt`:
+  reescrito el comentario roto — `` `domain/usecase/*.kt` `` →
+  `` `domain/usecase` ``. Contenido funcional sin cambios.
+- `gradle/libs.versions.toml`: `ksp` devuelto a `2.3.12` (el valor
+  original de D-007) — nunca fue el problema.
+- Arreglados dos usos reales de Material3, recién visibles al llegar por
+  primera vez a `compileDebugKotlin` (nunca se había llegado tan lejos con
+  el build roto en `kspDebugKotlin`): en `CategoryDropdown.kt` y
+  `ProductListScreen.kt`, `ExposedDropdownMenuDefaults.DropdownMenu(...)`
+  no existe — `ExposedDropdownMenu` es una función miembro de
+  `ExposedDropdownMenuBoxScope`, se llama sin calificar por receptor
+  implícito dentro del lambda de `ExposedDropdownMenuBox`. Verificado
+  leyendo el jar de fuentes real de `material3-android:1.4.0` (no
+  adivinado). Confirmado que no es parte del bloqueo de KSP/Hilt — es un
+  bug de código distinto que solo se hizo visible al destrabar el
+  anterior.
+- `CLAUDE.md`: retirada por completo la regla de "contemporaneidad
+  KSP/Hilt" que había agregado en el intento 1 (no correspondía a la
+  causa real). Agregada en su lugar, sección 5, la prohibición de escribir
+  `/*` dentro del texto de un comentario de bloque, con este incidente
+  documentado.
+- `DECISIONES.md`: reescrita **D-025** completa con la historia real (era
+  parte de este mismo trabajo sin commitear todavía, no una decisión ya
+  cerrada de una fase anterior — mismo criterio que ya se usó una vez con
+  D-013).
+
+### Todos los archivos que se movieron temporalmente durante el diagnóstico volvieron a su lugar sin cambios
+
+Durante los intentos 3-4 y la bisección de contenido moví 15 archivos
+fuera del árbol de compilación (`ArchiveProductUseCase.kt`,
+`EditProductUseCase.kt`, los tres de `ui/navigation/`,
+`CategoryDropdown.kt`, los cuatro de `ui/product/edit/`, los cuatro de
+`ui/product/list/`, y brevemente `CategoryRepository.kt` por error de
+bisección — restaurado de inmediato al ver que rompía `AddProductViewModel`
+de verdad). Verificado con `git status` y `git ls-files` después de
+restaurarlos todos: el árbol coincide exactamente con el commit
+`ad88fe3` (wip de Fase 04) salvo los archivos listados arriba.
+
+### Resultado de la compilación y los tests
+
+`./gradlew --stop && ./gradlew clean assembleDebug` → **BUILD
+SUCCESSFUL** (tras el fix del comentario y de `ExposedDropdownMenu`;
+solo quedan warnings preexistentes/no relacionados: `MenuAnchorType`
+deprecado y `hiltViewModel` deprecado, ninguno introducido por este
+arreglo).
+
+`./gradlew testDebugUnitTest` → **BUILD SUCCESSFUL**, 55 tests, 0
+fallos, 0 errores, en 8 clases: `ExampleUnitTest` (1), `ProductDaoTest`
+(5), `ProductUidGeneratorTest` (2), `SeedDataTest` (2), `MoneyTest` (8),
+`PricingCalculatorTest` (25), `MoneyDigitsInputTest` (7),
+`ImageStorageScalingTest` (5).
+
+### Archivos tocados
+
+`app/src/main/java/gt/marcos/joyeria/data/repository/ProductRepository.kt`,
+`app/src/main/java/gt/marcos/joyeria/ui/product/CategoryDropdown.kt`,
+`app/src/main/java/gt/marcos/joyeria/ui/product/list/ProductListScreen.kt`,
+`gradle/libs.versions.toml`, `CLAUDE.md`, `DECISIONES.md`, `ESTADO.md`.
+Los tres primeros y `libs.versions.toml` ya están en "Archivos permitidos"
+de Fase 04; los tres de proceso son los que CLAUDE.md §7 exige mantener.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno nuevo. **La Fase 04 sigue sin cerrarse** — esto resuelve el
+bloqueo de build y confirma que compila y pasa tests, pero falta la
+revisión del humano antes del commit final y el tag, como se pidió
+explícitamente.
+
+---
+
+## Fase 04 — Verificación manual en emulador (listado, búsqueda, filtro, edición de precio, archivado)
+
+**Fecha:** 2026-09-14. El humano señaló que el build verde no alcanza para
+cerrar la fase: pidió instalar en el emulador y verificar el flujo
+completo, documentando cada punto con lo que se vio. Esto es aparte de lo
+anterior (que resolvió el *build*); esta sección es la verificación
+*funcional*.
+
+### Entorno
+
+Emulador `Medium_Phone_API_35` (AVD ya existente, usado en Fase 00/01),
+booteado para esta sesión. La app ya estaba instalada de una prueba manual
+anterior (Fase 03, con un producto real cargado por la usuaria — ver más
+abajo); se reinstaló con `adb install -r` (conserva datos) sobre el APK
+recién compilado con el fix de esta sesión.
+
+Método de verificación: `adb exec-out screencap` para capturas,
+`uiautomator dump` + parseo con `python3`/`ElementTree` para leer el
+estado real de la UI (más confiable que la captura de pantalla — ver nota
+de la sección "Deuda/observación" más abajo), y `adb exec-out run-as
+gt.marcos.joyeria cat databases/joyeria.db{,-wal,-shm}` para traer la base
+real de la app y consultarla con `sqlite3` local, **no asumiendo** el
+resultado de ninguna acción sobre datos.
+
+Todos los logs (`ui*.xml`, `crash-check.log`) y capturas de esta
+verificación quedaron en `app/build/logs/` y `app/build/screenshots/`
+respectivamente (regla nueva de `CLAUDE.md` sección 7, punto 10 —
+ignorados por git, no se commitean).
+
+### 1. El listado muestra las piezas que ya existen en la base
+
+La base ya traía **XP-000001** ("Pieza sin nombre", cargado por la usuaria
+real durante la prueba de Fase 03, costo Q40,009.97/precio Q80,020.00 —
+valores reales que ella tipeó, no datos de prueba míos). Abrí Inventario
+sin tocar nada más:
+`app/build/screenshots/02-inventory-list.png` — el listado muestra esa
+pieza con foto, nombre, uid, stock y ganancia calculada, correctamente.
+Agregué dos piezas más por el flujo real de "Agregar pieza" (foto con
+CameraX, costo, precio, nombre y categoría desde "Más detalles") —
+**XP-000002** "Aretes luna" (categoría Aretes) y **XP-000003** "Anillo
+sol" (categoría Anillos) — y el listado con las tres:
+`app/build/screenshots/18-inventory-3items.png`. ✅
+
+### 2. Búsqueda por nombre
+
+Escribí "anillo" (minúscula) en "Buscar por nombre o código": filtra a una
+sola pieza, "Anillo sol" (XP-000003) — `app/build/screenshots/21-search-anillo.png`,
+confirmado también con `uiautomator dump` (`app/build/logs/ui35.xml`).
+Búsqueda case-insensitive: el nombre real es "Anillo sol" con mayúscula,
+la búsqueda en minúscula lo encontró igual (`LIKE` de SQLite es
+case-insensitive para ASCII, tal como está la consulta en
+`ProductDao.observeFiltered`). ✅
+
+### 3. Búsqueda por código (uid)
+
+Escribí "xp-000002" (minúscula): filtra a una sola pieza, "Aretes luna"
+(XP-000002) — `app/build/screenshots/23-search-uid-exact.png`. Con el
+prefijo parcial "xp-00000" (sin el dígito final) coincidieron las tres
+piezas (las tres empiezan igual), confirmando que es una búsqueda por
+substring, no exacta — comportamiento esperado de `LIKE` con comodines a
+ambos lados. ✅
+
+### 4. Filtro por categoría
+
+Con el selector de categoría en "Aretes": el listado se reduce a una sola
+pieza, "Aretes luna" — excluye "Anillo sol" (categoría Anillos) y "Pieza
+sin nombre" (sin categoría) — `app/build/screenshots/24-filter-aretes.png`.
+✅
+
+### 5. Editar el precio inserta una fila en price_history (verificado consultando la tabla, no asumido)
+
+Entré al detalle de "Aretes luna" (Costo Q30.00, Precio Q960.00 antes del
+cambio), cambié el precio y guardé. Extraje la base real de la app
+(`app/build/logs/db-dumps/joyeria.db`, con su -wal/-shm, porque Room usa
+WAL y el cambio recién escrito puede no estar aún en el archivo principal
+si no se hace checkpoint) y corrí sqlite3 directo:
+
+```
+=== product ===
+2|XP-000002|Aretes luna|3000|960005|3
+=== price_history ===
+1|2|3000|960005|1789420483925
+```
+
+`product.sale_price_cents` quedó en 960005 (el precio nuevo) y se insertó
+una fila en `price_history` con `product_id=2`, el costo y precio nuevos,
+y un `changed_at` real. Esto es la base de datos real después de la
+acción, no una inferencia de lo que la pantalla mostraba. ✅
+
+### 6. Archivar saca la pieza del listado sin borrarla
+
+Desde el detalle de "Aretes luna" toqué "Archivar pieza": apareció el
+diálogo de confirmación exigido por CLAUDE.md sección 6 (texto claro, en
+español, diciendo exactamente qué va a pasar) —
+`app/build/screenshots/27-archive-confirm.png`: "¿Archivar esta pieza? Ya
+no va a aparecer en el inventario ni se va a poder vender. No se borra:
+el historial de esta pieza queda guardado." Confirmé, y el listado (con
+el filtro de categoría limpio) quedó con solo dos piezas —
+`app/build/screenshots/29-list-after-archive.png`. Verificado en la base
+real:
+
+```
+1|XP-000001|Pieza sin nombre|0
+2|XP-000002|Aretes luna|1     <- archived = 1
+3|XP-000003|Anillo sol|0
+SELECT COUNT(*) FROM product;  -> 3
+```
+
+Las tres piezas siguen en la tabla (nada se borró físicamente); solo la
+archivada tiene archived = 1 y por eso desapareció del listado activo
+(`ProductDao.observeFiltered`/`observeActive` filtran archived = 0).
+Confirma además el criterio 3 de la fase: no hay ningún DELETE FROM
+product en el flujo real. ✅
+
+### 7. Navegación sin crash
+
+Listado → detalle ("Anillo sol") → atrás: vuelve al listado sin crash
+(`app/build/logs/ui53.xml` → `ui54.xml`). Alta rápida → atrás: probado
+varias veces durante la carga de los tres productos, siempre volvió a
+Inventario u Home sin problema. Revisé el logcat completo de toda la
+sesión (`app/build/logs/crash-check.log`) filtrando FATAL EXCEPTION y
+AndroidRuntime: las únicas apariciones son del propio proceso uiautomator
+arrancando y parando (esperado, es la herramienta que usé para
+inspeccionar la UI), ninguna del proceso de la app. El PID de
+gt.marcos.joyeria (4163) fue el mismo desde el primer am start hasta el
+final de la sesión — el proceso nunca murió ni se reinició. ✅
+
+### Deuda/observación que dejo anotada (no bloquea el cierre, pero quede escrito)
+
+1. adb exec-out screencap mostró contenido desactualizado varias veces
+   mientras el teclado en pantalla estaba abierto (la captura seguía
+   mostrando el frame anterior). Lo detecté porque contradecía el
+   uiautomator dump tomado inmediatamente después (que sí refleja el
+   estado real de accesibilidad). Dejé de confiar en la captura de
+   pantalla como fuente de verdad durante edición de texto y usé el dump
+   + consulta directa a la base para todo lo que importaba verificar. Es
+   una limitación del emulador/herramienta de captura, no de la app.
+2. El campo de dinero (MoneyDigitsField, Fase 03) se comportó de forma
+   inconsistente cuando lo manejé con adb shell input keyevent/input
+   text (varias veces el valor resultante no fue el que un cálculo
+   simple de "dígito a dígito" hubiera predicho — ej. terminé con
+   Q960.00 en vez del valor que buscaba). Cuando repetí la entrada con
+   toques reales sobre las teclas visibles del teclado numérico (en vez
+   de eventos sintéticos), el campo respondió de forma consistente
+   (multiplicar por diez y sumar el dígito nuevo, tal como describe
+   FASES.md) y el valor final coincidió exactamente con lo que quedó
+   guardado en la base (sale_price_cents del paso 5). Mi conclusión, sin
+   poder afirmarla con certeza total: es un artefacto de cómo la
+   automatización por ADB dispara eventos de teclado sobre este campo
+   custom, no un bug de la app — la lógica de dígito-a-dígito ya tiene 7
+   tests unitarios propios en Fase 03 (MoneyDigitsInputTest, corridos en
+   verde en esta misma sesión). Lo anoto igual para que quede constancia:
+   si alguna vez alguien reporta un valor de precio "raro" después de
+   editar rápido, esto es un lugar por dónde empezar a mirar, con la
+   salvedad de que no lo pude reproducir con toques reales.
+3. Los productos XP-000002 y XP-000003 quedaron con precios de prueba sin
+   redondear (Q960.00 antes de editar, Q9,600.05 después; Q30.00 para
+   XP-000003) — no son valores "de negocio" representativos, son
+   simplemente los que resultaron de la interacción por ADB descrita
+   arriba. No afecta ningún criterio de aceptación (solo se necesitaba
+   costo y precio numéricos válidos para probar listado/búsqueda/filtro/
+   historial/archivado), pero lo anoto para que no se confunda con datos
+   reales de la usuaria si alguien revisa la base más adelante — el único
+   dato real ahí es XP-000001, cargado por ella en la prueba de Fase 03.
+
+### Archivos tocados en esta verificación
+
+Ninguno de código. Se generaron app/build/logs/** y
+app/build/screenshots/** (ambos bajo build/, ignorados por git, no se
+commitean — regla nueva de CLAUDE.md sección 7, punto 10).
+
+### Resultado
+
+Los 6 puntos que pidió el humano quedaron verificados con evidencia
+directa (capturas + dumps de accesibilidad + consultas SQL reales a la
+base extraída del dispositivo), no por inferencia de lo que "debería"
+pasar. Sujeto a la revisión del humano, la Fase 04 está lista para el
+commit final y el tag.

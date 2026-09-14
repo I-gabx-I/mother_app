@@ -787,6 +787,212 @@ arranque.
 
 ---
 
+## D-023 — Navigation Compose `2.10.1`: primera ampliación del stack fijo de CLAUDE.md sección 2
+
+**Contexto:** hasta Fase 03, la app tiene una sola pantalla
+(`MainActivity` muestra `AddProductRoute` directo). Fase 04 necesita
+moverse entre Listado ↔ Detalle/edición ↔ Alta rápida, y las fases
+siguientes van a seguir sumando pantallas (Compras, Venta, Clientes...).
+`CLAUDE.md` sección 2 fija el stack del proyecto y **no** incluye
+ninguna librería de navegación — es la primera vez que una fase necesita
+agregar algo a esa tabla, no solo pinear versiones de lo que ya está.
+
+**Decisión:** agregar `androidx.navigation:navigation-compose:2.10.1`.
+Verificado que es la última versión estable
+(`dl.google.com/android/maven2/androidx/navigation/navigation-compose/maven-metadata.xml`,
+`2.10.1` es la más nueva antes de ninguna prerelease pendiente) y,
+aplicando la regla nueva de CLAUDE.md §2.1 (D-018 fue la lección),
+verificado que **no** exige un Kotlin más nuevo que la línea base: su
+POM declara `kotlin-stdlib` `2.1.20` (`≤ 2.2.10` del proyecto) —
+compatible, sin necesitar bajar de versión como pasó con Coil.
+
+**Por qué esta y no la alternativa de un `when` sobre estado en
+`MainActivity`:** un `when (currentScreen) { ... }` a mano, con un
+`sealed class`/enum de "pantalla actual" y una pila manual de
+"pantallas anteriores" para el botón atrás, funciona mientras hay 2 o 3
+pantallas — pero la app va a seguir sumando pantallas en casi todas las
+fases que quedan (05 Compras, 06 Venta, 07 Clientes, 09 Catálogo, 10
+Códigos de barras...). Un manejo a mano termina reinventando, peor y sin
+tests, exactamente lo que ya resuelve una librería madura: pila de
+retroceso, restauración de estado ante rotación/proceso destruido,
+argumentos tipados entre pantallas, animaciones de transición. La
+alternativa manual no es "evitar una dependencia", es escribir una
+versión propia y peor de una, con el costo de mantenerla creciendo en
+cada fase nueva en vez de una sola vez ahora.
+
+**Descartado:**
+- `when` sobre estado manual en `MainActivity` (razón arriba).
+- Versiones de `navigation-compose` anteriores a `2.10.1`: no hacía
+  falta bajar, `2.10.1` ya es compatible con la línea base.
+
+**Consecuencia:** primera entrada en la tabla de stack fijo de
+`CLAUDE.md` sección 2 que no estaba ahí desde el día 1. No se edita esa
+tabla (son las tecnologías elegidas por el humano antes de empezar);
+esta decisión queda como el registro de la ampliación. Cada pantalla
+nueva de acá en adelante se agrega como un destino más del mismo
+`NavHost`, no como su propio mecanismo de navegación.
+
+**Adenda — `hilt-navigation-compose` `1.3.0`:** Navigation Compose con
+varios destinos necesita `hiltViewModel()` para que cada pantalla del
+`NavHost` tenga su propio ViewModel inyectado por Hilt y correctamente
+acotado a su entrada en la pila de navegación (a diferencia de Fase 03,
+de una sola pantalla, donde `by viewModels()` en la Activity alcanzaba).
+Sin esto, todos los ViewModels quedarían acotados a `MainActivity`
+entera y no se reiniciarían al navegar — ej. `AddProductViewModel`
+conservaría el formulario a medio llenar de la visita anterior. Es la
+librería estándar que conecta Hilt con Navigation Compose, no una
+ampliación de stack aparte, así que se documenta acá mismo, no en una
+decisión nueva. Versión: `1.3.0` (no la última, `1.4.0`) — verificado el
+POM de cada una: `1.4.0` pide `kotlin-stdlib` `2.2.20` (más nuevo que el
+`2.2.10` pineado), `1.3.0` pide `2.0.21` (compatible). Misma regla nueva
+de CLAUDE.md §2.1 aplicada de nuevo.
+
+---
+
+## D-024 — Pantalla de inicio provisoria (Fase 04): desviación temporal de CLAUDE.md sección 6, con vencimiento
+
+**Contexto:** CLAUDE.md sección 6 exige que la pantalla de inicio tenga
+"dos acciones grandes y obvias: Vender y Agregar pieza". "Vender" no
+existe todavía — llega en Fase 06 (Venta de contado, con la
+renumeración de D-022). Un botón "Vender" que no hace nada sería
+exactamente el stub que miente que CLAUDE.md sección 5 prohíbe
+("Nada de `TODO()` ni stubs vacíos que compilen y mientan").
+
+**Decisión:** Fase 04 muestra una pantalla de inicio provisoria con las
+**dos acciones que sí existen hoy**: "Agregar pieza" (Fase 03) e
+"Inventario" (Fase 04). Esto es una **desviación temporal explícita**
+de CLAUDE.md sección 6, no el diseño final.
+
+**Vencimiento explícito:** esta desviación se corrige en **Fase 06 —
+Venta de contado**, que es la fase que hace que "Vender" exista de
+verdad. Esa fase tiene que reemplazar la pantalla de inicio provisoria
+por la definitiva (Vender + Agregar pieza), no dejarla como quedó acá.
+Anotado también en `FASES.md` (entregable de Fase 04) para que quien
+abra Fase 06 lo vea sin tener que buscar en `DECISIONES.md`.
+
+**Por qué:** el humano confirmó que el razonamiento (no poner un botón
+muerto) es correcto, pero pidió explícitamente que la desviación de una
+regla de `CLAUDE.md` quede registrada como tal, con fecha/condición de
+vencimiento — no "pasar de largo" un incumplimiento aunque sea
+temporal y bien intencionado.
+
+**Descartado:**
+- Esperar a Fase 06 para tener cualquier pantalla de inicio (dejaría
+  Fase 04 y 05 sin forma de navegar a Inventario más que por código).
+- Poner un botón "Vender" deshabilitado o que muestre "próximamente":
+  sigue siendo UI que promete algo que no existe todavía; CLAUDE.md
+  sección 6 pide texto claro sobre qué va a pasar, y "va a pasar" que
+  no pasa nada no lo es.
+
+**Consecuencia:** criterio de aceptación para Fase 06 (a agregar en
+`FASES.md` cuando se abra esa fase, no ahora): la pantalla de inicio
+final reemplaza a la provisoria, con "Vender" funcional.
+
+---
+
+## D-025 — Descartada la hipótesis de versión: el bloqueo de KSP/Hilt en Fase 04 era un comentario KDoc mal escrito, no una incompatibilidad de versiones
+
+**Contexto:** Fase 04 quedó bloqueada (`ESTADO.md`, "Fase 04 — Bloqueo: KSP
+no resuelve `ProductRepository` para Hilt") con `[ksp] InjectProcessingStep
+was unable to process ... because 'ProductRepository' could not be
+resolved`, afectando a los cinco consumidores de `ProductRepository`
+(`AddProductUseCase`, `ArchiveProductUseCase`, `EditProductUseCase`,
+`ProductEditViewModel`, `ProductListViewModel`). El diagnóstico de la
+sesión anterior descartó caché, ciclos de dependencia, `PriceHistoryDao`,
+contenido de UI, modo incremental de KSP y memoria de la JVM, y bisectó el
+síntoma a "agregar cualquier archivo nuevo al módulo, sin relación con
+`ProductRepository`, hace que el procesador deje de resolverlo pasado un
+umbral" — concluyendo que era un límite de KSP.
+
+**Hipótesis inicial de esta sesión (con evidencia real, pero equivocada):**
+KSP `2.3.12` (publicado 2026-09-09, verificado vía la API de releases de
+GitHub) y Hilt/Dagger `2.60.1` (publicado 2026-07-06, coincide con el
+`lastUpdated` que ya tenía D-009) tienen dos meses de brecha. Se probó
+bajar KSP a `2.3.9` (última `2.3.x` publicada antes de julio de 2026) —
+**el error se reprodujo idéntico**. Se investigó más a fondo y se encontró
+que `dagger-compiler:2.60.1` declara en su propio POM una dependencia dura
+a `com.google.devtools.ksp:symbol-processing-api:2.3.7` (no `2.3.9`) — se
+probó bajar KSP exactamente a esa versión, la que Dagger declara haber
+usado. **El error se reprodujo idéntico otra vez.** Se probó además sacar
+el compilador de Room del classpath de KSP por completo (para descartar
+una interacción Room+Hilt) y quitar `AppDatabase` del constructor de
+`ProductRepository` (la única diferencia real con `CategoryRepository`,
+que sí resolvía) — **el error se reprodujo idéntico las dos veces**. Tres
+versiones de KSP distintas y dos cambios estructurales al código,
+reproduciendo el mismo error letra por letra, es evidencia empírica sólida
+de que la causa no era ninguna versión.
+
+**Causa real, encontrada por bisección directa del contenido de
+`ProductRepository.kt`:** reducir la clase a un solo método (la forma
+exacta de Fase 03) compiló. Se fueron agregando los métodos de vuelta uno
+por uno (`archive`, `getDetail`, `observeFiltered`, `update`) y todos
+compilaron — hasta restaurar el archivo original completo, que volvió a
+fallar. La diferencia real resultó ser los dos comentarios KDoc
+(`/** ... */`) del archivo, no su código. Aislado a uno solo: el KDoc de
+clase, que contiene el texto `` `domain/usecase/*.kt` `` — esa `/` seguida
+de `*` es, para el lexer de Kotlin, la apertura de un **comentario
+anidado** (Kotlin, a diferencia de Java/C, permite anidar `/* */`). El
+`/**` real de la línea 15 abre profundidad 1; el `/*` de `usecase/*.kt` en
+la línea 18 la sube a profundidad 2; el `*/` de cierre de la línea 20 solo
+la baja a profundidad 1 — el comentario nunca llega a profundidad 0 en ese
+punto y sigue "abierto", tragándose la declaración real de
+`class ProductRepository @Inject constructor(...) { ... }` que viene
+después. Desde la perspectiva del frontend que usa KSP, esa clase
+simplemente no existe como declaración — de ahí el mensaje literal
+"`ProductRepository` could not be resolved", que no es una mentira del
+mensaje de error: es exacto, solo que la razón no tiene nada que ver con
+classpath ni con versiones. Confirmado contando delimitadores
+(`grep -o` de `/\*` y `\*/` en el archivo: 2 aperturas, 1 cierre, con el
+KDoc de clase presente y el del método `update` ausente) y con el bisect
+inverso: agregar de vuelta el KDoc de clase solo (sin el de `update`)
+alcanza para reproducir la falla por sí solo.
+
+**Por qué el bisect de la sesión anterior no encontró esto:** el patrón
+que observaron ("cualquier archivo nuevo lo rompe") era real pero mal
+interpretado — no habían identificado que el archivo que finalmente
+"rompía todo" (`ProductRepository.kt` con sus dos KDoc completos) ya
+llevaba el bug desde antes; lo que variaba entre sus pruebas no era la
+cantidad de archivos sino, coincidentemente, si `ProductRepository.kt`
+en su forma completa estaba presente o no en cada corrida.
+
+**Decisión:**
+- Reescribir el comentario roto: `` `domain/usecase/*.kt` `` →
+  `` `domain/usecase` `` (se pierde el sufijo de glob, el significado
+  para quien lee el comentario no cambia).
+- Revertir KSP a `2.3.12` (la versión que ya tenía el proyecto, D-007) —
+  nunca fue el problema, no hay ninguna razón para quedarse en una versión
+  más vieja.
+- De paso, arreglados dos usos reales de la API de Material3 en
+  `CategoryDropdown.kt` y `ProductListScreen.kt` que aparecieron recién al
+  llegar por primera vez a `compileDebugKotlin` (nunca se había llegado
+  tan lejos con el build roto en `kspDebugKotlin`): `ExposedDropdownMenu`
+  es una función miembro de `ExposedDropdownMenuBoxScope` (se llama sin
+  calificar, por receptor implícito, dentro del lambda de
+  `ExposedDropdownMenuBox`), no un miembro de `ExposedDropdownMenuDefaults`
+  como estaba escrito. No es parte de este bloqueo de KSP/Hilt; es un bug
+  de código distinto que solo se hizo visible al destrabar el anterior.
+
+**Descartado:**
+- Las dos versiones de KSP intermedias (`2.3.9` y `2.3.7`) probadas en el
+  camino — ninguna cambiaba nada, quedó demostrado con evidencia directa.
+- La teoría de "límite de archivos de KSP" de la sesión anterior — el
+  archivo importaba por su contenido roto, no por ser "uno más".
+- Mantener KSP en una versión distinta a `2.3.12` "por las dudas" — no hay
+  ninguna razón real para eso ahora que se conoce la causa.
+
+**Consecuencia:** agregada una regla nueva a `CLAUDE.md` sección 5:
+prohibido escribir la secuencia literal `/*` dentro del texto de un
+comentario de bloque, con este incidente como ejemplo. La regla que se
+había agregado primero a la sección 2.1 (sobre contemporaneidad de
+KSP/Hilt) se retiró por completo: no correspondía a la causa real y
+dejarla habría quedado como una lección falsa. Si en el futuro aparece
+otro "podría ser un límite/versión de la herramienta" sin una causa clara
+en el propio mensaje de error, el orden correcto es primero descartar algo
+tan simple como un comentario roto (`grep -c '/\*'` vs `grep -c '\*/'` en
+el archivo sospechoso) antes de gastar intentos cambiando versiones.
+
+---
+
 <!--
 ## D-00X — Título
 

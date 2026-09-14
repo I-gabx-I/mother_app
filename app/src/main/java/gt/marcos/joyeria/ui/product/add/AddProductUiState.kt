@@ -1,5 +1,6 @@
 package gt.marcos.joyeria.ui.product.add
 
+import gt.marcos.joyeria.data.repository.Category
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.pricing.PricingCalculator
 
@@ -16,6 +17,7 @@ data class AddProductUiState(
     val salePriceManuallyEdited: Boolean = false,
     val name: String = "",
     val categoryId: Long? = null,
+    val categories: List<Category> = emptyList(),
     val quantityText: String = "",
     val notes: String = "",
     val defaultMarkupBp: Int? = null,

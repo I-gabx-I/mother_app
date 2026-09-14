@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import gt.marcos.joyeria.data.local.dao.AppSettingDao
 import gt.marcos.joyeria.data.local.dao.CategoryDao
+import gt.marcos.joyeria.data.local.dao.PriceHistoryDao
 import gt.marcos.joyeria.data.local.dao.ProductDao
 import gt.marcos.joyeria.data.local.entity.AppSettingEntity
 import gt.marcos.joyeria.data.local.entity.CategoryEntity
@@ -40,6 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun productDao(): ProductDao
     abstract fun appSettingDao(): AppSettingDao
+    abstract fun priceHistoryDao(): PriceHistoryDao
 
     /**
      * Semilla de las 5 categorías y de las claves de app_setting, en la

@@ -10,6 +10,7 @@ import dagger.hilt.components.SingletonComponent
 import gt.marcos.joyeria.data.local.AppDatabase
 import gt.marcos.joyeria.data.local.dao.AppSettingDao
 import gt.marcos.joyeria.data.local.dao.CategoryDao
+import gt.marcos.joyeria.data.local.dao.PriceHistoryDao
 import gt.marcos.joyeria.data.local.dao.ProductDao
 import javax.inject.Singleton
 
@@ -32,4 +33,7 @@ object DatabaseModule {
 
     @Provides
     fun provideAppSettingDao(database: AppDatabase): AppSettingDao = database.appSettingDao()
+
+    @Provides
+    fun providePriceHistoryDao(database: AppDatabase): PriceHistoryDao = database.priceHistoryDao()
 }
