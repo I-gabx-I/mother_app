@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Fase 03: solo para tomar la foto de la pieza. Nada de almacenamiento:
+         la foto se guarda en filesDir, no en galería/MediaStore. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:name=".JoyeriaApp"
         android:allowBackup="true"

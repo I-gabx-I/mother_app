@@ -517,6 +517,207 @@ queda anotado como pendiente en `ESTADO.md`, no se corrige de paso acá.
 
 ---
 
+## D-017 — CameraX `1.6.2` (`camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`)
+
+**Contexto:** Fase 03 necesita capturar una foto con la cámara del
+teléfono (CLAUDE.md sección 2 ya fija CameraX como stack de captura). Los
+cuatro artefactos se publican en lockstep (misma versión siempre).
+
+**Decisión:** usar `1.6.2` para los cuatro. Verificado en
+`dl.google.com/android/maven2/androidx/camera/<artefacto>/maven-metadata.xml`
+para cada uno de los cuatro por separado: todos listan `1.6.2` como la
+última versión estable antes de `1.7.0-alpha01/02/03` (pre-release,
+descartado). `minSdk 24` del proyecto cubre de sobra el mínimo de CameraX
+1.6.x (21+).
+
+**Descartado:** `1.7.0-alpha0x` (pre-release, CLAUDE.md prohíbe usar algo
+que no sea estable salvo justificación explícita, que acá no existe).
+
+**Consecuencia:** se agregan los cuatro artefactos uno por uno, con
+`./gradlew assembleDebug` entre cada uno (CLAUDE.md §2.1).
+
+---
+
+## D-018 — Coil `3.3.0` (`io.coil-kt.coil3:coil-compose`), no `3.6.2` (reemplaza la decisión original de esta misma entrada)
+
+**Contexto:** Fase 03 necesita mostrar la foto capturada en la pantalla
+(CLAUDE.md sección 2 fija Coil para carga de imágenes). El grupo Maven de
+Coil 3.x es `io.coil-kt.coil3` (renombrado desde `io.coil-kt` en la
+versión 2.x, que ya no es la que corresponde usar).
+
+**Primer intento, revertido:** `io.coil-kt.coil3:coil-compose:3.6.2` (la
+última estable según `maven-metadata.xml`, `lastUpdated` 2026-09-04).
+Compilaba solo mientras el proyecto no tenía ningún código que
+**usara** Coil de verdad — al escribir el primer Composable que sí lo
+usa, `./gradlew assembleDebug` falló con `Class 'kotlin.Unit' was
+compiled with an incompatible version of Kotlin. The actual metadata
+version is 2.4.0, but the compiler version 2.2.0 can read versions up to
+2.3.0`, y errores de "Unresolved reference" sobre funciones básicas del
+stdlib (`apply`, `filter`, `to`, `maxOf`...) en archivos que ni siquiera
+tocan Coil (`ImageStorage.kt`, `MoneyDigitsInput.kt`). Diagnóstico con
+`./gradlew :app:dependencyInsight --dependency org.jetbrains.kotlin:kotlin-stdlib
+--configuration debugRuntimeClasspath`: `coil-android:3.6.2` (transitivo
+de `coil-compose`) declara una dependencia dura a
+`kotlin-stdlib:2.4.10` — una versión de Kotlin más nueva que la `2.2.10`
+que este proyecto tiene pineada (CLAUDE.md §2.1: prohibido subir Kotlin
+sin pararse a preguntar). Gradle resuelve el conflicto de versiones
+tomando la más alta de todo el árbol (`2.4.10`), así que **todo** el
+proyecto terminaba compilando contra un stdlib que el compilador 2.2.10
+no puede leer — de ahí que hasta código sin relación con Coil fallara.
+
+**Decisión final:** `io.coil-kt.coil3:coil-compose:3.3.0`. Verificado el
+POM de cada versión de `coil-android` desde `3.0.4` hasta `3.6.2`
+(`curl` contra `repo1.maven.org/maven2/io/coil-kt/coil3/coil-android/<version>/coil-android-<version>.pom`,
+buscando su dependencia a `kotlin-stdlib`):
+
+| Coil | `kotlin-stdlib` que pide |
+|---|---|
+| 3.0.4 | 2.0.21 |
+| 3.1.0 | 2.1.10 |
+| 3.2.0 | 2.1.20 |
+| **3.3.0** | **2.2.0** ✅ (≤ 2.2.10 del proyecto) |
+| 3.4.0 | 2.3.10 |
+| 3.5.0 | 2.4.0 |
+| 3.6.0 – 3.6.2 | 2.4.10 |
+
+`3.3.0` es la versión más alta cuyo `kotlin-stdlib` es igual o anterior
+al `2.2.10` ya pineado — no hace falta arriesgar con `3.4.0` (`2.3.10`,
+zona ambigua contra el límite "hasta 2.3.0" del mensaje de error) cuando
+hay una versión claramente segura disponible. Confirmado con
+`assembleDebug` en verde después del cambio.
+
+**Descartado:**
+- `3.6.2` (revertido, ver arriba).
+- `3.4.0`/`3.5.0` (piden `kotlin-stdlib` por encima de lo que el
+  compilador 2.2.10 puede leer con certeza, o justo en el límite —
+  no vale la pena probar cuando `3.3.0` ya es segura).
+- Coil 2.x (`io.coil-kt:coil-compose`, grupo viejo).
+- Subir la versión de Kotlin del proyecto para poder usar Coil 3.6.x:
+  CLAUDE.md §2.1 lo prohíbe explícitamente sin pausar a preguntar, y
+  hacerlo solo para acomodar una librería de imágenes es
+  desproporcionado.
+
+**Consecuencia:** un solo artefacto (`coil-compose`), sin artefactos de
+red (las fotos son locales, `filesDir`). Queda anotado como precedente:
+antes de pinear una versión "la más nueva disponible" de cualquier
+librería, conviene revisar su propia dependencia de `kotlin-stdlib`
+contra la del proyecto, no solo que exista y esté publicada.
+
+---
+
+## D-019 — `lifecycle-viewmodel-ktx` y `lifecycle-runtime-compose`, reutilizando la versión `2.11.0` ya pineada
+
+**Contexto:** Fase 03 agrega el primer `ViewModel` de la app
+(`AddProductViewModel`, CLAUDE.md sección 5: "los ViewModels exponen un
+único `StateFlow<UiState>`"). Hacen falta `ViewModel`/`viewModelScope`
+(`lifecycle-viewmodel-ktx`) y `collectAsStateWithLifecycle()`
+(`lifecycle-runtime-compose`) para conectarlo a Compose.
+
+**Decisión:** agregar ambos artefactos usando el mismo `version.ref
+= "lifecycleRuntimeKtx"` (`2.11.0`) que `libs.versions.toml` ya tiene
+pineado para `androidx-lifecycle-runtime-ktx` desde Fase 00, en vez de
+buscar/pinear un número nuevo. Verificado que `2.11.0` existe y es la
+última estable para los dos artefactos en
+`dl.google.com/android/maven2/androidx/lifecycle/<artefacto>/maven-metadata.xml`
+(el tren de versión de `androidx.lifecycle` se publica en conjunto).
+
+**Por qué:** CLAUDE.md §2.1 pide usar la versión que el proyecto ya tiene
+cuando corresponde, en vez de inventar un número nuevo — acá corresponde
+literalmente, es el mismo grupo Maven (`androidx.lifecycle`) en el mismo
+tren de release.
+
+**Descartado:** pinear una versión distinta para estos dos artefactos
+sin verificar si coincide con la ya presente.
+
+**Consecuencia:** dos artefactos nuevos, mismo `version.ref` que ya
+existía — no se agrega ninguna clave nueva a `[versions]` en
+`libs.versions.toml`, solo dos entradas nuevas en `[libraries]`.
+
+---
+
+## D-020 — `androidx.compose.material:material-icons-extended`, sin versión propia (cubierta por el BOM) — corrige un supuesto equivocado sobre `material-icons-core`
+
+**Contexto:** el botón "Tomar foto" necesita un ícono de cámara
+reconocible junto al texto (CLAUDE.md sección 6: claridad para usuaria no
+técnica; el humano aprobó explícitamente "ícono con texto al lado, no
+solo el ícono").
+
+**Primer intento, revertido:** agregar `material-icons-core` asumiendo
+que `Icons.Default.PhotoCamera` estaba ahí. Era un supuesto sin
+verificar (intenté confirmarlo buscando el archivo fuente en el repo de
+`androidx` por HTTP y no lo encontré, pero seguí adelante igual en vez de
+tratar eso como "no verificado"). `./gradlew assembleDebug` lo confirmó
+mal con un error real y específico:
+`Unresolved reference 'PhotoCamera'` en `CameraCaptureView.kt` — el ícono
+no existe en el set `core`, solo en `extended`.
+
+**Decisión final:** `androidx.compose.material:material-icons-extended`,
+**sin versión propia** (cubierta por `compose-bom`, ya presente,
+`2026.02.01`, como toda lib de Compose del proyecto). Confirmado con
+`assembleDebug` en verde después del cambio: `PhotoCamera` resuelve
+desde ahí.
+
+**Por qué:** es el único módulo que trae `PhotoCamera` (y en general,
+cualquier ícono fuera del subconjunto reducido de `core`) publicado por
+Google — no hay una alternativa "liviana" que lo incluya sola. El
+paquete es más pesado que `core`, pero es lo que hace falta para el
+ícono que el humano pidió explícitamente.
+
+**Descartado:**
+- `material-icons-core` (revertido: no trae `PhotoCamera`, ver arriba).
+- Dibujar un ícono vectorial propio para evitar el paquete "extended":
+  desproporcionado para un solo ícono estándar de Material.
+
+**Consecuencia:** dependencia más pesada que la propuesta original, pero
+sin versión propia que mantener (BOM). Anotado como el mismo tipo de
+error que D-018 (Coil): verificar contra la fuente real antes de asumir
+dónde vive algo, no alcanza con que "suene razonable".
+
+---
+
+## D-021 — Sin selector de categoría en el alta rápida (Fase 03)
+
+**Contexto:** `FASES.md` Fase 03 dice que "categoría" es uno de los
+campos opcionales del formulario. Implementar un selector de verdad
+necesita una lista de las categorías existentes, que hoy solo se puede
+leer desde `CategoryDao` (`data/local`, Fase 01). El humano ya había
+rechazado explícitamente el mismo patrón para `default_markup_bp`/
+`price_rounding_step_cents` (inyectar un DAO directo en el ViewModel,
+saltándose `data/repository`) y pidió `AppSettingRepository` en su
+lugar — pero "Archivos permitidos" de Fase 03 no incluye ningún
+`CategoryRepository`, y esta decisión no se preguntó explícitamente
+antes de escribir código (a diferencia de las 6 preguntas que sí se
+hicieron antes de arrancar).
+
+**Decisión:** el formulario de alta rápida **no** tiene selector de
+categoría. `categoryId` queda siempre `null` desde esta pantalla —
+se asigna después, al editar la pieza (Fase 04), igual que `supplier`.
+
+**Por qué:** las dos alternativas eran peores: (a) repetir el mismo
+atajo que el humano ya corrigió una vez en esta misma fase (DAO directo
+en el ViewModel) sienta el precedente que se quería evitar, con el
+agravante de que ahora sé que está mal; (b) agregar un
+`CategoryRepository` nuevo fuera de "Archivos permitidos" es tocar un
+archivo no autorizado sin pausar a preguntar, la falta explícita que
+`CLAUDE.md` sección 7 prohíbe. Omitir el selector es la única opción
+que no repite un error ya corregido ni se salta la regla de archivos
+permitidos, y es coherente con CLAUDE.md sección 1: "Todo lo demás es
+opcional y se edita después" — categoría encaja ahí tan bien como
+`supplier`, que ya estaba aprobado fuera del formulario.
+
+**Descartado:**
+- `CategoryDao` inyectado directo en el ViewModel (mismo patrón ya
+  rechazado para `AppSettingDao`).
+- Un `CategoryRepository` nuevo, fuera de "Archivos permitidos".
+
+**Consecuencia:** a diferencia de `supplier` (que el humano sí revisó y
+aprobó explícitamente como pregunta 3), esta la tomé yo solo durante la
+implementación, no antes. La marco así en `ESTADO.md` para que quede
+clara la diferencia, y queda pendiente de tu confirmación igual que
+`supplier` lo estuvo.
+
+---
+
 <!--
 ## D-00X — Título
 

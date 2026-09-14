@@ -17,13 +17,15 @@ Reglas:
 
 ## Estado actual
 
-- **Fase en curso:** ninguna. `fase-02-ok` tageada y mergeada a `main`.
-  Rama de corrección `fix/seed-markup-bp` (fuera del ciclo de fases,
-  bug encontrado durante la revisión de Fase 02) implementada y
-  verificada; pendiente de tag/merge por pedido explícito del humano.
-- **Última fase cerrada:** Fase 02 — Motor de dinero y precios (tag `fase-02-ok`, mergeada a `main`).
+- **Fase en curso:** Fase 03 — Alta rápida de pieza (rama `fase/03-quick-add`).
+  Implementada y verificada (build, tests, y flujo funcional real en
+  emulador con `uid` generado, foto guardada <1MB y bien orientada).
+  **No cerrada:** falta el criterio 4 (cronómetro real, tiene que
+  medirlo la usuaria final) y confirmar D-021 (sin selector de
+  categoría, decisión tomada durante la implementación).
+- **Última fase cerrada:** `fix/seed-markup-bp` (tag `fix-seed-markup-bp`, mergeada a `main`); antes, Fase 02 — Motor de dinero y precios (tag `fase-02-ok`).
 - **Versión de base de datos:** 1
-- **Bloqueos abiertos:** ninguno
+- **Bloqueos abiertos:** ver "Fase 03 — Plan", sección "Bloqueos / preguntas para el humano" (6 preguntas)
 
 ---
 
@@ -1665,3 +1667,717 @@ la capa de datos.
 ### Bloqueos / preguntas para el humano
 
 - Ninguno.
+
+---
+
+## Fase 03 — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-13. Releí completos `CLAUDE.md`, `FASES.md` (Fase 03),
+`ESQUEMA.md` (tabla `product`) y `DECISIONES.md` antes de escribir esto.
+No toqué ningún archivo de código todavía. Rama a abrir: `fase/03-quick-add`,
+desde `main` (ya con `fase-02-ok` y `fix-seed-markup-bp` mergeadas).
+
+Esta fase es distinta a las anteriores en un sentido concreto que quiero
+dejar explícito desde acá, no descubierto al final: **el criterio 4
+(cronómetro, <20s) mide desempeño humano real — tiempo de reacción, de
+mirar la pantalla, de encontrar el campo, de tipear con el dedo.** Yo no
+tengo manos ni ojos para operar un teléfono como una persona; puedo
+scriptear `adb shell input tap/text` contra el emulador, pero eso mide la
+latencia de un script, no el tiempo que tarda una persona en decidir qué
+tocar y leerlo — sería un número falso, más rápido que cualquier uso real,
+y lo prohibido en este proyecto es justamente inventar o maquillar una
+medición (CLAUDE.md, "Report outcomes faithfully"). Lo explico en detalle
+en la sección 6 de este plan, con lo que sí puedo hacer yo mismo y lo que
+necesito que hagas vos (o alguien) con el dedo y un cronómetro de verdad.
+
+### 1) Archivos que voy a crear (dentro de "Archivos permitidos" de Fase 03)
+
+- `app/src/main/java/gt/marcos/joyeria/ui/format/MoneyFormat.kt` —
+  `Money.format()`, la única función de formateo de moneda (CLAUDE.md 3.3),
+  pendiente desde que Fase 02 la excluyó a propósito.
+- `app/src/main/java/gt/marcos/joyeria/domain/usecase/AddProductUseCase.kt`
+  — incluye también `AddProductInput` (data class de entrada, sin tipos de
+  Android/Room) en el mismo archivo; el nombre matchea el glob
+  `AddProduct*.kt`.
+- `app/src/main/java/gt/marcos/joyeria/data/repository/ProductRepository.kt`
+  — clase concreta (no interfaz + impl separadas; ver nota de arquitectura
+  en la sección 4).
+- `app/src/main/java/gt/marcos/joyeria/util/ImageStorage.kt` — redimensión,
+  compresión y guardado de la foto (sección 5).
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductUiState.kt`
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductViewModel.kt`
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductScreen.kt`
+  (Composable stateless, `@Preview`-able)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductRoute.kt`
+  (wrapper stateful, conecta el ViewModel con `AddProductScreen`; ver
+  sección 4 sobre por qué este archivo sí "recibe" el ViewModel)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/MoneyDigitsField.kt`
+  (campo de costo/precio, patrón "buffer de dígitos", sección 3)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/CameraCaptureView.kt`
+  (envoltorio de CameraX: permiso + `PreviewView` + botón de disparo)
+- `app/src/main/res/values/strings.xml` — todos los strings nuevos
+  (editar el existente, no crear uno nuevo).
+- `AndroidManifest.xml` — **una sola línea nueva**:
+  `<uses-permission android:name="android.permission.CAMERA" />`. Nada de
+  almacenamiento: la foto se guarda en almacenamiento interno de la app
+  (`filesDir`), no en galería/MediaStore, así que no hace falta ningún
+  permiso de almacenamiento (CLAUDE.md sección 9: "prohibido pedir
+  permisos que no se usen").
+
+**No planeo ningún archivo de test.** `app/src/test/**` no está en
+"Archivos permitidos" de Fase 03 (a diferencia de Fases 01 y 02), y la
+fase no está marcada `[TESTS OBLIGATORIOS]` en `FASES.md`. Lo leo como
+intencional: esta fase se verifica corriendo la app, no con JUnit. Si
+preferís que igual agregue un par de tests de lógica pura (por ejemplo,
+el parseo del buffer de dígitos, o el cálculo de dimensiones al
+redimensionar la foto), decímelo y los agrego — pero por defecto no
+voy a tocar `app/src/test/**` sin que me lo pidas, porque no está en la
+lista permitida.
+
+### 1.1) Un archivo que necesito que agregues a "Archivos permitidos": `MainActivity.kt`
+
+Hoy `MainActivity` no tiene `@AndroidEntryPoint` (Hilt nunca se conectó
+ahí, porque hasta ahora no había nada que inyectar en una pantalla) y
+muestra un `HomePlaceholder` fijo. Para que la fase se pueda *usar* de
+verdad — que es literalmente el criterio 4 — necesito:
+
+1. Anotar `MainActivity` con `@AndroidEntryPoint`.
+2. Obtener `AddProductViewModel` con `by viewModels()` (Hilt se lo provee
+   automáticamente gracias al punto 1).
+3. Reemplazar `HomePlaceholder` por `AddProductRoute(viewModel)`.
+
+`MainActivity.kt` no está en "Archivos permitidos" de Fase 03. Es un
+cambio mecánico de tres líneas, no agrega lógica de negocio ni pantallas
+nuevas más allá de mostrar la que esta fase ya construye, pero como la
+regla del proyecto es "si necesitás tocar otro archivo, parás y lo
+anotás" — te lo pregunto en vez de tocarlo por mi cuenta. Si preferís
+otro mecanismo (por ejemplo, dejar `MainActivity` como está y no
+verificar el flujo real hasta una fase futura con navegación), decímelo
+y ajusto el plan.
+
+### 2) Los tres campos obligatorios, y los opcionales con su valor por defecto
+
+**Obligatorios (3, ni uno más):**
+1. **Foto** — sin foto, no hay `photoPath` que guardar; `Guardar` queda
+   deshabilitado hasta que exista una captura.
+2. **Costo** — campo de dígitos (sección 3). Vacío = no habilitado.
+3. **Precio de venta** — mismo campo, pre-llenado con el precio sugerido
+   apenas hay costo (sección 3), pero editable; ella puede aceptarlo tal
+   cual o escribir el suyo.
+
+**Opcionales, con default sensato (se editan después, Fase 04):**
+- **Nombre** — si lo deja vacío, se guarda con un texto por defecto en
+  español (`strings.xml`, ej. "Pieza sin nombre"), **no** con el `uid`:
+  descarté usar el `uid` como nombre por defecto porque el nombre tiene
+  que quedar resuelto *antes* de guardar (la UI lo resuelve con
+  `stringResource`, ya que `domain` no puede leer `strings.xml`), y el
+  `uid` recién se genera *durante* el guardado — usar el `uid` como
+  default habría significado generar el `uid` en dos pasos separados
+  (uno para el nombre, otro para el insert), perdiendo el `db.withTransaction`
+  único que hace atómica la operación completa (sección 4). Un texto fijo
+  evita esa complicación y es igual de claro para ella.
+- **Categoría** — sin elegir = sin categoría (`category_id = null`, ya
+  válido en el esquema, `ON DELETE SET NULL`).
+- **Cantidad** — sin escribir = `1` (el caso más común: está cargando la
+  pieza que tiene en la mano).
+- **Notas** — sin escribir = `null`.
+
+**Lo que dejo explícitamente fuera del formulario de esta fase, aunque
+`ProductEntity` tiene el campo:** `supplier` (mayorista). `FASES.md`
+Fase 03 solo menciona "Nombre, categoría, cantidad y notas" como
+opcionales — no menciona `supplier`. Lo leo como que ese campo entra en
+Fase 04 (edición), no en la alta rápida. Se guarda `null` y se completa
+después. Si querés que esté también en esta pantalla, decímelo.
+
+### 3) Cómo se escriben costo y precio: buffer de dígitos, no un campo decimal
+
+Diseño (no está escrito en ningún `.md`, lo dejo explícito para tu OK):
+el campo de costo/precio funciona como una caja registradora, no como un
+campo de texto con punto decimal. Cada tecla que ella toca es un dígito;
+el campo guarda un `String` de puros dígitos y lo **interpreta
+directamente como centavos** (los últimos dos dígitos son siempre los
+centavos): escribe "7", "5", "9", "0" y el campo muestra en vivo
+`Q75.90`, sin que ella tenga que encontrar ni tocar el punto. Ventajas
+sobre un campo decimal:
+- Cero ambigüedad de separador decimal por locale (no hay que decidir si
+  "." o "," separa los centavos).
+- El valor que produce el campo **ya es** `Money.cents`, sin ningún
+  parseo de texto decimal — nada que redondear ni que pueda fallar.
+- Es el patrón estándar en apps de cobro/punto de venta, así que aunque
+  ella no lo haya visto en esta app, es un patrón que probablemente
+  conoce de otras apps de pago.
+
+`MoneyDigitsField` (en `ui/product/add/`) hace el filtrado de dígitos y
+el tope de longitud (9 dígitos, tope de `Q9,999,999.99` — de sobra para
+joyería); `Money.format()` (en `ui/format/MoneyFormat.kt`) se usa para
+mostrar el valor ya interpretado. Este archivo no necesita una función
+de "parseo" separada: los dígitos crudos **son** los centavos.
+
+**Precio sugerido en vivo:** mientras escribe el costo, si el campo de
+precio todavía no fue tocado a mano, se **pre-llena** con
+`PricingCalculator.suggestedPrice(cost, defaultMarkupBp, roundingStep)`
+(leyendo `default_markup_bp` y `price_rounding_step_cents` de
+`app_setting` una vez al abrir la pantalla). Si ella edita el precio a
+mano, deja de auto-completarse (no le pisa lo que ya escribió). Debajo
+del precio se muestra siempre "Ganancia: Qxx.xx" en vivo, con
+`PricingCalculator.profit(cost, salePrice)` sobre los valores actuales
+de los dos campos — esto cubre literalmente el entregable ("mientras
+escribe el costo, la app muestra en vivo el precio sugerido y la
+ganancia").
+
+`AddProductViewModel` inyecta `AppSettingDao` directamente (interfaz que
+ya existe desde Fase 01) para esa única lectura de dos claves; no creo
+un `AppSettingRepository` nuevo porque no está en "Archivos permitidos"
+de esta fase, y `ProductRepository` leyendo configuración de precios se
+sentía peor (una clase llamada "Product" haciendo algo que no es de
+productos). Lo anoto como nota de arquitectura, no como bloqueo — si
+preferís que lo haga distinto, decímelo.
+
+### 4) Arquitectura: dónde vive cada cosa y una aclaración sobre "los Composables no reciben ViewModels"
+
+```
+AddProductRoute (stateful)          <- ui/product/add, obtiene el ViewModel
+  └─ collectAsStateWithLifecycle()
+  └─ AddProductScreen(state, onXChanged, onSaveClick, ...)   (stateless, @Preview-able)
+
+AddProductViewModel                 <- ui/product/add, StateFlow<AddProductUiState>
+  └─ AddProductUseCase               <- domain/usecase, sin imports de Android
+       └─ ProductRepository          <- data/repository, concreta (Room adentro)
+            ├─ ProductDao (ya existe)
+            ├─ ProductUidGenerator (ya existe, Fase 01)
+            └─ AppDatabase.withTransaction { } envolviendo generar uid + insertar
+```
+
+- `MainActivity` (si se aprueba 1.1) instancia el ViewModel con
+  `by viewModels()` (Hilt, gracias a `@AndroidEntryPoint`) y se lo pasa a
+  `AddProductRoute`. **No** agrego `hilt-navigation-compose`: no hay
+  `NavHost` en la app todavía, y `by viewModels()` en la Activity ya
+  resuelve la inyección sin esa dependencia extra.
+- `AddProductScreen` (el Composable de verdad, el que sería
+  `@Preview`-able) recibe **estado y lambdas**, nunca el ViewModel — eso
+  cumple la letra de CLAUDE.md sección 5. `AddProductRoute` es el
+  wrapper delgado que sí conoce el ViewModel; es la excepción esperada
+  (el "borde" entre Activity/DI y la UI pura), no una violación — lo
+  dejo explícito porque la regla no lo aclara y prefiero que quede
+  escrito antes de que alguien lo lea como una contradicción.
+- `AddProductUseCase` recibe un `AddProductInput` ya resuelto (nombre y
+  cantidad ya con su default aplicado por el ViewModel, que sí puede
+  tocar `stringResource`/recursos porque vive en `ui`) y delega en
+  `ProductRepository.insert(input)`, que hace TODO en un solo
+  `db.withTransaction { }`: llama a `ProductUidGenerator.next()`
+  (que ya es atómico por sí mismo, Fase 01) e inserta el `ProductEntity`,
+  como una sola operación — más fuerte que dejarlas sueltas: si el
+  insert fallara, el `uid` consumido también se revierte, no queda un
+  hueco en la secuencia.
+- `ProductRepository` no tiene una interfaz separada en `domain`
+  (`domain/repository/ProductRepository.kt` no está en "Archivos
+  permitidos" de esta fase). `AddProductUseCase` depende directo de la
+  clase concreta de `data`. Es una simplificación respecto a Clean
+  Architecture "de libro" (que pondría la interfaz en `domain`), pero
+  respeta la única regla dura que exige `CLAUDE.md` sección 5: *"`domain`
+  no importa nada de Android"* — `ProductRepository` expone solo tipos
+  planos (`Money`, `String`, `Long`) en su firma pública, nunca
+  `ProductEntity` ni nada de `androidx.room`, así que `AddProductUseCase.kt`
+  no termina importando Room de forma indirecta. Si preferís la interfaz
+  en `domain` desde ya, decímelo y la agrego (pediría sumar
+  `domain/repository/**` a "Archivos permitidos").
+
+### 5) Captura y compresión de la foto
+
+1. **Permiso:** al tocar "Tomar foto" por primera vez,
+   `rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission())`
+   pide `CAMERA`. Si lo niega, mensaje claro en español explicando para
+   qué se usa (CLAUDE.md sección 6), sin crash, y puede reintentar
+   tocando de nuevo. Si ya está concedido, va directo a la cámara.
+2. **Vista previa y disparo:** `CameraCaptureView` arma un `ImageCapture`
+   + `Preview` de CameraX, ligados al ciclo de vida
+   (`ProcessCameraProvider` + `LifecycleCameraController` o
+   `bindToLifecycle`, a confirmar cuál es más simple al implementar) y
+   muestra un `PreviewView`. Un botón de disparo grande (56dp mínimo,
+   CLAUDE.md sección 6) llama a `imageCapture.takePicture(executor,
+   OnImageCapturedCallback)`, que entrega un `ImageProxy` en memoria (no
+   escribo un archivo temporal sin comprimir primero).
+3. **Redimensión + compresión** (`ImageStorage`, `util/`):
+   - `ImageProxy` → `Bitmap` (vía su `planes`/`toBitmap()` o
+     `ImageDecoder` según el formato que entregue CameraX — JPEG directo
+     desde el sensor si está disponible, para no perder un paso de
+     decodificación).
+   - Si el lado mayor supera 1600px, se escala manteniendo el aspecto
+     (regla de tres simple sobre ancho/alto) — esta función de "calcular
+     el tamaño destino" es matemática pura (`Int`/`Int` sobre ancho y
+     alto), la única parte de `ImageStorage` que sería trivial de
+     testear sin Robolectric si en algún momento se habilita esa
+     carpeta de test para esta fase.
+   - Codifica a JPEG (`Bitmap.compress(JPEG, calidad, stream)`) empezando
+     en una calidad alta (ej. 90) y bajando en pasos si el resultado
+     supera 1MB, hasta que quede debajo o se llegue a un piso de calidad
+     razonable (ej. 50) — documentado en el propio código, con el motivo
+     de por qué existe un piso (no seguir degradando la imagen hasta que
+     no se reconozca la pieza).
+   - Guarda el JPEG final en `context.filesDir/photos/<nombre único>.jpg`
+     (almacenamiento interno de la app, no galería — nadie más que la
+     app lee estos archivos, coherente con "sin backend, sin compartir"
+     de momento) y devuelve la ruta absoluta como `String` para
+     `photoPath`.
+   - Si ella retoma la foto antes de guardar, se borra el archivo de la
+     captura anterior antes de escribir la nueva (para no acumular
+     huérfanos en el almacenamiento interno con el tiempo).
+4. **Verificación del criterio 5** ("la foto guardada pesa menos de
+   1MB"): la hago con `adb shell run-as gt.marcos.joyeria ls -la
+   files/photos/` (o `adb pull` del archivo) después de una captura real
+   en el emulador, y anoto el tamaño exacto en `ESTADO.md` al cerrar la
+   fase — es un criterio que el propio `FASES.md` pide "verificado y
+   anotado", no un test automatizado.
+
+### 6) Cómo pienso medir el criterio 4 (cronómetro, <20s) — leételo, es la parte que más quiero que confirmes
+
+Lo que **yo sí puedo hacer** y voy a hacer al terminar de escribir el
+código, antes de pedirte nada:
+- Compilar (`assembleDebug`), instalar en el emulador
+  (`Medium_Phone_API_35`, el mismo de Fases 00/01) y confirmar que abre
+  sin crash (`adb logcat` limpio de `FATAL EXCEPTION`).
+- Ejercitar el flujo completo con `adb shell input tap/text` (conceder
+  el permiso de cámara, tocar "Tomar foto", disparar, escribir un costo,
+  confirmar que el precio sugerido y la ganancia cambian en pantalla,
+  tocar "Guardar", confirmar que aparece el `uid`) para probar que
+  **funciona de punta a punta sin bugs** — cero crashes, cero pantallas
+  colgadas, el dato se guarda de verdad en la base.
+- Medir el tamaño real del archivo de foto guardado (criterio 5, sección
+  5 de este plan).
+- Contar los campos `required` del formulario y grepear comillas en los
+  Composables (criterios 2 y 3 — esos sí son mecánicos, los hago yo).
+
+Lo que **no puedo hacer** con esas herramientas: un script de `adb`
+manda un tap o un texto en milisegundos, sin el tiempo real que le toma
+a una persona mirar la pantalla, decidir qué tocar, encuadrar la foto
+con la cámara y tipear con el dedo en un teclado táctil. Cronometrar eso
+con `adb` daría un número falso — más rápido que cualquier uso real — y
+el criterio 4 es explícito: *"Prueba manual documentada... tiempo real
+de registro de una pieza, medido con cronómetro. Si pasa de 20s, la fase
+no se cierra."* No voy a inventar ni estimar ese número.
+
+**Lo que necesito de vos (o de quien haga la prueba):** después de que
+yo confirme que el flujo funciona sin bugs (el paso anterior), voy a
+pedir que alguien lo use de verdad — idealmente en un teléfono real, con
+cronómetro en mano — registrando una pieza desde cero (cámara ya con
+permiso concedido, que es el caso repetido real: el permiso se pide una
+sola vez en la vida de la app, no en cada alta) y me pases el tiempo
+que salió. Yo lo documento tal cual en `ESTADO.md`, sin redondear para
+abajo. Si sale arriba de 20s, la fase se queda abierta hasta ajustar la
+pantalla (menos campos visibles, atajos, lo que haga falta) y probar de
+nuevo — no la cierro con un número que no se midió de verdad.
+
+Decime si esto te sirve así, o si preferís otro método de medición (por
+ejemplo, que vos mismo la corras en el emulador con mouse/teclado en vez
+de un teléfono real).
+
+### 7) Dependencias nuevas (una por vez, con `assembleDebug` entre cada una, versión verificada, nunca inventada)
+
+Verificadas recién contra `maven-metadata.xml` real (Google Maven /
+Maven Central), no inventadas:
+
+| Dependencia | Versión | Fuente verificada |
+|---|---|---|
+| `androidx.camera:camera-core` | `1.6.2` | `dl.google.com/.../camera-core/maven-metadata.xml`, últimas en el listado antes de `1.7.0-alpha01` |
+| `androidx.camera:camera-camera2` | `1.6.2` | ídem, mismo tren de versión (lockstep) |
+| `androidx.camera:camera-lifecycle` | `1.6.2` | ídem |
+| `androidx.camera:camera-view` | `1.6.2` | ídem (trae `PreviewView`) |
+| `io.coil-kt.coil3:coil-compose` | `3.6.2` | `repo1.maven.org/.../coil-compose/maven-metadata.xml`, `<release>3.6.2</release>`, `lastUpdated` 2026-09-04 |
+| `androidx.lifecycle:lifecycle-viewmodel-ktx` | `2.11.0` | `dl.google.com/.../lifecycle-viewmodel-ktx/maven-metadata.xml` — **reutiliza** el `version.ref` de `lifecycleRuntimeKtx` que ya existe en el catálogo (mismo tren de versión), no agrego un número nuevo |
+| `androidx.lifecycle:lifecycle-runtime-compose` | `2.11.0` | ídem, mismo `version.ref` reutilizado |
+
+Posibles, a confirmar recién al implementar (no comprometo versión
+todavía porque depende de si hacen falta de verdad):
+- `androidx.activity:activity-ktx` — solo si `by viewModels()` no
+  resuelve ya de forma transitiva desde `androidx.activity:activity-compose`
+  (lo confirmo compilando; si hace falta, reviso su versión real antes
+  de agregarla, no asumo que coincide con `activityCompose`).
+- `androidx.compose.material:material-icons-core` — **sin versión
+  propia**, cubierta por `compose-bom` ya presente. La quiero para un
+  ícono de cámara reconocible en el botón "Tomar foto" (más claro que
+  solo texto para una usuaria no técnica, CLAUDE.md sección 6). Es
+  de bajo riesgo (versión la resuelve el BOM), pero lo dejo anotado por
+  si preferís que use solo texto y me ahorre esta dependencia.
+
+Cada una se agrega sola, se corre `./gradlew assembleDebug`, se confirma
+verde, y recién ahí la siguiente (CLAUDE.md §2.1). Cada una lleva su
+entrada corta en `DECISIONES.md` antes de agregarla.
+
+### 8) Verificación planeada de los criterios de aceptación
+
+| # | Criterio | Cómo lo verifico |
+|---|---|---|
+| 1 | `assembleDebug` y `testDebugUnitTest` pasan | Corridos tras cada dependencia y al cerrar; la suite existente (`domain`, `data`) no debe romperse |
+| 2 | Exactamente 3 campos `required` | Cuento a mano los campos marcados obligatorios en `AddProductScreen`/`AddProductUiState` (foto, costo, precio) |
+| 3 | Sin strings literales en los Composables | `grep -n '"' app/src/main/java/gt/marcos/joyeria/ui/product/add/*.kt` — solo deben aparecer recursos (`R.string.*`), claves técnicas (rutas, formatos de fecha) o logs, nunca texto que ella lea |
+| 4 | <20s con cronómetro real | Sección 6 — pendiente de una medición humana real, no la doy por cerrada sin ese número |
+| 5 | Foto <1MB, verificado y anotado | `adb shell run-as`/`adb pull` sobre una captura real, tamaño anotado en `ESTADO.md` |
+
+### Bloqueos / preguntas para el humano
+
+1. **`MainActivity.kt` fuera de "Archivos permitidos"** (sección 1.1) —
+   necesito agregarlo para poder mostrar la pantalla de verdad y medir
+   el criterio 4. ¿Lo agrego a la lista?
+2. **Metodología del criterio 4** (sección 6) — confirmame que el plan
+   (yo verifico que funciona sin bugs + mido tamaño de foto; una persona
+   real cronometra el uso) te sirve, o decime otra forma de medirlo.
+3. **`supplier` fuera del formulario de esta fase** (sección 2) — ¿de
+   acuerdo, o lo incluyo también?
+4. **Patrón de "buffer de dígitos" para costo/precio** (sección 3) — ¿de
+   acuerdo con ese diseño en vez de un campo decimal con punto?
+5. **`AppSettingDao` inyectado directo en el ViewModel** en vez de un
+   repositorio nuevo (sección 3) — ¿de acuerdo, o preferís otra forma
+   dentro de los archivos permitidos?
+6. **Sin archivos de test esta fase** (sección 1) — ¿de acuerdo, o
+   agrego alguno igual (te pido agregar `app/src/test/**` a la lista)?
+
+---
+
+## Fase 03 — Respuestas del humano y ajustes finales al plan
+
+**Fecha:** 2026-09-13. El humano respondió las 6 preguntas y agregó tres
+cosas que faltaban (rotación de foto, fotos huérfanas, ícono+texto).
+`FASES.md` ya se corrigió en un commit aparte (rama `docs/fix-fase-03-scope`,
+commit `docs: fix fase-03 scope and stopwatch methodology`) con los
+archivos permitidos nuevos y la metodología del cronómetro. Esta rama
+(`fase/03-quick-add`) arranca desde ahí, no desde `main` directo — mismo
+patrón que Fase 01 con `docs/fix-fase-01-scope`.
+
+### Respuestas 1-6
+
+1. **`MainActivity.kt`: aprobado**, limitado a las tres líneas descritas
+   (`@AndroidEntryPoint`, `by viewModels()`, mostrar la pantalla nueva).
+   Ya está en "Archivos permitidos" de `FASES.md`.
+2. **Metodología del cronómetro: corregida.** Quien cronometra es **la
+   usuaria final** (la mamá), en un teléfono real — no yo, ni el
+   desarrollador, porque ya conocemos el diseño y sacaríamos un tiempo
+   irreal. Dos mediciones: la primera vez que ve la pantalla, y una
+   segunda después de registrar 2-3 piezas más. La segunda es la que
+   cuenta para el criterio (uso repetido = caso real); si la primera es
+   mucho peor, se anota como señal de diseño aunque no bloquee el cierre.
+   Ya está en `FASES.md` criterio 4. Al terminar la implementación y mi
+   propia verificación funcional, le voy a pedir al desarrollador que le
+   pase estos pasos a su mamá y me traiga los dos tiempos.
+3. **`supplier` fuera del formulario: confirmado.** Sin cambios al plan.
+4. **Buffer de dígitos: confirmado.** Sin cambios al plan.
+5. **`AppSettingDao` directo en el ViewModel: RECHAZADO.** El humano
+   señaló correctamente que eso hace que `ui` importe `data/local`
+   (Room), saltándose la capa `data/repository` — y que las fases 04+
+   copiarían el atajo. Se agrega **`data/repository/AppSettingRepository.kt`**
+   (ya sumado a "Archivos permitidos"): envuelve `AppSettingDao` y expone
+   `getDefaultMarkupBp(): Int` y `getPriceRoundingStep(): Money`, ambos
+   tipos planos. `AddProductViewModel` depende de este repositorio, nunca
+   del DAO. `ProductRepository` no lo necesita (no lee configuración de
+   precios).
+6. **Tests: dos excepciones aprobadas**, ya en "Archivos permitidos":
+   - `app/src/test/java/.../ui/product/add/MoneyDigitsInputTest.kt` —
+     que `"7590"` interprete como `7590` centavos (Q75.90), no `Q7,590`
+     ni `75900`. Es el punto exacto donde el dinero entra al sistema
+     desde el dedo de la usuaria; un error de un factor de 10 ahí
+     arruina todos los precios de la app sin que nada lo note. Para que
+     sea testeable sin Robolectric, la lógica de interpretación vive en
+     una función pura (`digitsToCents`), **separada** del Composable del
+     campo — no adentro de él.
+   - `app/src/test/java/.../util/ImageStorageScalingTest.kt` — un lado
+     mayor de 4000px con aspecto 4:3 tiene que dar exactamente 1600 y su
+     proporción correcta. También función pura, separada de la parte de
+     `ImageStorage` que toca `Bitmap`/archivos (esa sigue sin test
+     automatizado, se verifica a mano per sección 5 del plan original).
+
+### A) Rotación de la foto — agregado al plan
+
+CameraX entrega `imageInfo.rotationDegrees` (0/90/180/270) aparte de los
+píxeles del `ImageProxy`; si no se aplica antes de comprimir, la foto
+sale de costado aunque el archivo pese lo correcto. Plan: `ImageStorage`
+recibe el `rotationDegrees` junto con el `Bitmap` y aplica un
+`Matrix.postRotate(rotationDegrees)` antes de redimensionar/comprimir.
+Verificación: **visual**, no solo de tamaño de archivo — voy a hacer una
+captura real en el emulador, traerla con `adb pull` y mirarla (puedo ver
+imágenes directamente) para confirmar que una foto tomada "en vertical"
+se guarda en vertical, no de costado. Esto queda además como bullet
+nuevo en el entregable de `FASES.md` (ya aplicado).
+
+### B) Fotos huérfanas — decisión: mitigar el caso común ahora, documentar el resto como deuda
+
+El caso que sí resuelvo en esta fase: ella toma la foto y sale de la
+pantalla sin guardar (botón atrás, que hoy cierra la app porque no hay
+otra pantalla a la que navegar). `AddProductViewModel.onCleared()`
+borra el archivo de la foto pendiente si nunca se llegó a guardar un
+producto con ella. Esto cubre el flujo normal de "me arrepentí y salí".
+
+Lo que **no** resuelvo acá, y documento como deuda técnica explícita:
+si el proceso muere sin pasar por `onCleared()` (el sistema operativo
+mata la app por memoria, o un crash entre la captura y el guardado), el
+archivo queda huérfano en `filesDir/photos/` para siempre. Propuesta
+para una fase futura (Fase 04 u 11, donde ya existe una pantalla de
+inventario o de respaldo que recorre todos los productos): una barrida
+de arranque que liste `filesDir/photos/`, la compare contra
+`SELECT photo_path FROM product` (incluyendo archivados, **no**
+anulados/cancelados no aplica acá porque son productos, no ventas) y
+borre los archivos que no estén referenciados por ningún producto. Es
+más robusta que intentar atrapar cada camino posible de abandono
+(incluido este mismo `onCleared()`, que sería redundante si existiera
+la barrida) porque cubre todos los casos de una sola vez, pero es
+trabajo de otra fase — no lo hago ahora para no ampliar el alcance de
+"Archivos permitidos" de Fase 03 con una tarea de mantenimiento que no
+tiene relación con el alta rápida.
+
+### C) Ícono de cámara — ajustado
+
+El botón "Tomar foto" muestra **ícono y texto juntos** (`Row` con
+`Icon(Icons.Default.PhotoCamera)` + `Text("Tomar foto")`), no el ícono
+solo. Confirmado: un ícono suelto es una adivinanza para una usuaria no
+técnica (CLAUDE.md sección 6).
+
+### Con esto, arranco la implementación
+
+Sin más preguntas pendientes. Lo que sigue en esta misma entrada es el
+trabajo real (dependencias, código, verificación), documentado a medida
+que avanza — no antes de terminarlo, como en las fases anteriores.
+
+---
+
+## Fase 03 — Implementación, bugs encontrados y verificación
+
+**Fecha:** 2026-09-13. Rama `fase/03-quick-add`, desde `docs/fix-fase-03-scope`
+(que a su vez sale de `main`, con `fase-02-ok` y `fix-seed-markup-bp`
+mergeadas) — mismo patrón que Fase 01 con `docs/fix-fase-01-scope`.
+
+### Archivos creados/tocados
+
+Dentro de "Archivos permitidos" (ya corregido en `docs/fix-fase-03-scope`):
+- `domain/usecase/AddProductUseCase.kt` (+ `AddProductInput`)
+- `data/repository/ProductRepository.kt`
+- `data/repository/AppSettingRepository.kt`
+- `util/ImageStorage.kt`
+- `ui/format/MoneyFormat.kt` (`Money.format()`, pendiente desde Fase 02)
+- `ui/product/add/AddProductUiState.kt`
+- `ui/product/add/AddProductViewModel.kt`
+- `ui/product/add/AddProductScreen.kt`
+- `ui/product/add/AddProductRoute.kt`
+- `ui/product/add/MoneyDigitsInput.kt` (funciones puras)
+- `ui/product/add/MoneyDigitsField.kt` (Composable)
+- `ui/product/add/CameraCaptureView.kt`
+- `MainActivity.kt` (las tres líneas acordadas: `@AndroidEntryPoint`,
+  `by viewModels()`, mostrar `AddProductRoute`)
+- `AndroidManifest.xml` (una línea: permiso de cámara)
+- `strings.xml` (strings nuevos)
+- `test/.../ui/product/add/MoneyDigitsInputTest.kt`
+- `test/.../util/ImageStorageScalingTest.kt`
+- `gradle/libs.versions.toml`, `app/build.gradle.kts` (dependencias)
+- `DECISIONES.md`, `ESTADO.md` (proceso)
+
+No se tocó nada fuera de esta lista.
+
+### Dependencias agregadas (una por vez, con `assembleDebug` entre cada una)
+
+CameraX `1.6.2` (4 artefactos), Coil `3.3.0` (no `3.6.2`, ver más abajo),
+`lifecycle-viewmodel-ktx`/`lifecycle-runtime-compose` `2.11.0`
+(reutilizando el `version.ref` existente), `material-icons-extended` (no
+`-core`, ver más abajo). Cada una con su entrada en `DECISIONES.md`
+(D-017 a D-021) **antes** de agregarla, como pide CLAUDE.md.
+
+### Bugs reales encontrados y corregidos durante la implementación
+
+**1) Coil 3.6.2 rompía la compilación de todo el proyecto, no solo de
+Coil.** Al escribir el primer código que usa Coil de verdad,
+`assembleDebug` falló con `Class 'kotlin.Unit' was compiled with an
+incompatible version of Kotlin` y "Unresolved reference" sobre `apply`,
+`filter`, `to`... en archivos sin relación con Coil. Diagnóstico con
+`dependencyInsight`: `coil-android:3.6.2` fuerza `kotlin-stdlib:2.4.10`,
+más nuevo que el Kotlin `2.2.10` pineado del proyecto, y Gradle resuelve
+el conflicto tomando la versión más alta de **todo** el árbol —
+contaminando el proyecto entero. Corregido bajando a Coil `3.3.0`
+(pide `kotlin-stdlib:2.2.0`, verificado versión por versión contra los
+POMs reales). Detalle completo en **D-018** (`DECISIONES.md`).
+
+**2) `Icons.Default.PhotoCamera` no existe en `material-icons-core`.**
+Supuesto mío sin verificar (intenté confirmarlo por HTTP contra el repo
+de `androidx`, no lo encontré, y seguí igual). El error real
+(`Unresolved reference 'PhotoCamera'`) apareció recién cuando el primer
+error de Coil ya no tapaba todo lo demás. Corregido con
+`material-icons-extended`. Detalle en **D-020**.
+
+**3) Warning nuevo de Kotlin sobre destino de anotación.** `@ApplicationContext`
+en un parámetro de constructor (`ImageStorage`) generaba
+`This annotation is currently applied to the value parameter only, but
+in the future it will also be applied to field` (KT-73255). Corregido
+con `@param:ApplicationContext`, explícito, siguiendo la sugerencia del
+propio compilador. No es un error, pero es un warning nuevo, y
+`assembleDebug` "sin warning nuevo" es un criterio real del proyecto
+(Fase 00 lo dejó escrito y nunca se derogó).
+
+**4) `Button` de Guardar con `.size(56.dp)` en vez de `.height(56.dp)`.**
+Bug propio, encontrado releyendo el código antes de compilar (no por un
+error del compilador): `.size()` fija ancho **y** alto, así que
+`.fillMaxWidth().size(56.dp)` habría dejado un botón cuadrado de 56dp,
+no un botón de ancho completo con 56dp de alto (CLAUDE.md sección 6, área
+táctil mínima). Corregido a `.height(56.dp)` antes de la primera
+compilación exitosa.
+
+**Los tres primeros son bugs de dependencias/build, no de lógica de
+negocio — pero son exactamente el tipo de error que CLAUDE.md sección
+2.1 existe para atrapar ("una dependencia a la vez, compilás y
+confirmás"): los encontré recién al escribir el primer código que las
+usaba de verdad, no al agregarlas.**
+
+### Verificación automática
+
+- `./gradlew clean assembleDebug testDebugUnitTest` → `BUILD SUCCESSFUL`,
+  sin ningún warning nuevo (los dos preexistentes desde Fase 00/01 —
+  "Unable to strip..." y el de Robolectric — siguen igual).
+- 55 tests, 0 fallos, en las 8 suites (`domain`, `data` y las dos nuevas
+  de Fase 03: `MoneyDigitsInputTest` 7 tests, `ImageStorageScalingTest`
+  5 tests).
+- Criterio 3 (`grep '"'` en `ui/product/add`): solo aparecen comentarios,
+  claves de default (`""`), y datos de ejemplo del `@Preview` — ningún
+  `Text("texto literal")`. Verificado explícitamente que cada `Text(...)`
+  del directorio usa `stringResource` o un parámetro ya resuelto.
+- Criterio 2 (exactamente 3 campos obligatorios): por diseño —
+  `AddProductUiState.canSave` solo exige `photoPath`, `costDigits`,
+  `salePriceDigits`. Confirmado además funcionalmente (ver abajo):
+  "Guardar" quedó deshabilitado hasta que los tres tuvieron valor.
+
+### Verificación funcional (emulador `Medium_Phone_API_35`)
+
+Instalé el APK, abrí la app, y ejercité el flujo completo con `adb`
+(permiso de cámara, captura, escritura de costo/precio, expandir "Más
+detalles", Guardar). Sin ningún `FATAL EXCEPTION` en `logcat` en ningún
+punto.
+
+**Nota sobre la metodología, para que quede clara la diferencia con el
+criterio 4:** el flujo automatizado con `adb shell input tap/text` tuvo
+un problema real de sincronización — el teclado numérico en pantalla
+tapaba el botón "Guardar", así que mis primeros toques ahí en realidad
+tocaban teclas del teclado y seguían agregando dígitos al campo de costo
+en vez de guardar (por eso aparecieron valores como "Q40,009.97" en las
+capturas: no es un bug de la app, es que un script sin pausas entre
+pasos no espera a que el teclado se cierre, algo que una persona hace
+sin pensarlo). Lo até con `uiautomator dump` (lee el árbol de
+accesibilidad real, no una captura de pantalla) hasta encontrar las
+coordenadas correctas. **Esto es exactamente el argumento de la sección
+6 del plan:** un script no reproduce el ritmo de una persona real, y acá
+quedó documentado un ejemplo concreto de por qué.
+
+También encontré que `adb exec-out screencap` devolvía capturas
+desactualizadas varias veces seguidas en este emulador (mostraban
+`Q0.00` bastante después de que el campo ya tenía otro valor, confirmado
+por `uiautomator dump` tomado en el mismo instante) — un problema de la
+herramienta de captura en este entorno, no de la app; verificado
+comparando contra el árbol de accesibilidad, que sí reflejaba el estado
+real en todo momento.
+
+**Resultado del flujo completo, verificado con `uiautomator dump` tras
+sacar el teclado de en medio:**
+1. Tocar "Tomar foto" → pide permiso de cámara (diálogo del sistema, en
+   inglés porque el emulador está en inglés — no es texto de la app) →
+   "While using the app" → vista previa de CameraX real (el emulador
+   simula una habitación) → disparador → vuelve a `AddProductScreen`
+   con el thumbnail de la foto, botón pasa a decir "Cambiar foto".
+2. Escribir dígitos en "Costo" → el campo muestra el monto formateado en
+   vivo, "Precio de venta" se pre-llena con el sugerido, y aparecen
+   "Precio sugerido: Qxx.xx" y "Ganancia: Qxx.xx" en vivo — verificado
+   que los tres números son consistentes entre sí con las fórmulas
+   reales de `PricingCalculator` (ej. sugerido = costo × 2 redondeado a
+   Q5; ganancia = precio − costo), no solo que "cambian".
+3. "Guardar" queda deshabilitado hasta que hay foto + costo + precio, se
+   habilita después — confirma el criterio 2.
+4. Al guardar: banner **"Guardada como XP-000001"** (el `uid` se genera
+   y se muestra, tal como pide el entregable), y el formulario se
+   resetea a blanco (foto, costo y precio vuelven a estar vacíos, botón
+   vuelve a decir "Tomar foto") — listo para la siguiente pieza sin
+   navegar a ningún lado, coherente con el flujo real de cargar varias
+   piezas seguidas.
+
+### Verificación de la foto guardada (criterio 5 y punto A, rotación)
+
+**Extracción correcta del archivo, nota para el futuro:** mi primer
+intento de traer el archivo con `adb shell run-as ... cat archivo.jpg >
+local.jpg` (sin `exec-out`) corrompió el archivo — el shell de `adb`
+traduce bytes de control en el camino, típico problema de extraer
+binarios por `adb shell` en vez de `adb exec-out`. El archivo "corrupto"
+resultante tenía 134138 bytes contra los 133585 reales (553 bytes de
+basura agregada). Repetido con `adb exec-out run-as ... cat archivo.jpg
+> local.jpg` (binario seguro): tamaño exacto, JPEG válido. Anotado acá
+para no repetir el error si hace falta traer otro archivo de un
+dispositivo en una fase futura.
+
+- **Tamaño:** `133585` bytes (~130KB) — bien por debajo de 1MB. Criterio
+  5 cumplido.
+- **Rotación (punto A):** confirmado **visualmente**, no solo por
+  tamaño — abrí el JPEG extraído correctamente y la escena (una
+  habitación simulada por el emulador) se ve derecha, en vertical, no de
+  costado ni al revés. Dimensiones reales del archivo: 960×1280 (ancho
+  < alto, proporción de retrato) — coherente con una rotación aplicada
+  de verdad sobre una captura que el sensor entrega nativamente en
+  landscape.
+- **Fila real en la base de datos** (extraída con el mismo cuidado
+  binario, incluyendo `-wal`/`-shm` porque Room usa WAL y los datos
+  recién commiteados viven ahí, no en el archivo principal):
+  ```
+  (1, 'XP-000001', 'Pieza sin nombre', None, 4000997, 8002000, 1,
+   '/data/user/0/gt.marcos.joyeria/files/photos/8f1763e0-....jpg',
+   None, None, 0)
+  ```
+  `uid` correcto, `name` con el default esperado ("Pieza sin nombre",
+  porque dejé el campo vacío a propósito), `category_id` y `supplier`
+  en `null` (D-021 y la pregunta 3 respectivamente), `stock_qty = 1`
+  (default), `photo_path` apuntando al archivo verificado arriba,
+  `archived = 0`. Todo exactamente como se diseñó.
+
+### Lo que falta — criterio 4, no lo doy por cumplido
+
+Como quedó dicho en el plan: no puedo cronometrar un uso humano real. Lo
+que sí hice (arriba) prueba que el flujo **funciona** de punta a punta
+sin bugs; lo que falta es que se **use** de verdad. Necesito que le
+pidas a tu mamá, en un teléfono real:
+
+1. **Primera medición:** que abra la app por primera vez y registre una
+   pieza cualquiera (foto + costo + precio, nada más), cronometrada
+   desde que ve la pantalla hasta que aparece "Guardada como...".
+2. Que registre 2 o 3 piezas más, sin pausa larga entre ellas.
+3. **Segunda medición:** cronometrar una pieza más después de esas
+   repeticiones.
+
+Documentá o pasame los dos tiempos (el de la primera vez, y el de
+después de practicar) tal como salgan. La fase se cierra sobre la
+**segunda** medición (<20s); la primera se anota igual, y si es mucho
+peor que la segunda es una señal de diseño a revisar, no un motivo de
+rechazo automático.
+
+### Deuda técnica
+
+- **Fotos huérfanas si el proceso muere sin pasar por `onCleared()`**
+  (sistema mata la app, o crash entre captura y guardado): documentado
+  en la sección de respuestas de arriba, con la propuesta de barrida de
+  arranque para una fase futura. El caso común (foto tomada, sale de la
+  pantalla sin guardar) sí está cubierto.
+- Ninguna otra deliberada.
+
+### Suposición tomada durante la implementación, no preguntada antes (D-021)
+
+Sin selector de categoría en el formulario de alta rápida —
+`categoryId` siempre `null` desde esta pantalla, se asigna al editar
+(Fase 04). Detalle y razonamiento completo en **D-021**
+(`DECISIONES.md`). A diferencia de `supplier` (pregunta 3, ya aprobada
+explícitamente), esta decisión la tomé yo solo durante la
+implementación porque el conflicto de arquitectura (necesitaría un
+`CategoryRepository` fuera de "Archivos permitidos", o repetir el mismo
+atajo de DAO-directo-en-ViewModel que ya se corrigió una vez en esta
+misma fase) apareció recién al escribir el código, no en la etapa de
+plan. Queda pendiente de tu confirmación.
+
+### Lo que NO hice
+
+- No taguée `fase-03-ok` ni mergeé la rama — falta el criterio 4.
+- No implementé la barrida de fotos huérfanas (deuda técnica explícita
+  arriba).
+- No agregué selector de categoría (D-021).
+- No toqué ningún archivo fuera de "Archivos permitidos".
+
+### Bloqueos / preguntas para el humano
+
+1. **Criterio 4** — pendiente de que tu mamá haga las dos mediciones
+   reales (sección de arriba).
+2. **D-021** — confirmar que está bien no tener selector de categoría
+   en esta fase, o pedir que lo agregue de otra forma.

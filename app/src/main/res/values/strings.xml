@@ -1,3 +1,23 @@
 <resources>
     <string name="app_name">Mother App</string>
+
+    <!-- Fase 03: alta rápida de pieza -->
+    <string name="add_product_title">Agregar pieza</string>
+    <string name="add_product_take_photo">Tomar foto</string>
+    <string name="add_product_retake_photo">Cambiar foto</string>
+    <string name="add_product_photo_description">Foto de la pieza</string>
+    <string name="add_product_cost_label">Costo</string>
+    <string name="add_product_sale_price_label">Precio de venta</string>
+    <string name="add_product_suggested_price">Precio sugerido: %1$s</string>
+    <string name="add_product_profit">Ganancia: %1$s</string>
+    <string name="add_product_name_label">Nombre (opcional)</string>
+    <string name="add_product_quantity_label">Cantidad (opcional)</string>
+    <string name="add_product_notes_label">Notas (opcional)</string>
+    <string name="add_product_more_details">Más detalles (opcional)</string>
+    <string name="add_product_save_button">Guardar</string>
+    <string name="add_product_saved_confirmation">Guardada como %1$s</string>
+    <string name="add_product_default_name">Pieza sin nombre</string>
+    <string name="add_product_camera_permission_rationale">Necesitamos usar tu cámara para tomar la foto de la pieza.</string>
+    <string name="add_product_camera_permission_denied">No se puede tomar la foto sin permiso de cámara. Tocá de nuevo para intentarlo.</string>
+    <string name="add_product_camera_cancel">Cancelar</string>
 </resources>
