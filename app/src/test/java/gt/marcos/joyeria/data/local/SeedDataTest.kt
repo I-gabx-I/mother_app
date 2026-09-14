@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import gt.marcos.joyeria.data.local.entity.AppSettingEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -36,15 +37,24 @@ class SeedDataTest {
         assertThat(names).containsExactly("Anillos", "Cadenas", "Aretes", "Pulseras", "Juegos")
     }
 
+    // Compara la semilla completa contra las seis claves de ESQUEMA.md en una
+    // sola aserción (containsExactly), no clave por clave: si mañana alguien
+    // agrega una clave a ESQUEMA.md y olvida sembrarla (o al revés, siembra
+    // una de más que no está documentada), este test falla solo — una lista
+    // de asserts sueltos, uno por clave ya conocida, no detecta ni una clave
+    // faltante ni una de más, solo un valor distinto en una clave que ya se
+    // estaba revisando.
     @Test
-    fun first_open_seeds_all_app_setting_keys_as_parseable_integers() = runTest {
-        val dao = db.appSettingDao()
+    fun first_open_seeds_exactly_the_six_esquema_keys_with_their_values() = runTest {
+        val seeded = db.appSettingDao().getAll()
 
-        assertThat(dao.getValue(AppSettingKeys.DEFAULT_MARKUP_PERCENT)?.toInt()).isEqualTo(200)
-        assertThat(dao.getValue(AppSettingKeys.PRICE_ROUNDING_STEP_CENTS)?.toLong()).isEqualTo(500L)
-        assertThat(dao.getValue(AppSettingKeys.LOW_STOCK_THRESHOLD)?.toInt()).isEqualTo(2)
-        assertThat(dao.getValue(AppSettingKeys.STALE_STOCK_DAYS)?.toInt()).isEqualTo(90)
-        assertThat(dao.getValue(AppSettingKeys.NEXT_PRODUCT_UID_SEQ)?.toLong()).isEqualTo(1L)
-        assertThat(dao.getValue(AppSettingKeys.OWNER_NAME)).isEmpty()
+        assertThat(seeded).containsExactly(
+            AppSettingEntity(AppSettingKeys.DEFAULT_MARKUP_BP, "10000"),
+            AppSettingEntity(AppSettingKeys.PRICE_ROUNDING_STEP_CENTS, "500"),
+            AppSettingEntity(AppSettingKeys.LOW_STOCK_THRESHOLD, "2"),
+            AppSettingEntity(AppSettingKeys.STALE_STOCK_DAYS, "90"),
+            AppSettingEntity(AppSettingKeys.NEXT_PRODUCT_UID_SEQ, "1"),
+            AppSettingEntity(AppSettingKeys.OWNER_NAME, ""),
+        )
     }
 }

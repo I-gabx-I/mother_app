@@ -65,7 +65,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val SEED_CATEGORIES = listOf("Anillos", "Cadenas", "Aretes", "Pulseras", "Juegos")
 
         private val SEED_SETTINGS = listOf(
-            AppSettingKeys.DEFAULT_MARKUP_PERCENT to "200",
+            AppSettingKeys.DEFAULT_MARKUP_BP to "10000",
             AppSettingKeys.PRICE_ROUNDING_STEP_CENTS to "500",
             AppSettingKeys.LOW_STOCK_THRESHOLD to "2",
             AppSettingKeys.STALE_STOCK_DAYS to "90",

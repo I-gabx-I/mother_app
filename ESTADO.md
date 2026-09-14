@@ -17,8 +17,11 @@ Reglas:
 
 ## Estado actual
 
-- **Fase en curso:** ninguna. Fase 02 — Motor de dinero y precios (rama `fase/02-pricing`) implementada y verificada; pendiente de tag `fase-02-ok` y merge a `main` (todavía no autorizado).
-- **Última fase cerrada:** Fase 01 — Capa de datos núcleo (tag `fase-01-ok`, mergeada a `main`).
+- **Fase en curso:** ninguna. `fase-02-ok` tageada y mergeada a `main`.
+  Rama de corrección `fix/seed-markup-bp` (fuera del ciclo de fases,
+  bug encontrado durante la revisión de Fase 02) implementada y
+  verificada; pendiente de tag/merge por pedido explícito del humano.
+- **Última fase cerrada:** Fase 02 — Motor de dinero y precios (tag `fase-02-ok`, mergeada a `main`).
 - **Versión de base de datos:** 1
 - **Bloqueos abiertos:** ninguno
 
@@ -1558,3 +1561,107 @@ que mergee `fase-02-ok` a `main`:
    atrapado este bug antes de que llegara a `main`.
 
 Esto queda pendiente para la próxima rama, no para esta.
+
+---
+
+## fix/seed-markup-bp — La semilla sembraba `default_markup_percent`, una clave que ya no existe
+
+**Fecha:** 2026-09-13. Rama `fix/seed-markup-bp`, desde `main` (ya con
+`fase-02-ok` tageada y mergeada). No es una fase de `FASES.md`: es la
+corrección del bug encontrado durante la revisión de Fase 02 (ver la
+sección anterior de esta bitácora), con instrucciones explícitas del
+humano. Un solo commit, sin tag — paro antes, como se pidió.
+
+### El bug
+
+`AppDatabase.SeedCallback` sembraba la clave `default_markup_percent`
+con valor `"200"`. Esa clave **no existe** en `ESQUEMA.md` desde D-014
+(que la renombró a `default_markup_bp`, valor `10000`, con una fórmula
+distinta — ver D-014 en `DECISIONES.md`). El código de Fase 01 se
+escribió antes de que D-014 existiera y nadie lo actualizó cuando la
+Fase 02 corrigió el esquema. Resultado: la clave que el esquema real
+pide (`default_markup_bp`) nunca se creaba, y la que sí se creaba
+(`default_markup_percent`) no la lee ningún código del esquema vigente.
+Cualquier caso de uso futuro que pida `default_markup_bp` (Fase 03, para
+el precio sugerido en vivo) la iba a encontrar vacía.
+
+### Qué se hizo
+
+- `AppSettingKeys.kt`: constante renombrada de `DEFAULT_MARKUP_PERCENT`
+  (`"default_markup_percent"`) a `DEFAULT_MARKUP_BP`
+  (`"default_markup_bp"`). Comentario actualizado citando D-014.
+- `AppDatabase.kt` (`SeedCallback.SEED_SETTINGS`): la fila sembrada pasa
+  de `AppSettingKeys.DEFAULT_MARKUP_PERCENT to "200"` a
+  `AppSettingKeys.DEFAULT_MARKUP_BP to "10000"` — la clave y el valor
+  que `ESQUEMA.md` pide de verdad.
+- **Sin migración**, como indicó el humano: la tabla `app_setting` no
+  cambia de forma (sigue siendo `key`/`value` genérica), solo cambia el
+  contenido de la fila que se inserta en `onCreate`. Sigue en versión 1,
+  `app/schemas/.../1.json` no se toca. No hay ninguna instalación real
+  con datos que migrar todavía (D-005/D-011).
+- `AppSettingDao.kt`: agregado `getAll(): List<AppSettingEntity>`
+  (`SELECT * FROM app_setting`), necesario para el test de la semilla
+  completo que pidió el humano — no existía ninguna consulta que trajera
+  todas las filas a la vez, solo `getValue(key)` por clave.
+- `SeedDataTest.kt`: el test
+  `first_open_seeds_all_app_setting_keys_as_parseable_integers` (seis
+  `assertThat` sueltos, uno por clave, clave por clave) se reemplazó por
+  `first_open_seeds_exactly_the_six_esquema_keys_with_their_values`: una
+  sola aserción (`containsExactly`) contra la lista completa de las seis
+  `AppSettingEntity` de `ESQUEMA.md`, con sus valores reales
+  (`default_markup_bp=10000` en vez de `default_markup_percent=200`).
+  Con `containsExactly` una clave de más o de menos hace fallar el test
+  tan explícitamente como un valor distinto — los seis `assertThat`
+  sueltos que reemplaza solo detectaban un valor incorrecto en una clave
+  que el test ya conocía, nunca una clave de más o de menos.
+
+### Prueba de que el test tiene dientes (no solo "debería fallar")
+
+Mismo estándar que `ProductUidGeneratorTest` en Fase 01: antes de dar el
+test por bueno, reproduje el bug real a propósito (seedeando la fila
+literal `"default_markup_percent" to "200"` en vez de la constante
+nueva) y corrí `SeedDataTest`. **Falló**, con el mensaje exacto:
+
+```
+missing (1)   : AppSettingEntity(key=default_markup_bp, value=10000)
+unexpected (1): AppSettingEntity(key=default_markup_percent, value=200)
+```
+
+Restauré el fix real (`AppSettingKeys.DEFAULT_MARKUP_BP to "10000"`) y
+corrí de nuevo: pasa, junto con el resto de la suite completa.
+
+### Archivos tocados
+
+- `app/src/main/java/gt/marcos/joyeria/data/local/AppSettingKeys.kt`
+- `app/src/main/java/gt/marcos/joyeria/data/local/AppDatabase.kt`
+- `app/src/main/java/gt/marcos/joyeria/data/local/dao/AppSettingDao.kt`
+- `app/src/test/java/gt/marcos/joyeria/data/local/SeedDataTest.kt`
+
+No hay "Archivos permitidos" formales para esta rama (no es una fase de
+`FASES.md`); me ceñí a los cuatro archivos que el bug y el test piden,
+todos dentro de `data/local/**`, consistente con dónde vive el resto de
+la capa de datos.
+
+### Verificación
+
+- `./gradlew assembleDebug testDebugUnitTest` → `BUILD SUCCESSFUL`.
+- `SeedDataTest`: 2 tests, 0 fallos (`first_open_seeds_the_five_categories`
+  sin cambios, `first_open_seeds_exactly_the_six_esquema_keys_with_their_values`
+  nuevo, verde).
+- Resto de la suite (`ProductDaoTest`, `ProductUidGeneratorTest`,
+  `MoneyTest`, `PricingCalculatorTest`) sin cambios, sigue verde.
+- No quedó ninguna referencia a `DEFAULT_MARKUP_PERCENT` ni
+  `default_markup_percent` en `app/src` (`Grep` sobre el árbol → solo el
+  comentario de `AppSettingKeys.kt` que explica el renombre, mencionado
+  como texto, no como identificador).
+
+### Lo que NO hice
+
+- No taguée ni mergeé esta rama — paro antes, como se pidió.
+- No toqué ningún caso de uso ni ViewModel que lea `default_markup_bp`:
+  todavía no existe ninguno (llega con Fase 03/04).
+- No agregué migración: no hace falta, ver arriba.
+
+### Bloqueos / preguntas para el humano
+
+- Ninguno.
