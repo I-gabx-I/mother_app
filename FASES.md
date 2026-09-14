@@ -14,7 +14,7 @@ Leyenda:
 - **[TESTS OBLIGATORIOS]** — la fase no se cierra sin tests nuevos que pasen.
 - **Archivos permitidos** — lista cerrada. Tocar algo fuera de ella es motivo de parada.
 
-MVP = fases 00 a 05. Con eso la usuaria ya puede dejar el cuaderno.
+MVP = fases 00 a 06. Con eso la usuaria ya puede dejar el cuaderno.
 
 ---
 
@@ -158,38 +158,83 @@ solo se declara su entidad.
 
 ---
 
-## Fase 04 — Inventario, edición y compras
+## Fase 04 — Inventario y edición
 
-**Objetivo:** ver, buscar y editar el inventario. Registrar compras a mayorista local.
-Las tablas `price_history`, `purchase` y `purchase_item` ya existen desde la
-Fase 01 (D-011); esta fase agrega su DAO, repositorio y pantallas.
+**Objetivo:** ver, buscar y editar el inventario existente.
+La tabla `price_history` ya existe desde la Fase 01 (D-011); esta fase
+agrega su DAO, repositorio y pantallas. `purchase`/`purchase_item`
+(compras a mayorista) se separaron a la Fase 05 — ver **D-022** en
+`DECISIONES.md`: el único criterio `[TESTS OBLIGATORIOS]` de la fase
+original combinada estaba en el prorrateo, señal de que compras pesaba
+como fase aparte.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/product/**`, `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/**`, `app/src/main/java/**/data/**`, `app/src/main/java/**/data/repository/CategoryRepository.kt`, `strings.xml`
+**Archivos permitidos:** `app/src/main/java/**/ui/product/**`,
+`app/src/main/java/**/ui/navigation/**`,
+`app/src/main/java/**/domain/usecase/**`, `app/src/main/java/**/data/**`,
+`app/src/main/java/**/data/repository/CategoryRepository.kt`,
+`app/src/main/java/**/di/DatabaseModule.kt`,
+`app/src/main/java/**/MainActivity.kt`, `gradle/libs.versions.toml`,
+`app/build.gradle.kts`, `strings.xml`
 
 **Entregable:**
 - Listado con foto, nombre, `uid`, stock, precio y ganancia; búsqueda por nombre o `uid`; filtro por categoría.
 - Pantalla de detalle/edición. Al cambiar costo o precio se inserta fila en `price_history`.
 - Archivar pieza (no borrar).
-- Registro de compra con líneas, y prorrateo opcional de transporte local según `ESQUEMA.md`.
 - **Selector de categoría también en la pantalla de alta rápida** (Fase 03,
   `ui/product/add/**`), no solo en la de edición — Fase 03 lo dejó afuera a
   propósito (D-021 en `DECISIONES.md`) porque necesitaba `CategoryRepository`,
   que no estaba en sus archivos permitidos. Se puede diferir sin costo: la
-  usuaria no empieza a usar la app hasta después de la Fase 05 (fin del MVP),
-  y esta fase (04) llega antes, así que nunca va a existir un inventario
-  cargado sin categorías por esta demora.
+  usuaria no empieza a usar la app hasta después de la Fase 06 (fin del
+  MVP), y esta fase (04) llega antes, así que nunca va a existir un
+  inventario cargado sin categorías por esta demora.
+- Navegación entre pantallas (listado ↔ detalle/edición ↔ alta rápida) y
+  una pantalla de inicio provisoria con las dos acciones que existen hoy
+  ("Agregar pieza", "Inventario") — desviación temporal explícita de
+  CLAUDE.md sección 6 (que pide "Vender" y "Agregar pieza"), registrada
+  con fecha de vencimiento en `DECISIONES.md`: se corrige en la Fase 06
+  (Venta de contado), cuando "Vender" exista de verdad.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Test de que editar el precio de un producto inserta en `price_history`.
+3. No existe ningún `DELETE FROM product` en el código.
+4. Navegar listado → detalle → volver, y alta rápida → volver, sin crash (verificado a mano).
+
+**Prohibido:** registrar compras, registrar ventas.
+
+**Commit:** `fase-04: inventory management and editing` → tag `fase-04-ok`
+
+---
+
+## Fase 05 — Compras a mayorista **[TESTS OBLIGATORIOS]**
+
+**Objetivo:** registrar compras a mayorista local, con líneas y prorrateo
+opcional de transporte. Las tablas `purchase` y `purchase_item` ya
+existen desde la Fase 01 (D-011); esta fase agrega su DAO, repositorio y
+pantallas. Separada de Inventario (Fase 04) — ver **D-022** en
+`DECISIONES.md`.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/*Purchase*.kt`, `app/src/main/java/**/data/**`, `strings.xml`
+
+**Entregable:**
+- Registro de compra con líneas, y prorrateo opcional de transporte local según `ESQUEMA.md`.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
 2. **[TESTS OBLIGATORIOS]** El prorrateo tiene test: la suma de `allocated_extra_cents` es exactamente igual a `extra_cost_cents`, incluyendo un caso con residuo de redondeo (ej. Q10 entre 3 líneas).
-3. Test de que editar el precio de un producto inserta en `price_history`.
-4. No existe ningún `DELETE FROM product` en el código.
 
-**Commit:** `fase-04: inventory management and purchases` → tag `fase-04-ok`
+**Nota abierta, a resolver antes de arrancar esta fase (no bloquea Fase
+04):** qué efecto tiene una compra sobre `product.cost_cents` y
+`product.stock_qty` del producto comprado. Ver la sección "Compras y el
+costo del producto — decisión pendiente" en `ESTADO.md` para las
+opciones y sus consecuencias sobre la ganancia histórica; no se decide
+en este documento hasta que el humano elija una.
+
+**Commit:** `fase-05: bulk purchases` → tag `fase-05-ok`
 
 ---
 
-## Fase 05 — Venta de contado **[TESTS OBLIGATORIOS]**
+## Fase 06 — Venta de contado **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** registrar una venta al contado con snapshots y descuento de stock.
 
@@ -208,13 +253,13 @@ Fase 01 (D-011); esta fase agrega su DAO, repositorio y pantallas.
 4. Test: anular una venta devuelve exactamente el stock descontado.
 5. Test: la venta y sus líneas se crean atómicamente (si falla una línea, no queda venta huérfana).
 
-**Commit:** `fase-05: cash sales` → tag `fase-05-ok`
+**Commit:** `fase-06: cash sales` → tag `fase-06-ok`
 
 > **Fin del MVP.** Aquí se hace la primera prueba real con la usuaria antes de continuar.
 
 ---
 
-## Fase 06 — Clientes, crédito y abonos **[TESTS OBLIGATORIOS]**
+## Fase 07 — Clientes, crédito y abonos **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** el módulo que más valor da. Ella vende con "te pago después" y necesita saber quién le debe.
 Las tablas `customer` y `payment` ya existen desde la Fase 01 (D-011); esta
@@ -236,11 +281,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test: un abono que excede el saldo es rechazado con error claro.
 4. Test: al cubrir el saldo exacto, el estado cambia a `PAID`; un centavo menos y sigue `PENDING`.
 
-**Commit:** `fase-06: customers, credit sales and installments` → tag `fase-06-ok`
+**Commit:** `fase-07: customers, credit sales and installments` → tag `fase-07-ok`
 
 ---
 
-## Fase 07 — Recordatorios y estado de cuenta por WhatsApp
+## Fase 08 — Recordatorios y estado de cuenta por WhatsApp
 
 **Objetivo:** cobrar sin escribir el mensaje a mano. Sin backend.
 
@@ -258,11 +303,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test de que el mensaje se URL-encodea correctamente (tildes, ñ, saltos de línea).
 4. La app **no** pide permiso de contactos ni de teléfono.
 
-**Commit:** `fase-07: whatsapp reminders` → tag `fase-07-ok`
+**Commit:** `fase-08: whatsapp reminders` → tag `fase-08-ok`
 
 ---
 
-## Fase 08 — Reportes **[TESTS OBLIGATORIOS]**
+## Fase 09 — Reportes **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** responder las cuatro preguntas del negocio.
 
@@ -280,11 +325,11 @@ fase agrega su DAO, repositorio y pantallas.
 4. Test de que las ventas `CANCELLED` se excluyen de todos los reportes.
 5. Test de frontera de mes: una venta a las 23:59 del día 31 cuenta en ese mes y no en el siguiente (zona horaria de Guatemala).
 
-**Commit:** `fase-08: reports` → tag `fase-08-ok`
+**Commit:** `fase-09: reports` → tag `fase-09-ok`
 
 ---
 
-## Fase 09 — Catálogo compartible
+## Fase 10 — Catálogo compartible
 
 **Objetivo:** vender sin que la clienta vaya a la casa.
 
@@ -298,11 +343,11 @@ fase agrega su DAO, repositorio y pantallas.
 2. **[TESTS OBLIGATORIOS]** Test que verifica que el modelo de datos del catálogo no contiene campos de costo ni ganancia.
 3. Catálogo de 20 piezas se genera en menos de 5 segundos (medido y anotado en `ESTADO.md`).
 
-**Commit:** `fase-09: shareable catalog` → tag `fase-09-ok`
+**Commit:** `fase-10: shareable catalog` → tag `fase-10-ok`
 
 ---
 
-## Fase 10 — Códigos de barras
+## Fase 11 — Códigos de barras
 
 **Objetivo:** encontrar una pieza al instante escaneando su etiqueta.
 
@@ -318,11 +363,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test de round-trip: generar el código de `XP-000042` y decodificarlo devuelve `XP-000042`.
 4. Permiso de cámara solicitado solo al entrar al escáner, con explicación en español.
 
-**Commit:** `fase-10: barcode labels and scanning` → tag `fase-10-ok`
+**Commit:** `fase-11: barcode labels and scanning` → tag `fase-11-ok`
 
 ---
 
-## Fase 11 — Respaldo, exportar e importar **[TESTS OBLIGATORIOS]**
+## Fase 12 — Respaldo, exportar e importar **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** que perder el teléfono no sea peor que perder el cuaderno.
 
@@ -338,11 +383,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test: importar un archivo corrupto o de otra versión falla con mensaje claro y **deja la base intacta**.
 4. El CSV abre correctamente con tildes (UTF-8 con BOM).
 
-**Commit:** `fase-11: backup and export` → tag `fase-11-ok`
+**Commit:** `fase-12: backup and export` → tag `fase-12-ok`
 
 ---
 
-## Fase 12 — Pulido para la usuaria real
+## Fase 13 — Pulido para la usuaria real
 
 **Objetivo:** cerrar la brecha entre "funciona" y "ella lo usa".
 
@@ -360,7 +405,7 @@ fase agrega su DAO, repositorio y pantallas.
 3. Lista completa de strings de UI revisada y pegada en `ESTADO.md` para aprobación humana.
 4. Prueba con la usuaria real documentada: qué logró sola, dónde se trabó.
 
-**Commit:** `fase-12: usability polish` → tag `fase-12-ok`
+**Commit:** `fase-13: usability polish` → tag `fase-13-ok`
 
 ---
 

@@ -242,6 +242,17 @@ semilla, aunque varias no tengan DAO ni UI hasta fases posteriores.
 `app/schemas/1.json` es el único schema commiteado hasta que exista una
 necesidad real de migrar.
 
+**Nota (D-022, 2026-09-14):** los números de fase mencionados arriba
+("Fase 04", "Fase 05", "Fase 06") son los que estaban vigentes cuando se
+escribió esta decisión. D-022 partió la Fase 04 original (inventario +
+compras) en dos; con la numeración actual, `purchase`/`purchase_item`
+tienen su DAO y UI en la **Fase 05** (Compras), `price_history` en la
+**Fase 04** (Inventario), y `customer`/`payment` en la **Fase 07**
+(antes Fase 06). El razonamiento de esta decisión (D-011) no cambia en
+absoluto — es solo el número de fase el que se movió. No se edita el
+texto original de arriba, por la regla de esta sección; esta nota es la
+referencia para quien lea "Fase 04" acá y no encuentre compras ahí.
+
 ---
 
 ## D-012 — Robolectric para tests de DAO, nunca para tests de `domain`
@@ -514,6 +525,75 @@ referencia). No se tocaron comentarios de fases ya cerradas y tageadas
 más allá de ese archivo de referencia: si aparece algo por corregir en
 `data/` o en cualquier archivo fuera de "Archivos permitidos" de Fase 02,
 queda anotado como pendiente en `ESTADO.md`, no se corrige de paso acá.
+
+---
+
+## D-022 — La Fase 04 original (inventario + compras) se parte en Fase 04 (Inventario) y Fase 05 (Compras)
+
+**Contexto:** `FASES.md` tenía una sola "Fase 04 — Inventario, edición y
+compras" que mezclaba dos bloques: ver/buscar/editar el inventario
+existente (`product`, `price_history`, `category`) y registrar compras a
+mayorista con líneas y prorrateo (`purchase`, `purchase_item`). Al
+planear esta fase (`ESTADO.md`, "Fase 04 — Plan"), el humano pidió una
+opinión honesta sobre si eran una fase o dos.
+
+**Decisión:** partirla en dos fases separadas, cada una con su propio
+commit, tag y "Archivos permitidos":
+- **Fase 04 — Inventario y edición**: listado, búsqueda, filtro por
+  categoría, detalle/edición, `price_history`, archivado, selector de
+  categoría (también en la pantalla de alta rápida de Fase 03).
+- **Fase 05 — Compras a mayorista**: registro de compra con líneas,
+  prorrateo de transporte local. Sube a `[TESTS OBLIGATORIOS]` a nivel
+  de fase completa (antes era una etiqueta inline solo en el criterio
+  del prorrateo).
+
+Todas las fases de la 05 en adelante corren un número: la Venta de
+contado pasa de Fase 05 a **Fase 06** (sigue siendo el fin del MVP;
+`MVP = fases 00 a 06` en vez de `00 a 05`), Clientes de Fase 06 a
+**Fase 07**, y así sucesivamente hasta Pulido, que pasa de Fase 12 a
+**Fase 13**. Revisado y corregido cualquier número de fase mencionado en
+`ESQUEMA.md` (las notas de "DAO y UI en Fase X" de `purchase`,
+`purchase_item`, `customer`, `payment`, y la mención de "no hay usuarios
+instalados hasta después de la Fase 05") y en `DECISIONES.md` (nota
+agregada a D-011, sin editar su texto original — ver esa nota). `CLAUDE.md`
+no tenía ninguna mención a un número de fase específico; no necesitó
+cambios.
+
+**Por qué:** tres razones concretas, no una preferencia de estilo:
+1. Tocan tablas y flujos de negocio distintos, sin superposición real:
+   inventario edita algo que ya existe; compras crea una transacción
+   nueva con líneas, una entidad de negocio distinta.
+2. "Compras" es estructuralmente un anticipo del patrón de "Venta"
+   (elegís productos existentes, cantidad y costo por línea, un
+   prorrateo, confirmás una transacción) — no el patrón de "listado +
+   editar un registro" de Inventario. Mezclarlas combina dos
+   arquitecturas de pantalla distintas bajo un solo nombre de fase.
+3. **La razón que más pesó:** el único criterio `[TESTS OBLIGATORIOS]`
+   inline de toda la Fase 04 original estaba en el prorrateo (criterio
+   2), no en el de `price_history` (criterio 3, sin la etiqueta). Eso ya
+   era una señal escrita en el propio `FASES.md` de que el bloque de
+   compras pesaba como una fase aparte, del mismo calibre que otras
+   fases con el tag completo (01, 02) — antes de que nadie lo señalara
+   explícitamente.
+
+Un cuarto punto, práctico: "Archivos permitidos" de la Fase 04 combinada
+ya era la lista más ancha de todo `FASES.md`, justo en contra de la razón
+del ritual de `CLAUDE.md` sección 7 (auditar leyendo solo `ESTADO.md` y
+el diff del tag; una lista de archivos tan ancha ya era el síntoma de que
+había demasiado adentro de una sola fase).
+
+**Descartado:** mantenerla combinada; partirla sin renumerar (llamar a
+la segunda mitad "Fase 04b" o "Fase 04.1") — se descartó por romper el
+único patrón de nombres de todo el proyecto (`fase-NN-ok`, entero
+secuencial, sin excepciones) para ahorrarse una edición de texto que es
+un costo de una sola vez.
+
+**Consecuencia:** `fase/04-inventory` (rama de la Fase 04 ya renombrada)
+solo implementa Inventario. Compras queda como Fase 05, futura, con una
+pregunta de diseño explícitamente sin resolver (qué efecto tiene una
+compra sobre `product.cost_cents`/`stock_qty` — ver `ESTADO.md`, no se
+decide en esta entrada) que hay que cerrar antes de que esa fase
+arranque.
 
 ---
 
