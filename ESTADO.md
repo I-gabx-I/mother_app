@@ -77,6 +77,142 @@ continúa solo después de ver la respuesta.
 
 <!-- Las entradas de cada fase van aquí abajo, en orden -->
 
+## Corrección: `default_markup_percent` no era solo una unidad distinta, era un significado distinto
+
+**Fecha:** 2026-09-13. Mismo commit de `docs/fix-fase-02` (amend, por pedido
+explícito del humano — no es un commit nuevo).
+
+El humano encontró el problema real detrás de lo que yo había dejado como
+"dos convenciones distintas conviviendo": no eran solo dos unidades (entero
+simple vs. puntos básicos), eran **dos fórmulas distintas** para lo mismo.
+`default_markup_percent = 200` con `costo * percent / 100` da precio =
+costo × 2, que según la propia definición de CLAUDE.md 3.5
+(`markup = ganancia / costo`) es un recargo del **100%**, no del 200% — y
+`markupOnCost` (Fase 02) sí calculaba el recargo real (Q40→Q100 = 150%).
+Mismo nombre, dos números distintos para el mismo concepto.
+
+### Qué se hizo
+
+- `ESQUEMA.md`: `default_markup_percent` → `default_markup_bp`, valor `200`
+  → `10000`. Nota de la inconsistencia reemplazada por la explicación de la
+  unificación, con referencia a D-014.
+- `FASES.md` Fase 02: `suggestedPrice(cost, markupPercent, roundingStep)` →
+  `suggestedPrice(cost, markupBp, roundingStep) = cost + cost * markupBp / 10000`.
+  Agregado un criterio de aceptación nuevo (ahora criterio 5, y renumerados
+  los dos `grep` que quedaron después): `suggestedPrice` y `markupOnCost`
+  son inversas para un par (costo, precio) de ejemplo.
+- `DECISIONES.md`: **D-014**, que reemplaza explícitamente a D-010 (D-010
+  no se edita ni se borra, sigue en el archivo tal como quedó aprobada en su
+  momento) y ajusta la nota de D-013 (edité esa nota puntual porque D-013 es
+  parte de este mismo commit sin mergear todavía, no una decisión ya
+  cerrada de una fase anterior — no toqué D-010 por la misma razón inversa:
+  esa sí ya está cerrada).
+
+### Aclaración que dejo explícita sobre el criterio de la inversa
+
+El criterio nuevo dice "para un par (costo, precio)", en singular — lo
+tomé literal, no como "para cualquier par". Es matemáticamente relevante:
+`markupOnCost` usa división entera (`gananciaUnitaria * 10000 / cost_cents`),
+que trunca. Si esa división no cae exacta, recomponer el precio con
+`suggestedPrice` puede no reproducir el centavo exacto original — no es una
+propiedad de round-trip garantizada para *cualquier* (costo, precio), sí
+lo es para el ejemplo canónico (Q40 → Q100, ambas divisiones caen exactas:
+`60*10000/40=15000`, `40*15000/10000=60`) y para los pares que se elijan
+como casos de test. Lo dejo anotado acá para que quien implemente Fase 02
+no se sorprenda si elige un par al azar donde no cierra exacto, y para que
+el criterio se pruebe con casos elegidos a propósito, no con valores
+arbitrarios.
+
+### Archivos tocados
+
+`ESQUEMA.md`, `FASES.md`, `DECISIONES.md`, `ESTADO.md`. Sin código, mismo
+commit de la corrección anterior en esta rama.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno nuevo.
+
+---
+
+## Corrección de FASES.md (Fase 02) y ruta de schema (Fase 01)
+
+**Fecha:** 2026-09-13. Rama `docs/fix-fase-02`, desde `main` (ya con
+`fase-01-ok` y `docs-fix-01` mergeados). Un solo commit, sin tag — pausa
+pedida explícitamente para revisión.
+
+### A) Representación de porcentajes: puntos básicos en `Int`
+
+`ESQUEMA.md` no definía cómo representar `margenSobreVenta`/
+`recargoSobreCosto` sin `Double`. Documenté la convención junto a
+"Cálculos derivados": `Int` en puntos básicos (1 punto básico = 0.01%,
+`valor/100` = porcentaje con dos decimales; `6000` = `60.00%`, `15000` =
+`150.00%`), con las fórmulas actualizadas
+(`gananciaUnitaria * 10000 / salePriceCents`, etc.). Agregada la misma
+regla en `CLAUDE.md` como **3.6** (renumeré la vieja 3.6 "snapshot de venta"
+a 3.7 — no hay otra referencia numérica a la sección vieja en el repo,
+verificado con grep). Registrado como **D-013** en `DECISIONES.md`.
+
+**Inconsistencia que señalo, sin resolverla por mi cuenta:**
+`default_markup_percent` (D-010, `app_setting`, valor `200` = 200%) usa
+porcentaje entero simple, **no** puntos básicos — son dos convenciones
+distintas para "porcentaje" conviviendo en el mismo esquema. Lo dejé
+anotado explícitamente en `ESQUEMA.md` y en D-013 como una duda para
+revisar, no lo unifiqué: D-010 ya estaba aprobado con ese valor exacto y
+cambiarlo no estaba entre lo pedido.
+
+### B) `Money.format()` sale de Fase 02, entra en Fase 03
+
+Quité `format()` del entregable de `Money` en Fase 02 (queda aritmética
+pura: suma, resta, multiplicación por `Int`, comparación). Agregué
+`app/src/main/java/**/ui/format/MoneyFormat.kt` a "Archivos permitidos" de
+Fase 03 y un bullet en su entregable señalando que ahí vive la única
+función de formateo de moneda (CLAUDE.md 3.3).
+
+### C) `suggestedPrice`: `multiplier` → `markupPercent: Int`
+
+Cambiado en el entregable de Fase 02, con la nota de que es coherente con
+`default_markup_percent` de `app_setting` (200 = recargo del 100%). También
+agregué que `marginOnSale`/`markupOnCost` devuelven puntos básicos (`Int`),
+no `Double` — consecuencia directa del punto A que había que dejar escrita
+en el mismo lugar donde se define la función, no solo en `ESQUEMA.md`.
+
+### D) `grep` con `**` no expande sin `globstar`
+
+Revisé **todos** los criterios de aceptación de **todas** las fases
+(`grep -n "grep.*\*\*" FASES.md`, y después `grep -n "\*\*" FASES.md`
+completo para no confiar en un solo patrón). El único caso real es el que
+señalaste: Fase 02, criterio 5
+(`app/src/main/java/**/domain`). El resto de las apariciones de `**` en el
+archivo son dentro de "Archivos permitidos" — esas las interpreto yo
+directamente como glob conceptual al decidir qué tocar, nunca pasan por un
+shell, así que no tienen el mismo problema y las dejé como están. Corregí
+la ruta del criterio 5 a la literal `app/src/main/java/gt/marcos/joyeria/domain`
+y dejé una nota corta explicando el motivo, para que no se repita el mismo
+error si alguien copia el patrón `**/domain` a una fase futura.
+
+### E) Ruta real del schema de Fase 01
+
+Corregido el criterio 4 de Fase 01: `app/schemas/1.json` →
+`app/schemas/gt.marcos.joyeria.data.local.AppDatabase/1.json` (la ruta que
+Room genera de verdad, confirmada en la Fase 01 ya cerrada).
+
+### Archivos tocados
+
+`ESQUEMA.md`, `CLAUDE.md`, `DECISIONES.md`, `FASES.md`, `ESTADO.md`. Ninguno
+tiene código; es una rama de solo documentación, igual que
+`docs/fix-fase-01-scope`.
+
+### Bloqueos / preguntas para el humano
+
+- ~~La inconsistencia entre `default_markup_percent` (porcentaje simple) y
+  los puntos básicos de `margenSobreVenta`/`recargoSobreCosto`.~~ **Resuelto
+  en el mismo commit:** ver la entrada de arriba, "`default_markup_percent`
+  no era solo una unidad distinta, era un significado distinto" — el humano
+  encontró que el problema real era más profundo que la unidad, y quedó
+  cerrado con D-014.
+
+---
+
 ## Fase 01 — Capa de datos núcleo
 
 **Inicio:** 2026-09-13

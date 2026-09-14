@@ -210,7 +210,7 @@ Claves iniciales:
 
 | Clave | Default | Significado |
 |---|---|---|
-| `default_markup_percent` | `200` | recargo sobre costo para el precio sugerido, entero en porcentaje (200 = precio = costo × 2) |
+| `default_markup_bp` | `10000` | recargo sobre costo para el precio sugerido, en puntos básicos (10000 = recargo del 100% = precio costo × 2) |
 | `price_rounding_step_cents` | `500` | redondea el sugerido a múltiplos de Q5 |
 | `low_stock_threshold` | `2` | alerta de bajo inventario |
 | `stale_stock_days` | `90` | alerta de capital estancado |
@@ -226,14 +226,33 @@ convierte al tipo entero que corresponda según la clave.
 
 ## Cálculos derivados (viven en `domain`, nunca se persisten)
 
+**Representación de porcentajes: puntos básicos en `Int`, nunca `Double`.**
+1 punto básico = 0.01%, o sea `valor / 100` = el porcentaje con dos
+decimales. Ejemplos: `6000` = `60.00%`, `15000` = `150.00%`. Es la misma
+lógica que los centavos para dinero: un entero exacto en vez de un
+flotante que no representa decimales de forma exacta. El formateo a texto
+con el símbolo `%` y los decimales (dividir por 100 y mostrar) se hace en
+`ui`, igual que `Money` — nunca en `domain` ni en `data`. Ver D-013 en
+`DECISIONES.md`.
+
 ```
-gananciaUnitaria   = sale_price_cents - cost_cents
-margenSobreVenta   = gananciaUnitaria / sale_price_cents
-recargoSobreCosto  = gananciaUnitaria / cost_cents
+gananciaUnitaria   = sale_price_cents - cost_cents                    // Long, centavos
+margenSobreVenta   = gananciaUnitaria * 10000 / sale_price_cents      // Int, puntos básicos
+recargoSobreCosto  = gananciaUnitaria * 10000 / cost_cents            // Int, puntos básicos
 valorInventario    = Σ (stock_qty * cost_cents) de productos no archivados
 gananciaDeVenta    = (total_cents - discount_cents) - total_cost_cents
 saldoDeVenta       = (total_cents - discount_cents) - Σ payment.amount_cents
 ```
 
-Todos llevan test unitario, incluyendo el caso `cost_cents = 0`
-(no se divide entre cero: se devuelve un resultado explícito, no un crash ni un `NaN`).
+Todos llevan test unitario, incluyendo los casos `cost_cents = 0` y
+`sale_price_cents = 0` (las dos divisiones posibles): no se divide entre cero,
+se devuelve un resultado explícito, no un crash ni un `NaN`.
+
+**`default_markup_bp` unificado con `recargoSobreCosto` (D-014, reemplaza a D-010):**
+`suggestedPrice(cost, markupBp, roundingStep) = cost + cost * markupBp / 10000`.
+Con el default `10000`, el precio sugerido sigue siendo costo × 2 (mismo
+comportamiento de siempre), pero ahora el número significa lo mismo que en
+todos lados: un recargo del 100% sobre el costo, calculado exactamente
+igual que `recargoSobreCosto` (`gananciaUnitaria * 10000 / cost_cents`). Ya
+no hay dos significados distintos de "porcentaje" conviviendo en el
+esquema.

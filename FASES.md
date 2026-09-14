@@ -67,7 +67,9 @@ fase por fase.
 1. `./gradlew testDebugUnitTest` pasa.
 2. Existen tests de DAO con Room in-memory para insertar, actualizar, archivar y consultar producto.
 3. Existe test que verifica que dos productos creados en paralelo **nunca** reciben el mismo `uid`.
-4. Existe `app/schemas/1.json` commiteado, con las diez tablas.
+4. Existe `app/schemas/gt.marcos.joyeria.data.local.AppDatabase/1.json`
+   commiteado (esa es la ruta real que genera Room, no `app/schemas/1.json`),
+   con las diez tablas.
 5. `grep -r "fallbackToDestructiveMigration" app/src` no devuelve nada.
 
 **Prohibido:** cualquier Composable. Esta fase no tiene UI. Prohibido escribir
@@ -86,17 +88,35 @@ solo se declara su entidad.
 **Archivos permitidos:** `app/src/main/java/**/domain/model/Money.kt`, `app/src/main/java/**/domain/pricing/**`, `app/src/test/java/**/domain/**`
 
 **Entregable:**
-- `Money` (value class sobre `Long` en centavos) con suma, resta, multiplicación por `Int`, comparación y `format()`.
-- `PricingCalculator` con: `profit`, `marginOnSale`, `markupOnCost`, `suggestedPrice(cost, multiplier, roundingStep)`.
+- `Money` (value class sobre `Long` en centavos) con suma, resta, multiplicación por `Int` y comparación.
+  **Sin `format()`** — CLAUDE.md 3.3 prohíbe formatear moneda fuera de `ui`; `Money` en esta fase es
+  aritmética pura. El formateo llega en la Fase 03, en `ui`.
+- `PricingCalculator` con: `profit`, `marginOnSale`, `markupOnCost`,
+  `suggestedPrice(cost, markupBp, roundingStep) = cost + cost * markupBp / 10000`.
+  `markupBp: Int` en puntos básicos, la misma unidad y el mismo significado que devuelve
+  `markupOnCost` (recargo real sobre costo, D-014) y que usa `default_markup_bp` de
+  `app_setting` (`10000` = recargo del 100% = precio costo × 2). `marginOnSale` y
+  `markupOnCost` devuelven puntos básicos (`Int`), nunca `Double` — ver `ESQUEMA.md`
+  y D-013/D-014 en `DECISIONES.md`.
 - Manejo explícito del caso `cost = 0` (resultado definido, sin división entre cero).
 
 **Criterios de aceptación:**
 1. `./gradlew testDebugUnitTest` pasa con al menos 20 tests nuevos.
-2. Test verifica el ejemplo canónico: costo Q40, venta Q100 → ganancia Q60, margen 60%, recargo 150%.
+2. Test verifica el ejemplo canónico: costo Q40, venta Q100 → ganancia Q60, margen 6000 (60.00%), recargo 15000 (150.00%).
 3. Tests de redondeo en los límites: Q71 → Q75, Q75 → Q75, Q76 → Q80 con paso de Q5.
-4. Test de costo cero y de precio menor al costo (ganancia negativa permitida y correcta).
-5. `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/**/domain` no devuelve nada.
-6. Ningún archivo de `domain/` importa `android.*`.
+4. Test de costo cero, de precio de venta cero, y de precio menor al costo
+   (ganancia negativa permitida y correcta). Las dos divisiones entre cero
+   posibles (markupOnCost divide entre el costo, marginOnSale divide entre el
+   precio de venta) devuelven un resultado explícito, sin crash ni NaN.
+5. `suggestedPrice` y `markupOnCost` son inversas para un par (costo, precio): pasarle a
+   `suggestedPrice` el `markupBp` que devolvió `markupOnCost(costo, precio)` reproduce ese
+   mismo precio, sin redondeo de por medio (`roundingStep` que no cambie el resultado, ej. 1).
+   Ejemplo mínimo: costo Q40, precio Q100 → `markupOnCost` da `15000` → `suggestedPrice(4000, 15000, 1)`
+   da `10000` centavos (Q100) de vuelta.
+6. `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain` no devuelve nada.
+   (Ruta literal, no `**/domain`: sin `globstar` un shell no expande `**` de forma recursiva, y el
+   comando queda o vacío o roto — el criterio "pasa" sin haber revisado nada.)
+7. Ningún archivo de `domain/` importa `android.*`.
 
 **Prohibido:** UI, Room, Hilt.
 
@@ -108,9 +128,11 @@ solo se declara su entidad.
 
 **Objetivo:** la pantalla que decide si la app se usa o no. Registrar una pieza en 3 taps.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/product/add/**`, `app/src/main/java/**/domain/usecase/AddProduct*.kt`, `app/src/main/java/**/data/repository/ProductRepository*.kt`, `app/src/main/java/**/util/ImageStorage.kt`, `app/src/main/res/values/strings.xml`, `AndroidManifest.xml` (solo permiso de cámara)
+**Archivos permitidos:** `app/src/main/java/**/ui/product/add/**`, `app/src/main/java/**/ui/format/MoneyFormat.kt`, `app/src/main/java/**/domain/usecase/AddProduct*.kt`, `app/src/main/java/**/data/repository/ProductRepository*.kt`, `app/src/main/java/**/util/ImageStorage.kt`, `app/src/main/res/values/strings.xml`, `AndroidManifest.xml` (solo permiso de cámara)
 
 **Entregable:**
+- `Money.format()` (única función de formateo de moneda, en `ui/format/MoneyFormat.kt`, per CLAUDE.md 3.3).
+  `domain` y `data` siguen sin formatear nada.
 - Captura de foto con CameraX, comprimida a JPEG ≤ 1MB y lado mayor ≤ 1600px, guardada en almacenamiento interno.
 - Formulario con **solo 3 campos obligatorios**: foto, costo, precio de venta. Nombre, categoría, cantidad y notas son opcionales con valores por defecto sensatos.
 - Mientras escribe el costo, la app muestra en vivo el precio sugerido y la ganancia.

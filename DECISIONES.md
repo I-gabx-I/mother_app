@@ -283,6 +283,90 @@ no debería haber ninguna.
 
 ---
 
+## D-013 — Porcentajes como `Int` en puntos básicos, nunca `Double`
+
+**Contexto:** `FASES.md` (Fase 02) y `ESQUEMA.md` no definían cómo se
+representa un porcentaje calculado (`marginOnSale`, `markupOnCost`,
+`margenSobreVenta`, `recargoSobreCosto`). Sin una regla explícita, la
+implementación más obvia en Kotlin es devolver un `Double` (`0.6` para
+60%), que es exactamente el tipo que CLAUDE.md prohíbe para todo lo
+relacionado con dinero, y por la misma razón: los flotantes binarios no
+representan decimales exactos, y acá se derivan directo de centavos.
+
+**Decisión:** todo porcentaje calculado se representa como `Int` en puntos
+básicos: 1 punto básico = 0.01%, `valor / 100` = el porcentaje con dos
+decimales. Ejemplos: `6000` = `60.00%`, `15000` = `150.00%`. Fórmulas:
+`margenSobreVenta = gananciaUnitaria * 10000 / salePriceCents`,
+`recargoSobreCosto = gananciaUnitaria * 10000 / costCents` (ambas en Long
+antes de convertir a Int, para no desbordar). El formateo a texto (dividir
+por 100, agregar `%`) es de `ui`, igual que `Money.format()`.
+
+**Por qué:** mismo argumento que D-001 (`Money` en centavos): un entero
+exacto es rápido, determinístico y trivial de testear con casos de borde;
+un `Double` acumula error de redondeo y hace que dos productos con el
+"mismo" margen a simple vista comparen distinto en un test.
+
+**Descartado:** `Double` (impreciso), `BigDecimal` (correcto pero pesado
+para algo que se calcula constantemente en listados de inventario).
+
+**Consecuencia:** `default_markup_percent` en `app_setting` (D-010, valor
+`200` = 200%) usa una convención **distinta** (porcentaje entero simple, no
+puntos básicos) — son dos campos separados, aprobados por separado en
+momentos distintos. No se unifican acá; si conviene unificarlos se hace en
+una decisión nueva, explícita. **Actualización:** esa unificación se hizo
+en **D-014**, que reemplaza a D-010 y ajusta la nota de arriba — ya no hay
+dos convenciones de "porcentaje" distintas conviviendo en el esquema.
+
+---
+
+## D-014 — `default_markup_bp`: unificado con el recargo real de la sección 3.5 (reemplaza a D-010, ajusta D-013)
+
+**Contexto:** D-010 no era solo una diferencia de unidad con D-013 (entero
+simple vs. puntos básicos) — era un significado distinto disfrazado de
+"porcentaje". `default_markup_percent = 200` con la fórmula
+`costo * percent / 100` da precio = costo × 2. Pero según CLAUDE.md 3.5
+(`markup = ganancia / costo`), eso es un recargo del **100%**
+(ganancia = costo, costo × 2), no del 200%. Mientras tanto, `markupOnCost`
+(Fase 02, D-013) sí calcula el recargo real: costo Q40 → precio Q100 da
+150%. Es decir, "markup percent" significaba una cosa en `app_setting` y
+otra distinta en `PricingCalculator`, con el mismo nombre.
+
+**Decisión:**
+- `default_markup_percent` → **`default_markup_bp`**, valor `10000` (en vez
+  de `200`). Con la fórmula nueva de abajo, `10000` sigue dando el mismo
+  comportamiento de siempre (precio sugerido = costo × 2): recargo del
+  100%, calculado exactamente como en 3.5.
+- `suggestedPrice(cost, markupBp, roundingStep) = cost + cost * markupBp / 10000`.
+- `markupOnCost` y `marginOnSale` devuelven puntos básicos (`Int`), sin
+  cambios respecto a D-013 — ya estaban bien.
+- Fase 02 (`FASES.md`) suma un criterio de aceptación: `suggestedPrice` y
+  `markupOnCost` son inversas para un par (costo, precio) — pasarle a
+  `suggestedPrice` el `markupBp` que devolvió `markupOnCost` para ese par
+  reproduce el mismo precio, sin redondeo de por medio.
+
+**Por qué:** un mismo nombre ("recargo", "markup", "percent") no puede
+significar dos fórmulas distintas en el mismo proyecto — es la clase de
+inconsistencia que hace que alguien lea `default_markup_percent = 200`,
+asuma (razonablemente, por 3.5) que es un recargo del 200%, y calcule mal
+el precio por reflejo. Unificar todo a la definición de 3.5
+(`markup = ganancia / costo`), en puntos básicos (D-013), elimina la
+ambigüedad de raíz: hay una sola fórmula de "recargo" en todo el proyecto.
+
+**Descartado:** dejar `default_markup_percent` como estaba y solo
+documentar la diferencia (lo que hacía D-013 antes de esta decisión) — es
+parchar la confusión con una nota en vez de sacarla del esquema.
+
+**Consecuencia:** el criterio de inversa (`suggestedPrice` ∘ `markupOnCost`
+= identidad) sirve además como test de regresión: si alguien vuelve a
+introducir dos fórmulas de "recargo" distintas, ese test lo detecta sin
+necesidad de leer el código. La igualdad exacta (sin redondeo) depende de
+que la división entera de `markupOnCost` no trunque para el par de prueba;
+no es una propiedad matemática universal para cualquier (costo, precio) —
+es válida para el ejemplo canónico y para los pares que se elijan como
+casos de test, no una garantía general de round-trip sin pérdida.
+
+---
+
 <!--
 ## D-00X — Título
 

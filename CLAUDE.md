@@ -115,7 +115,16 @@ margen   = ganancia / precioVenta    // el mismo caso -> 60%
 En la UI nunca se muestra un porcentaje sin decir cuál es. Etiquetas en español:
 "Ganancia", "Margen sobre venta", "Recargo sobre costo".
 
-**3.6. Las ventas guardan snapshot de costo y precio.**
+**3.6. Un porcentaje calculado (margen, recargo o cualquier otro) se
+representa como `Int` en puntos básicos, nunca `Double`.**
+1 punto básico = 0.01%, es decir `valor / 100` = el porcentaje con dos
+decimales: `6000` = `60.00%`, `15000` = `150.00%`. Mismo razonamiento que
+los centavos para dinero: un entero exacto, no un flotante que redondea
+donde no se lo pediste. El formateo a texto (dividir por 100, mostrar el
+`%` y los decimales) es de `ui`, igual que `Money.format()`; `domain` y
+`data` nunca formatean. Ver `ESQUEMA.md` y D-013 en `DECISIONES.md`.
+
+**3.7. Las ventas guardan snapshot de costo y precio.**
 Cuando se registra una venta, se copian a la línea de venta: el nombre del producto,
 su UID, su costo unitario y su precio de venta **en ese momento**.
 Razón: si mañana ella sube el precio o corrige el costo, el historial de ganancias
