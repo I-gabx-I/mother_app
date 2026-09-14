@@ -113,9 +113,16 @@ solo se declara su entidad.
    mismo precio, sin redondeo de por medio (`roundingStep` que no cambie el resultado, ej. 1).
    Ejemplo mínimo: costo Q40, precio Q100 → `markupOnCost` da `15000` → `suggestedPrice(4000, 15000, 1)`
    da `10000` centavos (Q100) de vuelta.
-6. `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain` no devuelve nada.
+6. `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain | grep -vE "^[^:]+:[0-9]+: *(\*|//|/\*)"` no devuelve nada.
    (Ruta literal, no `**/domain`: sin `globstar` un shell no expande `**` de forma recursiva, y el
-   comando queda o vacío o roto — el criterio "pasa" sin haber revisado nada.)
+   comando queda o vacío o roto — el criterio "pasa" sin haber revisado nada. El segundo `grep`
+   descarta líneas de comentario — bloque KDoc multilínea con continuación ` * `, KDoc de una
+   sola línea que empieza con `/**`, y comentario `//` de línea completa — para que una mención
+   de estas palabras explicando por qué no se usan, dentro de un comentario, no cuente como una
+   violación; los comentarios de código van en español desde D-016, y "nunca uses `Double` acá"
+   es exactamente ese caso. No cubre un comentario al final de una línea de código real, ej.
+   `val x = 1 // menciona Double acá`: si la palabra aparece solo ahí, el criterio la marca
+   igual. No es un caso usado hoy en `domain/`.)
 7. Ningún archivo de `domain/` importa `android.*`.
 
 **Prohibido:** UI, Room, Hilt.

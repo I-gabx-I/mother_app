@@ -367,6 +367,156 @@ casos de test, no una garantía general de round-trip sin pérdida.
 
 ---
 
+## D-015 — Las dos divisiones entre cero de Fase 02 devuelven `null` (`Int?`), no `0`
+
+**Contexto:** `ESQUEMA.md` y `FASES.md` (Fase 02, criterio 4) exigen que
+`marginOnSale` (divide entre `salePrice.cents`) y `markupOnCost` (divide
+entre `cost.cents`) manejen su división entre cero con "un resultado
+explícito, sin crash ni `NaN`", pero ninguno de los dos documentos dice
+**qué** valor. La primera propuesta (de Claude Code, en `ESTADO.md`,
+sección "Fase 02 — Plan") fue devolver `0` como centinela para ambos
+casos. El humano la rechazó con un contraejemplo concreto: una pieza
+comprada a Q50 y vendida a Q50 tiene margen real **0** y recargo real
+**0** — son resultados legítimos y aritméticamente correctos, no casos de
+error. Con `0` como centinela, "no se puede calcular" y "se calculó y dio
+cero" quedan indistinguibles, y esa diferencia le importa a la Fase 03:
+una pieza sin precio cargado debe mostrar un guión (`—`), no `0%`, porque
+`0%` afirma algo falso sobre el negocio (que se calculó un margen real de
+cero, cuando en realidad no hay margen que calcular).
+
+**Decisión:** `marginOnSale(cost, salePrice)` y `markupOnCost(cost,
+salePrice)` devuelven `Int?` (puntos básicos, D-013), no `Int`:
+- `marginOnSale`: `null` cuando `salePrice.cents == 0` (la venta no tiene
+  precio con el cual expresar un porcentaje). En cualquier otro caso,
+  incluido costo igual a precio, devuelve el `Int` real —
+  `gananciaUnitaria * 10000 / salePriceCents`, que da `0` cuando la
+  ganancia es cero de verdad.
+- `markupOnCost`: `null` cuando `cost.cents == 0` (no hay costo con el
+  cual expresar un recargo). Mismo razonamiento para el resto de los
+  casos.
+- `profit(cost, salePrice)` no cambia: es una resta, nunca divide, así
+  que nunca tiene un caso indefinido — siempre devuelve el `Money` real,
+  incluida una pérdida negativa.
+- `suggestedPrice(cost, markupBp, roundingStep)`: si `roundingStep.cents
+  <= 0`, devuelve el precio crudo sin redondear (no divide, no crashea).
+  Este caso no necesita `Money?`/`null` porque `suggestedPrice` no tiene
+  una operación indefinida cuando el paso es inválido — simplemente no
+  hay nada que redondear, y el precio sigue siendo un número real y
+  usable. La razón para tolerarlo en vez de exigir `roundingStep > 0`:
+  `roundingStep` en producción sale de `price_rounding_step_cents` en
+  `app_setting`, un valor `String` genérico que se parsea a entero (ver
+  D-010/`ESQUEMA.md`); si ese valor llegara corrupto, vacío o mal escrito
+  y se parseara a `0` o negativo, preferimos un precio sugerido sin
+  redondear antes que un crash o una división entre cero en medio del
+  flujo de alta rápida de pieza (Fase 03, CLAUDE.md sección 6: "máximo 3
+  taps y menos de 20 segundos" — un crash ahí es lo peor posible).
+
+**Por qué `null` y no otro centinela (`Int.MAX_VALUE`, una excepción,
+etc.):** `null` es la representación nativa de Kotlin para "ausencia de
+valor", no un número que alguien podría confundir con un resultado real.
+Devolver `Int?` obliga al compilador a que quien consuma el valor (un
+caso de uso, un ViewModel, un Composable en fases futuras) decida
+explícitamente qué hacer con la ausencia — típicamente mostrar `—` en vez
+de un `%` — en vez de que ese `0` se cuele silenciosamente en un reporte
+o en un cálculo posterior como si fuera un dato real. Una excepción
+violaría "sin crash" explícito del criterio de aceptación.
+
+**Descartado:**
+- `0` como centinela para ambos casos (primera propuesta, rechazada:
+  colisiona con el caso real de margen/recargo cero).
+- `Int.MAX_VALUE` u otro valor grande como centinela de "infinito": no se
+  llegó a proponer en firme, pero se descarta por la misma razón que `0`
+  — sigue siendo un número que alguien puede tratar como dato real, y
+  además arriesga overflow al multiplicar por `10000` antes de dividir.
+- Lanzar excepción: viola "sin crash" del criterio 4 de Fase 02.
+
+**Consecuencia:** `PricingCalculatorTest` incluye un par de tests que
+existen específicamente para evitar que esta distinción se "simplifique"
+de vuelta a un centinela en el futuro: un caso de costo y precio iguales
+(Q50/Q50) que debe devolver `0` (no `null`) en ambas funciones, y los
+casos de costo/precio cero que deben devolver `null` (no `0`). El
+criterio 5 de Fase 02 (inversa de `suggestedPrice`/`markupOnCost`) ahora
+trabaja sobre un `Int?`: el test falla explícitamente si `markupOnCost`
+devuelve `null` para el par canónico, en vez de tratar `null` como un
+caso válido. Fase 03, al construir la pantalla de alta rápida, tiene que
+decidir en `ui` cómo mostrar un `null` de estas funciones (guión, texto
+"—" o similar) — se deja para esa fase, no se resuelve acá.
+
+**Adenda — `roundUpToMultiple` con `value` negativo (revisión de código,
+mismo commit sin mergear):** la implementación original de
+`roundUpToMultiple` (`value + (step - value % step)` cuando el resto no
+es cero) da un resultado incorrecto para `value` negativo: con
+`value = -4100` y `step = 500` devolvía `-3500`, pero el múltiplo de
+`500` más chico que sigue siendo `>= -4100` es `-4000`, no `-3500`. La
+causa es que `%` en Kotlin sigue el signo del dividendo (resto negativo
+para `value` negativo), y la fórmula original no lo contemplaba. Se
+corrigió a `value.floorDiv(step) * step` (múltiplo más grande que no
+supera a `value`, correcto para cualquier signo porque `floorDiv`
+redondea hacia menos infinito) más un `step` si ese múltiplo no es ya
+exactamente `value`. Con las firmas actuales de `suggestedPrice`
+(`cost >= 0` en cualquier uso real, `markupBp` acotado en la práctica a
+`>= -10000` porque el precio de venta no es negativo) este caso no es
+alcanzable — haría falta `markupBp < -10000`, un recargo peor que
+-100%, que no ocurre con datos de negocio reales — pero se eligió
+corregir la función en vez de solo documentar la limitación: el arreglo
+es una fórmula única sin casos especiales por signo, no más compleja que
+la original, y una función de dinero que es "correcta salvo para
+entradas que hoy no llegan" es exactamente el tipo de bug silencioso que
+la sección 3 de `CLAUDE.md` quiere evitar de raíz. Test agregado:
+`suggestedPrice_roundingNegativeRawPrice_minus4100RoundsUpToMinus4000`.
+
+---
+
+## D-016 — Comentarios de código en español, no en inglés (reemplaza parcialmente lo asumido en CLAUDE.md §5)
+
+**Contexto:** `CLAUDE.md` §5 decía "identificadores, nombres de archivo,
+comentarios y commits: en inglés". Al revisar `Money.kt` y
+`PricingCalculator.kt` (Fase 02), el humano encontró que esa regla,
+aplicada de forma literal, produce comentarios en inglés explicando
+decisiones de negocio en quetzales, puntos básicos y flujos pensados para
+una vendedora guatemalteca — el equipo que escribe y lee este código es
+hispanohablante, y esos comentarios documentan el porqué de reglas como
+"por qué `markupOnCost` devuelve `null`" o "por qué el redondeo es hacia
+arriba", no una API pública en inglés que otro equipo internacional vaya
+a consumir.
+
+**Decisión:** `CLAUDE.md` §5 queda: identificadores, nombres de archivo y
+mensajes de commit **en inglés**; comentarios de código **en español**,
+con tildes correctas (los archivos son UTF-8, no hay ninguna razón
+técnica para evitarlas). El texto visible por la usuaria sigue en
+español y solo en `strings.xml`, sin cambios — esa regla nunca estuvo en
+duda, es una regla distinta con un motivo distinto (legibilidad para la
+usuaria final, no para quien lee el código).
+
+**Por qué:** un comentario que nadie más que el propio equipo
+hispanohablante va a leer, escrito en un segundo idioma "porque sí", no
+mejora nada — al contrario, un comentario mal traducido o con matices
+perdidos (por ejemplo, la diferencia entre "ganancia", "margen" y
+"recargo" de CLAUDE.md 3.5, que son tres palabras técnicas del negocio
+sin traducción trivial y sin ambigüedad al español) es peor que uno
+directo en el idioma en el que se piensa el negocio. El código en sí
+(nombres de función, de variable, de archivo) sigue en inglés porque ahí
+sí importa la convención del ecosistema Kotlin/Android y la
+consistencia con librerías de terceros.
+
+**Descartado:** mantener la regla original (comentarios en inglés) y
+aceptar la pérdida de matiz; una regla híbrida "comentarios técnicos en
+inglés, comentarios de negocio en español" — se descartó por ser
+ambigua línea por línea, sin un criterio objetivo de cuál es cuál.
+
+**Consecuencia:** los comentarios ya escritos en Fase 02
+(`Money.kt`, `PricingCalculator.kt`, `MoneyTest.kt`,
+`PricingCalculatorTest.kt`) se revisaron para que estén en español con
+tildes correctas, en la misma línea de estilo que
+`data/local/AppDatabase.kt` (ya escrito así desde Fase 01, sin que
+existiera esta regla explícita todavía — queda como el estilo de
+referencia). No se tocaron comentarios de fases ya cerradas y tageadas
+más allá de ese archivo de referencia: si aparece algo por corregir en
+`data/` o en cualquier archivo fuera de "Archivos permitidos" de Fase 02,
+queda anotado como pendiente en `ESTADO.md`, no se corrige de paso acá.
+
+---
+
 <!--
 ## D-00X — Título
 

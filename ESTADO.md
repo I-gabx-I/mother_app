@@ -17,9 +17,9 @@ Reglas:
 
 ## Estado actual
 
-- **Fase en curso:** Fase 00 — Andamiaje del proyecto (rama `fase/00-scaffolding`). Criterios de aceptación cumplidos y verificados; pendiente de tag `fase-00-ok` y merge a `main` por pedido explícito del humano (todavía no autorizado).
-- **Última fase cerrada:** ninguna
-- **Versión de base de datos:** —
+- **Fase en curso:** ninguna. Fase 02 — Motor de dinero y precios (rama `fase/02-pricing`) implementada y verificada; pendiente de tag `fase-02-ok` y merge a `main` (todavía no autorizado).
+- **Última fase cerrada:** Fase 01 — Capa de datos núcleo (tag `fase-01-ok`, mergeada a `main`).
+- **Versión de base de datos:** 1
 - **Bloqueos abiertos:** ninguno
 
 ---
@@ -935,3 +935,626 @@ completa. Los `uid` generados siguen siendo siempre distintos. Lo que
 cambia es el motivo correcto: no es un lock de fila ni de archivo a nivel
 SQL, es la adquisición serializada de la conexión de escritura de Android
 que Room usa para correr el bloque de `withTransaction` de punta a punta.
+
+---
+
+## Fase 02 — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-13. Rama a abrir: `fase/02-pricing`, desde `main`
+(que ya tiene `fase-01-ok` y la corrección `docs: fix fase-02 scope and
+money rules` mergeadas — confirmado con `git log --oneline main`).
+
+Releí completos `CLAUDE.md`, `FASES.md` (Fase 02), `ESQUEMA.md`
+("Cálculos derivados") y `DECISIONES.md` (D-013, D-014) antes de escribir
+esto. No toqué ningún archivo de código todavía.
+
+### Confirmaciones explícitas pedidas por el humano
+
+1. **Los porcentajes son `Int` en puntos básicos, nunca `Double`** (D-013).
+   Confirmado: `marginOnSale` y `markupOnCost` devuelven `Int`, calculados
+   en `Long` (`gananciaCents * 10000 / denominadorCents`) y convertidos a
+   `Int` solo al final, para no perder precisión por un `Int` intermedio
+   antes de dividir.
+2. **`default_markup_bp` y `markupOnCost` usan la MISMA fórmula de
+   recargo** (D-014). Confirmado: `suggestedPrice(cost, markupBp,
+   roundingStep) = cost + cost * markupBp / 10000` es la operación inversa
+   exacta de `markupOnCost = gananciaUnitaria * 10000 / costCents`. No hay
+   una segunda fórmula de "recargo" en ningún lado de esta fase.
+3. **Robolectric prohibido en `domain`; estos tests son JUnit4 puro y
+   corren en milisegundos** (D-012). Confirmado: `MoneyTest` y
+   `PricingCalculatorTest` van en `app/src/test/java/gt/marcos/joyeria/domain/**`,
+   sin `@RunWith(RobolectricTestRunner::class)`, sin `Context`, sin ningún
+   import de `android.*` ni de Robolectric. Son aritmética sobre `Long`
+   envuelta en `Money`, nada más.
+
+### Archivos que voy a crear (todos dentro de "Archivos permitidos" de Fase 02)
+
+- `app/src/main/java/gt/marcos/joyeria/domain/model/Money.kt`
+- `app/src/main/java/gt/marcos/joyeria/domain/pricing/PricingCalculator.kt`
+- `app/src/test/java/gt/marcos/joyeria/domain/model/MoneyTest.kt`
+- `app/src/test/java/gt/marcos/joyeria/domain/pricing/PricingCalculatorTest.kt`
+
+No toco `gradle/libs.versions.toml` ni ningún `build.gradle.kts`: no hace
+falta ninguna dependencia nueva para esta fase (aritmética pura de Kotlin,
+JUnit4 + Truth ya están desde Fase 01).
+
+### `Money` — firma exacta
+
+```kotlin
+// domain/model/Money.kt
+@JvmInline
+value class Money(val cents: Long) : Comparable<Money> {
+    operator fun plus(other: Money): Money = Money(cents + other.cents)
+    operator fun minus(other: Money): Money = Money(cents - other.cents)
+    operator fun times(factor: Int): Money = Money(cents * factor)
+    override fun compareTo(other: Money): Int = cents.compareTo(other.cents)
+
+    companion object {
+        val ZERO = Money(0)
+    }
+}
+```
+
+- Sin `format()` (sale en Fase 03, `ui`, per corrección ya aplicada a
+  `FASES.md`).
+- `equals`/`hashCode`/`toString` no se escriben a mano: un `value class`
+  los deriva automáticamente a partir de `cents`.
+- Permite `cents` negativo (una venta con pérdida es una `Money` negativa
+  válida — no hay ninguna regla que prohíba costo > precio, CLAUDE.md 3.5
+  dice explícitamente que la ganancia negativa es un resultado correcto).
+- `times(factor: Int)` cubre "multiplicación por `Int`" del entregable
+  (cantidad × precio unitario). No agrego `div` ni `times(Money)`: no están
+  en el entregable de esta fase y multiplicar dinero por dinero no tiene
+  sentido de negocio (violaría exactamente lo que D-002/3.2 quieren evitar:
+  mezclar unidades).
+
+### `PricingCalculator` — firma exacta de cada función
+
+```kotlin
+// domain/pricing/PricingCalculator.kt
+object PricingCalculator {
+
+    fun profit(cost: Money, salePrice: Money): Money =
+        salePrice - cost
+
+    fun marginOnSale(cost: Money, salePrice: Money): Int? {
+        if (salePrice.cents == 0L) return null
+        return (profit(cost, salePrice).cents * 10_000L / salePrice.cents).toInt()
+    }
+
+    fun markupOnCost(cost: Money, salePrice: Money): Int? {
+        if (cost.cents == 0L) return null
+        return (profit(cost, salePrice).cents * 10_000L / cost.cents).toInt()
+    }
+
+    fun suggestedPrice(cost: Money, markupBp: Int, roundingStep: Money): Money {
+        val raw = cost.cents + (cost.cents * markupBp / 10_000L)
+        return Money(roundUpToMultiple(raw, roundingStep.cents))
+    }
+
+    private fun roundUpToMultiple(value: Long, step: Long): Long {
+        if (step <= 0L) return value
+        val remainder = value % step
+        return if (remainder == 0L) value else value + (step - remainder)
+    }
+}
+```
+
+**ACTUALIZACIÓN — el humano rechazó la propuesta de `0` como centinela**
+(ver más abajo, sección "Fase 02 — Ajuste al plan tras la respuesta del
+humano"): `marginOnSale` y `markupOnCost` devuelven `Int?`, `null` en el
+caso indefinido, no `0`. El bloque de arriba queda como registro de la
+primera propuesta (no se borran entradas viejas); la firma real que se
+implementó es la de la actualización.
+
+Notas sobre las firmas:
+- Todas reciben y devuelven `Money`/`Int`, nunca `Long` pelado ni `Double`
+  (CLAUDE.md 3.2, 3.6).
+- `roundingStep` es `Money`, no `Long` ni `Int`: es un valor en centavos
+  (Q5 = `Money(500)`), y pasar un `Long` suelto ahí sería exactamente el
+  "centavos sin unidad" que `Money` existe para prohibir. El ejemplo de
+  `FASES.md` criterio 5 (`suggestedPrice(4000, 15000, 1)`) lo leo como
+  abreviatura de `suggestedPrice(Money(4000), 15000, Money(1))` — `Money(1)`
+  = paso de redondeo de 1 centavo, que en la práctica no redondea nada
+  (cualquier valor es múltiplo de 1), tal como pide el criterio ("sin
+  redondeo de por medio").
+- `markupBp` es el nombre exacto que usa `FASES.md`/D-014 para el parámetro
+  de `suggestedPrice`, la misma unidad que devuelve `markupOnCost`.
+
+### Las dos divisiones entre cero — propuesta concreta, pendiente de tu OK (RECHAZADA — ver ajuste más abajo)
+
+`ESQUEMA.md` y `FASES.md` exigen que el resultado sea "explícito, sin
+crash ni NaN", pero no dicen **qué** valor devolver. Es una decisión de
+diseño que no está escrita en ningún `.md` todavía, así que la propongo
+acá y la registro como **D-015** en `DECISIONES.md` recién cuando me
+confirmes (no antes, para no anotar algo que todavía puede cambiar).
+
+1. **`marginOnSale(cost, salePrice)` cuando `salePrice.cents == 0`**
+   (vender regalado o a precio cero): la fórmula divide entre el precio de
+   venta. Propuesta: **devolver `0`**.
+2. **`markupOnCost(cost, salePrice)` cuando `cost.cents == 0`** (pieza con
+   costo cero, ej. una que le regalaron): la fórmula divide entre el
+   costo. Propuesta: **devolver `0`**.
+
+**Por qué `0` y no, por ejemplo, `Int.MAX_VALUE`:**
+- Matemáticamente el recargo real en el caso 2 (costo 0, precio > 0) es
+  infinito, no cero — así que `0` **no** es "la respuesta correcta
+  redondeada", es un valor centinela que dice "este porcentaje no tiene
+  sentido con estos datos entrá". Uso `0` en vez de `Int.MAX_VALUE` porque:
+  (a) es el mismo valor para los dos casos, fácil de recordar y de testear;
+  (b) no arriesga overflow ni un `%` sin sentido en la UI (`214748364700%`
+    se ve como un bug, `0%` como "no hay dato" es más leíble, aunque
+    tampoco sea perfecto); (c) `profit()` (que sí es matemáticamente
+    correcto siempre, no divide nada) sigue devolviendo el valor real —
+    quien necesite saber "ganó Q60 con costo Q0" lo lee de `profit()`, no
+    de `markupOnCost()`. La UI (fases posteriores) puede decidir mostrar
+    "—" en vez de "0%" cuando el costo o el precio sean cero; eso es
+    decisión de `ui`, no de esta fase.
+- Alternativa que descarto: hacer que la función lance excepción — viola
+  "sin crash" explícitamente pedido.
+- Esto es una decisión mía, no una derivación obvia de lo ya escrito. La
+  marco para tu confirmación explícita antes de escribirla en código y en
+  `DECISIONES.md`.
+
+**Efecto colateral relacionado, también propuesto:** `suggestedPrice` con
+`roundingStep.cents <= 0` (paso de redondeo cero o negativo, que no debería
+pasar en la práctica porque `price_rounding_step_cents` de `app_setting`
+por defecto es `500`, pero la función no controla lo que le pasen) no
+redondea nada y devuelve el precio crudo sin dividir entre cero en el
+`%`. Mismo criterio: explícito, sin crash, y lo pruebo con un test.
+
+### Plan de tests (≥ 20 nuevos, criterio 1 de la fase)
+
+`MoneyTest.kt` (JUnit4 puro, sin Robolectric):
+1. `plus_addsCentsCorrectly`
+2. `minus_subtractsCentsCorrectly`
+3. `minus_canProduceNegativeMoney`
+4. `times_multipliesByPositiveInt`
+5. `times_byZero_isZero`
+6. `compareTo_ordersByCents`
+7. `equals_sameCents_areEqual`
+8. `zero_hasZeroCents`
+
+`PricingCalculatorTest.kt` (JUnit4 puro, sin Robolectric):
+9. `profit_canonicalExample_cost40_price100_isProfit60`
+10. `profit_zeroCost`
+11. `profit_zeroSalePrice_isNegativeCost`
+12. `profit_salePriceLessThanCost_isNegative`
+13. `profit_bothZero_isZero`
+14. `marginOnSale_canonicalExample_is6000Bp`
+15. `marginOnSale_zeroSalePrice_returnsZeroExplicitly`
+16. `marginOnSale_zeroCostPositivePrice_is10000Bp`
+17. `marginOnSale_priceLessThanCost_isNegativeBp`
+18. `markupOnCost_canonicalExample_is15000Bp`
+19. `markupOnCost_zeroCost_returnsZeroExplicitly`
+20. `markupOnCost_zeroCostAndZeroPrice_returnsZeroExplicitly`
+21. `markupOnCost_priceLessThanCost_isNegativeBp`
+22. `suggestedPrice_defaultMarkupBp10000_doublesTheCost`
+23. `suggestedPrice_roundingExactMultiple_q75StaysQ75`
+24. `suggestedPrice_roundingRoundsUp_q71ToQ75`
+25. `suggestedPrice_roundingRoundsUp_q76ToQ80`
+26. `suggestedPrice_zeroCost_isZero`
+27. `suggestedPrice_roundingStepOfOneCent_isEffectivelyNoRounding`
+28. `suggestedPrice_roundingStepZeroOrNegative_returnsRawPriceWithoutCrash`
+29. `suggestedPrice_isInverseOfMarkupOnCost_forCanonicalPair` (criterio 5:
+    `markupOnCost(Money(4000), Money(10000))` → `15000`;
+    `suggestedPrice(Money(4000), 15000, Money(1))` → `Money(10000)`)
+
+29 tests en total (9 + 20), por encima del mínimo de 20 del criterio 1.
+
+### Verificación planeada de los criterios de aceptación
+
+| # | Criterio | Cómo lo verifico |
+|---|---|---|
+| 1 | ≥20 tests nuevos, todos pasan | `./gradlew testDebugUnitTest` |
+| 2 | Ejemplo canónico Q40/Q100 → ganancia 60, margen 6000, recargo 15000 | tests 9, 14, 18 |
+| 3 | Redondeo Q71→Q75, Q75→Q75, Q76→Q80 con paso Q5 | tests 23-25 |
+| 4 | Costo cero, precio cero, precio < costo; las dos divisiones entre cero explícitas | tests 10-13, 15-17, 19-21 |
+| 5 | `suggestedPrice` y `markupOnCost` inversas (par canónico, sin redondeo) | test 29 |
+| 6 | `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain` vacío | corrido al cerrar, antes del commit |
+| 7 | Ningún archivo de `domain/` importa `android.*` | `grep -rn "^import android" app/src/main/java/gt/marcos/joyeria/domain`, corrido al cerrar |
+
+### Lo que NO voy a hacer en esta fase
+
+- Nada de UI, Room ni Hilt (prohibido explícito de la fase).
+- Nada de `Money.format()` (es de Fase 03).
+- No voy a tocar `app_setting` ni sus DAOs — `PricingCalculator` recibe
+  `markupBp`/`roundingStep` como parámetros, no los lee él mismo de la
+  base de datos (eso es trabajo de un caso de uso en `domain/usecase` de
+  una fase futura, que si hace falta se propone explícitamente).
+
+### Commit y rama
+
+Un solo commit: `fase-02: money and pricing engine`, en rama
+`fase/02-pricing` desde `main`. Paro antes del tag `fase-02-ok`, como pide
+el flujo de trabajo.
+
+### Bloqueos / preguntas para el humano (resuelto)
+
+- ~~Confirmar la propuesta de "las dos divisiones entre cero devuelven
+  `0`"~~ **Resuelto, ver ajuste abajo:** el humano la rechazó con un
+  contraejemplo concreto (Q50/Q50 tiene margen y recargo real de `0`, que
+  con un centinela `0` queda indistinguible de "no se puede calcular").
+
+---
+
+## Fase 02 — Ajuste al plan tras la respuesta del humano
+
+**Fecha:** 2026-09-13. El humano rechazó la propuesta de `0` como
+centinela para las dos divisiones entre cero y pidió `Int?`/`null` en su
+lugar, con la razón concreta arriba resumida. Aprobó el resto del plan
+(archivos, firmas de `Money`, `profit`, `suggestedPrice`, plan de tests,
+rama, commit) y autorizó seguir adelante con la fase. Registrado como
+**D-015** en `DECISIONES.md` (razonamiento completo ahí, no lo repito
+acá).
+
+### Firmas finales (reemplazan a las "propuesta" de la sección anterior)
+
+```kotlin
+fun marginOnSale(cost: Money, salePrice: Money): Int?   // null si salePrice.cents == 0
+fun markupOnCost(cost: Money, salePrice: Money): Int?    // null si cost.cents == 0
+```
+
+`suggestedPrice` no cambia de tipo de retorno (sigue devolviendo `Money`,
+no `Money?`): con `roundingStep.cents <= 0` no hay ninguna operación
+indefinida, solo "no hay nada que redondear" — el precio crudo sigue
+siendo un valor real y usable. Ver D-015 para el razonamiento completo
+de por qué este caso es distinto de los otros dos.
+
+### Plan de tests — ajustado
+
+Se renombran los tests 15, 19 y 20 del plan original (devolvían "cero
+explícito", ahora devuelven `null`) y se agregan dos tests nuevos que
+existen específicamente para que nadie vuelva a colapsar esto a un
+centinela más adelante. Lista final de `PricingCalculatorTest.kt`:
+
+9. `profit_canonicalExample_cost40_price100_isProfit60`
+10. `profit_zeroCost`
+11. `profit_zeroSalePrice_isNegativeCost`
+12. `profit_salePriceLessThanCost_isNegative`
+13. `profit_bothZero_isZero`
+14. `marginOnSale_canonicalExample_is6000Bp`
+15. `marginOnSale_zeroSalePrice_returnsNull` *(renombrado: ya no
+    "...returnsZeroExplicitly")*
+16. `marginOnSale_zeroCostPositivePrice_is10000Bp`
+17. `marginOnSale_priceLessThanCost_isNegativeBp`
+18. `markupOnCost_canonicalExample_is15000Bp`
+19. `markupOnCost_zeroCost_returnsNull` *(renombrado)*
+20. `markupOnCost_zeroCostAndZeroPrice_returnsNull` *(renombrado)*
+21. `markupOnCost_priceLessThanCost_isNegativeBp`
+22. `marginOnSale_equalCostAndPrice_isZeroBpNotNull` **(nuevo)** — Q50/Q50:
+    margen real `0`, distinto de `null`. Protege contra que alguien
+    "simplifique" esto de vuelta a un centinela.
+23. `markupOnCost_equalCostAndPrice_isZeroBpNotNull` **(nuevo)** — mismo
+    caso, para `markupOnCost`.
+24. `suggestedPrice_defaultMarkupBp10000_doublesTheCost`
+25. `suggestedPrice_roundingExactMultiple_q75StaysQ75`
+26. `suggestedPrice_roundingRoundsUp_q71ToQ75`
+27. `suggestedPrice_roundingRoundsUp_q76ToQ80`
+28. `suggestedPrice_zeroCost_isZero`
+29. `suggestedPrice_roundingStepOfOneCent_isEffectivelyNoRounding`
+30. `suggestedPrice_roundingStepZeroOrNegative_returnsRawPriceWithoutCrash`
+31. `suggestedPrice_isInverseOfMarkupOnCost_forCanonicalPair` — ajustado:
+    `markupOnCost(...)` devuelve `Int?`; el test usa `checkNotNull(...)`
+    (o equivalente) para desenvolverlo, así que **falla** si por algún
+    motivo diera `null` para el par canónico, en vez de tratar `null`
+    como un resultado válido y saltearse la aserción.
+
+`MoneyTest.kt` no cambia (tests 1-8 del plan original, sin ajustes).
+
+Total: 8 (`Money`) + 23 (`PricingCalculator`) = **31 tests**, por encima
+del mínimo de 20.
+
+### Confirmación de que sigo, no que ya terminé
+
+Con esto el plan quedó cerrado y autorizado. Lo que sigue en esta entrada
+de la bitácora es la implementación real: abrir `fase/02-pricing`,
+escribir `Money.kt` y `PricingCalculator.kt`, escribir los tests de
+arriba, correr `./gradlew testDebugUnitTest` y los `grep` de los
+criterios 6 y 7, y solo entonces el commit único `fase-02: money and
+pricing engine`. El cierre de fase, con resultados reales, está en la
+sección de abajo.
+
+---
+
+## Fase 02 — Motor de dinero y precios
+
+**Inicio:** 2026-09-13
+**Cierre:** 2026-09-13
+**Commit:** ver hash en `git log` (commit único de esta entrada, rama `fase/02-pricing`, desde `main`)
+**Tag:** *(pendiente — parada antes del tag, como pide el flujo de trabajo)*
+
+### Qué se hizo
+
+Implementado exactamente lo planeado en las dos secciones de arriba
+("Fase 02 — Plan" y "Fase 02 — Ajuste al plan tras la respuesta del
+humano"), sin desvíos:
+
+- `domain/model/Money.kt`: `value class Money(val cents: Long) :
+  Comparable<Money>` con `plus`, `minus`, `times(Int)`, `compareTo` y
+  `ZERO`. Sin `format()` (CLAUDE.md 3.3, llega en Fase 03).
+- `domain/pricing/PricingCalculator.kt`: `profit`, `marginOnSale`,
+  `markupOnCost` (estas dos devuelven `Int?`, D-015), `suggestedPrice`,
+  con la función privada `roundUpToMultiple` para el redondeo hacia
+  arriba (CLAUDE.md 3.4).
+- `test/domain/model/MoneyTest.kt` (8 tests) y
+  `test/domain/pricing/PricingCalculatorTest.kt` (23 tests): 31 tests
+  nuevos en total, JUnit4 puro, **sin** `@RunWith`, sin Robolectric, sin
+  ningún import de `android.*` (D-012).
+- **D-015** registrada en `DECISIONES.md`: `marginOnSale`/`markupOnCost`
+  devuelven `Int?` (`null` cuando la división no está definida), no `0`
+  como centinela — con el razonamiento completo de por qué (Q50/Q50 tiene
+  margen y recargo real de `0`, que con un centinela quedaría
+  indistinguible de "no se pudo calcular").
+- Ajuste menor durante la verificación del criterio 6: el primer borrador
+  de un comentario en `PricingCalculator.kt` contenía literalmente la
+  palabra "Double" (explicando la regla de no usarlo), lo que hacía que
+  el propio `grep -rn "Double\|Float\|BigDecimal"` diera un falso
+  positivo contra su propio comentario. Reescrito como "nunca un
+  flotante" — mismo caso que ya había pasado en Fase 01 (ver esa entrada
+  de la bitácora), lo dejo anotado para que no se repita una tercera vez.
+
+### Archivos tocados
+
+Dentro de "Archivos permitidos" de Fase 02:
+- `app/src/main/java/gt/marcos/joyeria/domain/model/Money.kt`
+- `app/src/main/java/gt/marcos/joyeria/domain/pricing/PricingCalculator.kt`
+- `app/src/test/java/gt/marcos/joyeria/domain/model/MoneyTest.kt`
+- `app/src/test/java/gt/marcos/joyeria/domain/pricing/PricingCalculatorTest.kt`
+
+⚠️ Fuera de lo permitido, tocados igual, con motivo (mismo patrón que
+Fases 00 y 01): `DECISIONES.md` (D-015) y `ESTADO.md` — archivos de
+proceso que la sección 7 obliga a mantener en cada fase.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | `./gradlew testDebugUnitTest` pasa, ≥20 tests nuevos | 31 tests nuevos (8 `MoneyTest` + 23 `PricingCalculatorTest`), `BUILD SUCCESSFUL`, 0 fallos, 0 errores (ver XML de resultados) | ✅ |
+| 2 | Ejemplo canónico Q40/Q100 → ganancia 60, margen 6000, recargo 15000 | `profit_canonicalExample_cost40_price100_isProfit60`, `marginOnSale_canonicalExample_is6000Bp`, `markupOnCost_canonicalExample_is15000Bp` | ✅ |
+| 3 | Redondeo Q71→Q75, Q75→Q75, Q76→Q80 con paso Q5 | `suggestedPrice_roundingRoundsUp_q71ToQ75`, `suggestedPrice_roundingExactMultiple_q75StaysQ75`, `suggestedPrice_roundingRoundsUp_q76ToQ80` | ✅ |
+| 4 | Costo cero, precio cero, precio < costo; las dos divisiones entre cero explícitas (sin crash, sin NaN) | `profit_zeroCost`, `profit_zeroSalePrice_isNegativeCost`, `profit_salePriceLessThanCost_isNegative`, `marginOnSale_zeroSalePrice_returnsNull`, `markupOnCost_zeroCost_returnsNull`, `markupOnCost_zeroCostAndZeroPrice_returnsNull`, más `marginOnSale_priceLessThanCost_isNegativeBp`/`markupOnCost_priceLessThanCost_isNegativeBp` | ✅ |
+| 5 | `suggestedPrice` y `markupOnCost` inversas (par canónico, sin redondeo) | `suggestedPrice_isInverseOfMarkupOnCost_forCanonicalPair`: `markupOnCost(Money(4000), Money(10000))` = `15000`, `suggestedPrice(Money(4000), 15000, Money(1))` = `Money(10000)` | ✅ |
+| 6 | `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain` vacío | `Grep` sobre la ruta literal → 0 resultados (tras corregir el comentario que se auto-detectaba, ver arriba) | ✅ |
+| 7 | Ningún archivo de `domain/` importa `android.*` | `grep -rn "^import android" app/src/main/java/gt/marcos/joyeria/domain` → 0 resultados | ✅ |
+
+Verificación adicional: `./gradlew assembleDebug` → `BUILD SUCCESSFUL`
+(no es criterio de esta fase, pero es uno de los dos comandos estándar de
+`FASES.md`). `./gradlew testDebugUnitTest` completo (no solo `domain`) →
+también verde, los tests de `data/` de Fase 01 siguen pasando sin
+tocarlos.
+
+Prohibido de la fase, verificado: no se tocó ninguna UI, ni Room, ni
+Hilt.
+
+### Tests agregados
+
+- `MoneyTest` (8) — suma, resta (incluye resultado negativo),
+  multiplicación por `Int` (incluye por cero), comparación, igualdad,
+  `ZERO`.
+- `PricingCalculatorTest` (23) — `profit` (5, incluye ambos ceros y
+  precio menor al costo), `marginOnSale` (4, incluye `null` explícito),
+  `markupOnCost` (4, incluye `null` explícito y el caso doble-cero), el
+  par de tests de D-015 que distingue `0` real de `null` (2), y
+  `suggestedPrice` (8, incluye redondeo en los tres bordes, costo cero,
+  paso de 1 centavo, paso cero/negativo, y la inversa con `markupOnCost`).
+
+### Suposiciones que tomé
+
+- Ninguna nueva más allá de lo ya discutido y aprobado explícitamente en
+  el plan (D-015: `Int?`/`null` en vez de `0`; `roundingStep <= 0` no
+  redondea en vez de crashear). Ambas están documentadas en `DECISIONES.md`.
+
+### Lo que NO hice
+
+- No taguée `fase-02-ok` ni mergeé la rama — como pide el flujo estándar.
+- No escribí `Money.format()` (es de Fase 03).
+- No toqué `app_setting`, sus DAOs, ni ningún caso de uso que lea
+  `default_markup_bp`/`price_rounding_step_cents` — `PricingCalculator`
+  solo recibe esos valores como parámetros, no los busca él mismo.
+- No agregué ninguna dependencia nueva a `libs.versions.toml` — no hacía
+  falta ninguna para esta fase.
+
+### Deuda técnica que dejé
+
+- Ninguna deliberada.
+
+### Bloqueos / preguntas para el humano
+
+- Ninguno abierto.
+
+---
+
+## Fase 02 — Tres ajustes pedidos antes del tag (mismo commit, amend)
+
+**Fecha:** 2026-09-13. El humano casi aprobó la fase, con tres ajustes.
+Los tres van en el mismo commit de Fase 02 (amend, no un commit nuevo),
+igual que las correcciones ya hechas así en Fases 00/01.
+
+### 1) Comentarios de código en español, no en inglés
+
+`CLAUDE.md` §5 decía "identificadores, nombres de archivo, comentarios y
+commits: en inglés". El humano pidió cambiar la regla (no el código):
+identificadores/nombres de archivo/commits en inglés, **comentarios en
+español**, con tildes correctas — los archivos son UTF-8. Aplicado:
+
+- `CLAUDE.md` §5 reescrita, con referencia a **D-016** (`DECISIONES.md`).
+- Acentos unificados en los 4 archivos de Fase 02
+  (`Money.kt`, `PricingCalculator.kt`, `MoneyTest.kt`,
+  `PricingCalculatorTest.kt`), en la misma línea de estilo que
+  `data/local/AppDatabase.kt` (referencia que dio el humano, ya escrito
+  así desde Fase 01 sin que la regla existiera todavía explícita).
+  Correcciones puntuales: "prohibe"→"prohíbe", "Aritmetica"→"Aritmética",
+  "seccion"→"sección", "basicos"→"básicos", "formula"→"fórmula",
+  "division"→"división", "esta definida"→"está definida",
+  "legitimo"→"legítimo", "multiplo"→"múltiplo", "proximo"→"próximo",
+  "produccion"→"producción", "generico"→"genérico", "rapida"→"rápida",
+  "maximo"→"máximo", "entre si"→"entre sí", "canonico"→"canónico".
+- **No toqué** comentarios de `data/` ni de ningún archivo fuera de
+  "Archivos permitidos" de Fase 02 (Fases 00/01 ya cerradas y tageadas):
+  si hay acentos faltantes ahí, queda pendiente para quien toque esos
+  archivos en su propia fase, no se corrige de paso acá.
+- **Hallazgo colateral, no corregido (fuera de alcance de esta fase):**
+  al leer `AppDatabase.kt` para tomarlo de referencia, noté que
+  `SeedCallback` todavía siembra la clave `default_markup_percent` con
+  valor `"200"` — el nombre y valor **previos** a D-014, que la renombró
+  a `default_markup_bp` con valor `10000`. Es un relicto de Fase 01
+  (escrita antes de que D-014 existiera), tageada y mergeada a `main`.
+  No lo toco: `data/local/**` no está en "Archivos permitidos" de Fase
+  02. Lo anoto acá como bloqueo/aviso para que se corrija explícitamente
+  (probablemente al abrir Fase 04, que es la primera que toca
+  `app_setting` de verdad) — hoy es un dato sembrado con un nombre de
+  clave que ningún código todavía lee, así que no rompe nada en este
+  momento, pero va a romper el primer caso de uso que busque
+  `default_markup_bp` y no lo encuentre.
+
+### 2) El criterio 6 forzó a degradar un comentario — propuesta de comando nuevo, sin aplicar todavía
+
+El `grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain`
+original no distingue una mención en un comentario ("nunca Double") de
+un uso real en código, así que me había obligado a escribir "flotante"
+en vez de la palabra técnica correcta. Ya restauré el comentario a decir
+`Double` (ver `PricingCalculator.kt` línea 11). El comando de
+verificación de `FASES.md` criterio 6 sigue **sin cambiar todavía** —
+tal como está hoy, contra el comentario restaurado, da un falso
+positivo a propósito, porque el humano pidió ver el comando exacto antes
+de que lo aplique.
+
+**Comando propuesto** (reemplaza al actual en `FASES.md`, criterio 6 de
+Fase 02):
+
+```
+grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain | grep -vE "^[^:]+:[0-9]+: *(\*|//)"
+```
+
+Cómo funciona: la primera parte es el `grep` original, sin cambios. La
+segunda descarta las líneas cuyo contenido (después de `ruta:línea:`)
+empieza con `*` (línea de continuación de un bloque KDoc, con el estilo
+`/** ... * ... */` que ya usamos en todo el proyecto) o con `//`
+(comentario de una sola línea). Si la palabra aparece únicamente en una
+línea de comentario, la segunda parte la descarta y el resultado final
+queda vacío; si aparece en una línea de código real, la segunda parte no
+la toca y el `grep` sigue fallando como debe.
+
+**Verificado, no solo propuesto** (antes de escribir esto):
+- Contra el estado actual del repo (con `Double` restaurado en el
+  comentario de `PricingCalculator.kt`), el comando propuesto da **0
+  resultados** — confirmado con `Bash`/`Grep`.
+- Contra un archivo temporal descartable con `val x: Double = 1.0` y
+  `fun y(): Float = 2.0f` (creado y borrado en el mismo paso, nunca
+  commiteado), el comando propuesto **sí** los detecta — confirmado que
+  no se volvió un cheque que nunca falla.
+
+**Limitación que dejo documentada, para que quede escrita si se aprueba
+este comando:** el filtro solo reconoce comentario de bloque en el
+estilo que ya usamos (`/**` en su propia línea, cada línea siguiente con
+` * `) y comentario de línea completa (`//` al principio de la línea).
+No reconoce un comentario **al final** de una línea de código real
+(`val x = 1 // menciona Double acá`) — en ese caso, si la palabra
+apareciera solo en esa cola de comentario, el filtro no la descartaría y
+el `grep` fallaría igual. No es un problema hoy (no usamos comentarios
+al final de línea en `domain/`), pero lo anoto como límite conocido del
+cheque, igual que ya existe una nota similar para el criterio 5 de esta
+misma fase (glob `**` sin `globstar`).
+
+**No apliqué este cambio a `FASES.md` todavía.** Espero confirmación
+explícita del comando antes de tocar ese archivo.
+
+### 3) Dos tests nuevos
+
+**a) Inversa con pérdida** (el criterio 5 original solo cubre el par con
+ganancia): agregado
+`suggestedPrice_isInverseOfMarkupOnCost_forLossPair` en
+`PricingCalculatorTest.kt` — `markupOnCost(Money(10000), Money(8000))` =
+`-2000`, `suggestedPrice(Money(10000), -2000, Money(1))` reconstruye
+`Money(8000)`. Pasa.
+
+**b) `roundUpToMultiple` con `value` negativo** — el humano señaló que
+con `-4100`/paso `500` la implementación original devolvía `-3500`
+cuando el múltiplo superior correcto es `-4000`, y me dejó elegir entre
+arreglarlo o documentarlo como límite conocido. **Elegí arreglarlo**, no
+documentarlo como límite. Razón: la fórmula corregida
+(`value.floorDiv(step) * step`, más un `step` si no cae exacto) no es
+más compleja que la rota — es una sola expresión sin casos especiales
+por signo, y sigue pasando los mismos tres tests de redondeo positivo
+que ya existían (`q71→q75`, `q75→q75`, `q76→q80`). Dejar a propósito una
+función de dinero que es "correcta salvo para ciertas entradas" es
+exactamente lo que la sección 3 de `CLAUDE.md` existe para evitar,
+incluso si hoy esa entrada no es alcanzable con los rangos de negocio
+reales (`cost >= 0`, `markupBp >= -10000` en la práctica). Documentado
+en el KDoc de `roundUpToMultiple` y como adenda a **D-015** en
+`DECISIONES.md` (no un número de decisión nuevo: es una corrección de
+implementación dentro de la misma decisión ya registrada, en el mismo
+commit sin mergear). Test agregado:
+`suggestedPrice_roundingNegativeRawPrice_minus4100RoundsUpToMinus4000`
+(cost `10000`, `markupBp = -14100` para llegar al precio crudo `-4100`,
+paso `500`, resultado esperado `Money(-4000)`). Pasa.
+
+### Verificación tras los tres ajustes
+
+- `./gradlew testDebugUnitTest --tests "gt.marcos.joyeria.domain.*"` →
+  `BUILD SUCCESSFUL`. `MoneyTest`: 8 tests, 0 fallos. `PricingCalculatorTest`:
+  **25** tests (23 + los 2 nuevos), 0 fallos. Total `domain`: 33 tests.
+- Los tres tests de redondeo positivo que ya existían (`q71→q75`,
+  `q75→q75`, `q76→q80`) siguen pasando con la nueva implementación de
+  `roundUpToMultiple` — no se rompió nada al arreglar el caso negativo.
+- Pendiente de correr de nuevo tras el commit final: `./gradlew
+  assembleDebug`, y el `grep` del criterio 6 (con el comando viejo o el
+  nuevo, según qué se apruebe) y el del criterio 7.
+
+### Qué falta para tagear
+
+- ~~Tu confirmación del comando de `grep` del punto 2~~ **Resuelta.** El
+  humano aprobó el comando con un agregado: mi filtro no cubría una
+  línea que empieza directamente con `/**` (KDoc de una sola línea,
+  como el de `profit` en `PricingCalculator.kt`), solo el caso
+  multilínea con continuación ` * `. Comando final:
+
+  ```
+  grep -rn "Double\|Float\|BigDecimal" app/src/main/java/gt/marcos/joyeria/domain | grep -vE "^[^:]+:[0-9]+: *(\*|//|/\*)"
+  ```
+
+  Verificado en los dos sentidos, igual que la vez anterior:
+  - Contra el repo actual → `0` resultados (`exit=1`).
+  - Contra un archivo temporal descartable (creado y borrado en el
+    mismo paso, nunca commiteado) con un KDoc de una sola línea
+    (`/** ... Double ... */`) **y** un uso real (`val x: Double`,
+    `fun y(): Float`) → el KDoc de una sola línea queda descartado, el
+    uso real se sigue detectando.
+  - Limitación documentada (igual que antes): no cubre un comentario al
+    final de una línea de código real. Anotada en `FASES.md` junto al
+    criterio 6.
+  - Aplicado a `FASES.md`, criterio 6 de Fase 02.
+- Con esto, los tres ajustes están aplicados y verificados. Quedo lista
+  para `fase-02-ok` y el merge a `main` — paro acá, como se pidió.
+
+### Bug encontrado en `AppDatabase.kt`, fuera de esta fase — corrección para después del merge
+
+El humano confirmó que el hallazgo de la sección anterior no es solo un
+aviso: es un bug activo. `SeedCallback` siembra `default_markup_percent`
+(clave que ya no existe en `ESQUEMA.md` desde D-014) y nunca crea
+`default_markup_bp` (la que sí existe). Fase 03 va a necesitar esa clave
+para el precio sugerido en vivo, así que hay que corregirlo antes de esa
+fase.
+
+**No lo corrijo en esta rama** (`data/local/**` sigue fuera de "Archivos
+permitidos" de Fase 02, y el arreglo depende de que `main` ya tenga
+Fase 02 mergeada). Instrucción del humano, para ejecutar **después** de
+que mergee `fase-02-ok` a `main`:
+
+1. Abrir rama `fix/seed-markup-bp` desde `main` (ya con Fase 02
+   mergeada).
+2. Corregir `AppSettingKeys` (constante de la clave) y `SeedCallback` en
+   `AppDatabase.kt`: `default_markup_percent`/`"200"` →
+   `default_markup_bp`/`"10000"`.
+3. Sin migración: la tabla `app_setting` no cambia de forma, solo el
+   contenido de la semilla, y no hay ninguna instalación con datos
+   reales todavía.
+4. Agregar un test que verifique que la semilla crea **exactamente las
+   seis claves que lista `ESQUEMA.md`**, con sus valores exactos
+   (`default_markup_bp=10000`, `price_rounding_step_cents=500`,
+   `low_stock_threshold=2`, `stale_stock_days=90`,
+   `next_product_uid_seq=1`, `owner_name=""`). Ese es el test que habría
+   atrapado este bug antes de que llegara a `main`.
+
+Esto queda pendiente para la próxima rama, no para esta.

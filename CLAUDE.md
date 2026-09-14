@@ -153,7 +153,14 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
 
 ## 5. Reglas de código
 
-- **Identificadores, nombres de archivo, comentarios y commits: en inglés.**
+- **Identificadores, nombres de archivo y mensajes de commit: en inglés.**
+  **Los comentarios de código: en español**, con tildes correctas — los
+  archivos son UTF-8, no hay problema de codificación. Razón: los
+  comentarios explican decisiones del negocio (por qué el redondeo es
+  hacia arriba, por qué una división puede devolver `null`, por qué un
+  campo es opcional) para un equipo hispanohablante; forzarlos a inglés
+  no ayuda a nadie acá y solo agrega fricción a releerlos. Ver D-016 en
+  `DECISIONES.md`.
   **Todo texto visible por la usuaria: en español, y solo en `strings.xml`.**
   Prohibido hardcodear strings en Composables. Razón: permite revisar de un solo
   vistazo todo lo que ella va a leer, sin cazarlo por el código.
