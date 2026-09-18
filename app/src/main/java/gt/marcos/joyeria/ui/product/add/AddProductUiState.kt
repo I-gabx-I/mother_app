@@ -18,7 +18,7 @@ data class AddProductUiState(
     val name: String = "",
     val categoryId: Long? = null,
     val categories: List<Category> = emptyList(),
-    val quantityText: String = "",
+    val quantityText: String = "1",
     val notes: String = "",
     val defaultMarkupBp: Int? = null,
     val roundingStep: Money? = null,
@@ -46,7 +46,14 @@ data class AddProductUiState(
             return PricingCalculator.profit(cost, salePrice)
         }
 
-    /** Los tres campos obligatorios de FASES.md Fase 03: foto, costo, precio. */
+    /**
+     * Los cuatro campos obligatorios (D-026, reemplaza a los tres de la
+     * Fase 03 original): foto, costo, precio y categoría.
+     */
     val canSave: Boolean
-        get() = photoPath != null && costDigits.isNotEmpty() && salePriceDigits.isNotEmpty() && !isSaving
+        get() = photoPath != null &&
+            costDigits.isNotEmpty() &&
+            salePriceDigits.isNotEmpty() &&
+            categoryId != null &&
+            !isSaving
 }

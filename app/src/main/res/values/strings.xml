@@ -13,14 +13,13 @@
     <string name="add_product_name_label">Nombre (opcional)</string>
     <string name="add_product_quantity_label">Cantidad (opcional)</string>
     <string name="add_product_notes_label">Notas (opcional)</string>
-    <string name="add_product_more_details">Más detalles (opcional)</string>
     <string name="add_product_save_button">Guardar</string>
     <string name="add_product_saved_confirmation">Guardada como %1$s</string>
     <string name="add_product_default_name">Pieza sin nombre</string>
     <string name="add_product_camera_permission_rationale">Necesitamos usar tu cámara para tomar la foto de la pieza.</string>
     <string name="add_product_camera_permission_denied">No se puede tomar la foto sin permiso de cámara. Tocá de nuevo para intentarlo.</string>
     <string name="add_product_camera_cancel">Cancelar</string>
-    <string name="add_product_category_label">Categoría (opcional)</string>
+    <string name="add_product_category_label">Categoría</string>
     <string name="add_product_category_none">Sin categoría</string>
 
     <!-- Fase 04: inicio provisorio (D-024) -->

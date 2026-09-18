@@ -3175,3 +3175,450 @@ directa (capturas + dumps de accesibilidad + consultas SQL reales a la
 base extraída del dispositivo), no por inferencia de lo que "debería"
 pasar. Sujeto a la revisión del humano, la Fase 04 está lista para el
 commit final y el tag.
+
+---
+
+## Fix de usabilidad de alta rápida — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-17. Rama `fix/quick-add-usability`, abierta desde
+`fase/04-inventory` (commit `86b9b1b`, sin taguear ni mergear) — **no**
+desde `main`, porque la Fase 04 ya contiene la Fase 03 y el selector de
+categoría, y esta corrección los necesita a los dos.
+
+**Motivo:** prueba real con la usuaria en un teléfono. Le pareció
+intuitiva y registró piezas sola, pero salieron tres cosas a corregir en
+la pantalla de alta rápida (`ui/product/add/**`) antes de cerrar la Fase
+03. El humano pidió el plan acá y una parada antes de tocar código, como
+siempre.
+
+Como es la primera vez que corrijo una fase ya implementada fuera del
+ciclo normal de `FASES.md` (no es una fase nueva, es un fix pedido
+directo sobre la 03), el alcance de archivos no sale de una tabla de
+`FASES.md` sino de este mismo plan: `ui/product/add/**`, `strings.xml`,
+y los archivos de proceso (`CLAUDE.md`, `DECISIONES.md`, `ESTADO.md`).
+Si durante la implementación hace falta tocar algo fuera de esa lista,
+paro y lo anoto acá antes de hacerlo, igual que en cualquier fase.
+
+### 1. Bug — el teclado tapa el campo de costo/precio
+
+**Diagnóstico (leyendo el código, todavía sin correr nada):**
+
+- `MainActivity.kt` llama `enableEdgeToEdge()` antes de `setContent`.
+  Con edge-to-edge activado, Android ya no redimensiona la ventana de la
+  forma clásica de `adjustResize` — los insets (barras de sistema **e
+  IME**) se entregan como `WindowInsets` a la jerarquía de Compose en vez
+  de encogerla el sistema operativo por su cuenta. Esto no es específico
+  de esta pantalla: es el comportamiento documentado de Compose con
+  edge-to-edge, y `android:windowSoftInputMode="adjustResize"` (ya
+  presente en el manifest) queda inerte con edge-to-edge — se deja tal
+  cual, no es lo que hay que tocar.
+- `AddProductScreen.kt` pone el formulario en un `Column` con
+  `.verticalScroll(rememberScrollState())` dentro de un `Scaffold`, pero
+  **ningún modifier de la jerarquía reacciona al IME** (`grep -rn
+  "imePadding\|WindowInsets.ime"` sobre `ui/product/add` no encuentra
+  nada). Sin eso, cuando aparece el teclado el `Column` no se entera de
+  que su espacio disponible cambió: no se encoge, no dispara el scroll
+  automático hacia el campo enfocado, y el teclado queda dibujado encima
+  del contenido tal cual estaba layouteado con el teclado cerrado —
+  exactamente el síntoma que describiste.
+- Confirmé además que `ui/product/edit/ProductEditScreen.kt` tiene el
+  mismo patrón (`Scaffold` + `Column` + `verticalScroll`, sin
+  `imePadding`), así que probablemente tiene el mismo bug. **Queda fuera
+  del alcance de este fix** porque solo pediste la pantalla de alta
+  rápida — lo anoto acá como pendiente, no lo toco sin que lo pidas.
+
+**Arreglo propuesto:** agregar `Modifier.imePadding()` al `Column`
+formulario de `AddProductScreen.kt`, antes de `.verticalScroll(...)`
+(orden: `.fillMaxSize().imePadding().verticalScroll(...).padding(16.dp)`)
+para que el espacio que ocupa el teclado se reste del alto disponible
+*antes* de que el scroll decida qué es visible — así el campo enfocado
+queda dentro del viewport reducido y el propio `OutlinedTextField` pide
+que lo traigan a la vista (comportamiento estándar de Compose para
+campos de texto dentro de un contenedor scrolleable).
+
+**Por qué no lo doy por cerrado solo con este razonamiento:** vos mismo
+pediste diagnosticar la causa real y verificarlo con teclado abierto, con
+captura, no solo leyendo el código — lo cual comparto: el orden exacto de
+modifiers y si el `contentWindowInsets` por defecto del `Scaffold` ya
+reserva algo que interfiera es el tipo de cosa que a veces se comporta
+distinto de lo que predice la teoría. Plan de verificación una vez
+implementado: instalar en el emulador, abrir "Agregar pieza", tocar el
+campo de costo, capturar con el teclado abierto
+(`app/build/screenshots/`), confirmar visualmente que el campo y el
+dígito que se está tecleando quedan arriba del teclado, y repetir para el
+campo de precio de venta. Si el primer intento no alcanza, ajusto el
+modifier (por ejemplo `contentWindowInsets = WindowInsets(0)` en el
+`Scaffold` si su default choca con `imePadding`) y vuelvo a verificar
+antes de darlo por resuelto.
+
+### 2. Campos opcionales visibles, categoría obligatoria con chips
+
+- **Elimino `MoreDetailsSection`** (el bloque colapsable con el botón
+  "Más detalles") de `AddProductScreen.kt` — deja de existir el
+  `TextButton` de expandir/contraer y el estado local `detailsExpanded`.
+  Todos los campos pasan a la columna principal, siempre visibles, sin
+  nada que expandir.
+- **Categoría → chips de un solo toque, obligatoria.** Reemplazo
+  `CategoryDropdown` (que sigue existiendo para `ui/product/edit/**`, sin
+  tocarlo) por un componente nuevo en `ui/product/add/**`
+  (`CategoryChipRow.kt` o similar) con un `FilterChip` de Material3 por
+  categoría, selección única (tocar una la selecciona, tocar otra cambia
+  la selección; no hay "Sin categoría" acá, a diferencia del dropdown de
+  edición, porque ahora es obligatoria). Sin preselección: hay que
+  tocarla una vez, igual que cualquier otro campo obligatorio.
+  Área táctil e tamaño de texto: CLAUDE.md sección 6 exige mínimo 56dp
+  de área táctil y 18sp de texto de cuerpo en *toda* la UI, sin excepción
+  para chips — el `FilterChip` por defecto de Material3 es más chico
+  (target táctil ~48dp, texto `labelLarge` 14sp), así que le fuerzo
+  `Modifier.heightIn(min = 56.dp)` y un `labelLarge` en el tamaño de
+  cuerpo de 18sp del tema (ya lo sube `Type.kt` desde Fase 00) en vez del
+  estilo por defecto de chip. Lo superviso visualmente en el emulador
+  antes de darlo por bueno — un chip de 56dp de alto con texto de 18sp es
+  más grande que el chip estándar de Material y quiero confirmar que no
+  se ve roto antes de cerrar esto.
+- **Cantidad:** queda visible siempre (sale del bloque colapsable), sigue
+  sin ser obligatoria. Cambio el valor inicial de `quantityText` en
+  `AddProductUiState` de `""` a `"1"`, para que se vea el valor por
+  defecto en el campo en vez de un campo vacío que "por dentro" vale 1
+  pero no lo muestra. `stockQty` sigue con el mismo fallback
+  (`coerceAtLeast(1)`) por si lo borra del todo.
+- **Nombre y notas:** quedan visibles siempre, sin cambio de
+  comportamiento — solo salen del bloque colapsable.
+- **`AddProductUiState.canSave`** suma `categoryId != null` a la
+  condición existente (foto, costo, precio, no-guardando). Los cuatro
+  campos obligatorios pasan a ser foto, costo, precio y categoría.
+- **Strings:** actualizo el texto de `add_product_category_label` (saca
+  "(opcional)", ahora es una etiqueta de sección arriba de los chips, no
+  el label de un `OutlinedTextField`). Elimino `add_product_more_details`
+  de `strings.xml` (deja de usarse, y CLAUDE.md prohíbe dejar strings
+  muertos igual que prohíbe stubs que compilen y mientan). Dejo
+  `add_product_category_none` intacto porque lo sigue usando
+  `CategoryDropdown` en la pantalla de edición.
+- Orden final de la pantalla (todo visible, sin scroll oculto de
+  contenido colapsado): Foto → Costo → Precio de venta (con precio
+  sugerido/ganancia en vivo debajo, sin cambios) → Categoría (chips) →
+  Cantidad → Nombre → Notas → Guardar.
+
+### 3. Actualizar CLAUDE.md sección 6 (tres campos → cuatro) y registrar la decisión
+
+**Redacción propuesta para CLAUDE.md sección 6** (reemplaza el primer
+bullet):
+
+> - **Registrar una pieza nueva: máximo 4 taps y menos de 20 segundos.**
+>   Pantalla de alta rápida: foto, costo, precio y categoría. Todo lo
+>   demás (nombre, cantidad, notas) es opcional, visible sin necesidad de
+>   expandir nada, y se puede editar después. Si el formulario de alta
+>   pide más de 4 campos obligatorios, está mal.
+
+**Entrada nueva para `DECISIONES.md`** (borrador, número real `D-026` a
+confirmar contra la última entrada de la rama en la que se mergee esto):
+
+> ## D-026 — CLAUDE.md sección 6: de 3 a 4 campos obligatorios en el alta
+> rápida (categoría se vuelve obligatoria)
+>
+> **Contexto:** la prueba real con la usuaria (2026-09-17) mostró que los
+> campos opcionales de Fase 03 quedaban escondidos en un bloque
+> colapsable y no los descubría. Al hacerlos todos visibles, categoría
+> pasa de opcional a **obligatoria**: sin categoría, la búsqueda/filtro de
+> Fase 04 y el catálogo agrupado de Fase 10 sirven a medias, y dejarla
+> visible pero opcional no resuelve ese problema de fondo — solo lo
+> pospone hasta que alguien la complete a mano en edición, cosa que en la
+> práctica no va a pasar si nunca es obligatoria en el único flujo que la
+> usuaria usa todos los días.
+>
+> **Decisión:** CLAUDE.md sección 6 pasa de "máximo 3 taps" a "máximo 4
+> taps": foto, costo, precio y categoría son los cuatro campos
+> obligatorios del alta rápida. Categoría se selecciona con chips de un
+> solo toque (sin preselección), no con un dropdown, para no perder el
+> espíritu de "un toque por campo obligatorio" de la regla original.
+>
+> **Por qué no una excepción tácita:** el propio CLAUDE.md exige (sección
+> 10) no adivinar y dejar las dudas escritas; cambiar el comportamiento
+> real de la pantalla sin actualizar la regla que la describe habría
+> dejado documentación y código diciendo cosas distintas — exactamente lo
+> que el ritual de auditoría de la sección 7 (leer `ESTADO.md` + el diff)
+> no puede tolerar.
+>
+> **Descartado:** dejar categoría opcional y visible (no resuelve el
+> problema real: catálogo/filtro sin categoría); mantener el bloque
+> colapsable solo para categoría (ya se demostró con la usuaria real que
+> lo colapsado no se descubre).
+>
+> **Consecuencia:** el criterio de tiempo (menos de 20 segundos, Fase 03
+> criterio 4) se vuelve a medir después de este cambio — un campo
+> obligatorio más puede empujar el flujo real por encima del límite. Ver
+> la sección de abajo, "Re-verificación de tiempo pendiente".
+
+No aplico ninguno de los dos cambios de arriba (CLAUDE.md ni
+DECISIONES.md) todavía — quedan acá como texto propuesto, a la espera de
+tu OK, igual que el resto de este plan.
+
+### Re-verificación de tiempo pendiente
+
+Como pediste: después de implementar, vuelvo a medir el tiempo de alta de
+una pieza (foto + costo + precio + categoría) con cronómetro, sobre el
+emulador o dispositivo — no puedo correr la prueba con la usuaria real
+otra vez sin coordinarlo, así que esta primera remedición la hago yo
+mismo como señal rápida de si el cambio la sacó de rango, no como
+reemplazo del criterio 4 de Fase 03 (que exige que la mida ella). Si mi
+propia medición ya pasa de 20 segundos, te aviso antes de dar el fix por
+cerrado, tal como pediste. Si queda holgada, igual dejo anotado que la
+medición real con la usuaria sigue pendiente para no cerrar Fase 03 con
+una medición mía haciendo de sustituto.
+
+### Archivos que voy a tocar (una vez que confirmes)
+
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductScreen.kt`
+  (imePadding, quitar `MoreDetailsSection`, layout plano, chips de
+  categoría)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductUiState.kt`
+  (`canSave` con categoría, `quantityText` inicial `"1"`)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/CategoryChipRow.kt`
+  (nuevo, componente de chips)
+- `app/src/main/res/values/strings.xml` (label de categoría, borrar
+  `add_product_more_details`)
+- `CLAUDE.md` (sección 6)
+- `DECISIONES.md` (D-026)
+- `ESTADO.md` (cierre de este fix, con la verificación real del teclado y
+  la remedición de tiempo)
+
+**No** toco `ui/product/edit/**` (mismo bug de teclado probablemente
+presente ahí, pero fuera de lo que pediste), ni `AndroidManifest.xml`
+(el `adjustResize` existente se deja, no es la causa).
+
+### Bloqueos / preguntas para el humano
+
+Ninguno que me detenga a esperar respuesta antes de seguir — las
+decisiones de diseño de arriba (altura de chip 56dp, orden final de
+campos, valor inicial de cantidad) las tomé yo como las opciones más
+directas dentro de lo que ya pediste, y quedan escritas para que las
+corrijas si no son lo que imaginabas. Quedo parado acá, sin escribir
+código todavía, esperando tu confirmación para arrancar.
+
+---
+
+## Fix de usabilidad de alta rápida — Implementación y verificación
+
+**Fecha:** 2026-09-17. Mismo commit sin cerrar todavía en
+`fix/quick-add-usability`. El humano aprobó el plan de arriba con dos
+cambios: sumar `ProductEditScreen.kt` al alcance (mismo bug, misma clase
+de pantalla, evitar una rama nueva por una línea) y exigir verificación
+con captura real, teclado abierto, en **las dos** pantallas, con especial
+cuidado en el orden `imePadding()` antes de `verticalScroll()` aplicado
+al contenedor que scrollea.
+
+### Qué se hizo
+
+- **Bug del teclado (los dos screens):** agregado
+  `Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp)`
+  al `Column` formulario de `AddProductScreen.kt` **y** de
+  `ProductEditScreen.kt` (sumado al alcance por pedido explícito). El
+  orden importa exactamente como señalaste: `imePadding()` va antes de
+  `verticalScroll()` para que encoja el contenedor que scrollea, no el
+  contenido de adentro.
+- **Campos siempre visibles:** eliminado `MoreDetailsSection` y el estado
+  `detailsExpanded` de `AddProductScreen.kt`. Orden final, todo visible
+  sin expandir nada: Foto → Costo → Precio de venta (sugerido/ganancia en
+  vivo) → Categoría (chips) → Cantidad → Nombre → Notas → Guardar.
+- **Categoría obligatoria con chips:** `CategoryChipRow.kt` nuevo
+  (`ui/product/add/`), `FilterChip` de Material3 por categoría,
+  `Modifier.heightIn(min = 56.dp)` y texto en `bodyLarge` (18sp) para
+  cumplir CLAUDE.md sección 6 — verificado visualmente en el emulador
+  (`app/build/screenshots/fix-01-*.png` en adelante), no se ve roto, solo
+  más alto que un chip de Material3 estándar. Sin preselección, sin
+  opción "sin categoría".
+- **`AddProductUiState`:** `quantityText` por defecto `"1"` (antes `""`);
+  `canSave` suma `categoryId != null` a las condiciones existentes.
+- **Strings:** `add_product_category_label` de "Categoría (opcional)" a
+  "Categoría" (la usa también `CategoryDropdown` en edición y el filtro
+  de `ProductListScreen`, ninguno de los dos pedía la palabra
+  "opcional" realmente). Borrado `add_product_more_details` (quedó sin
+  uso).
+- **`CLAUDE.md` sección 6** y **`DECISIONES.md` D-026** aplicados tal
+  como quedaron redactados en el plan de arriba (sin cambios de último
+  momento).
+
+### Verificación de build y tests
+
+| Comando | Resultado |
+|---|---|
+| `./gradlew assembleDebug` | `BUILD SUCCESSFUL` en 5m15s, sin warnings nuevos |
+| `./gradlew testDebugUnitTest` | `BUILD SUCCESSFUL` en 1m41s, mismos tests de antes en verde (no había tests de `canSave`/UI de Fase 03 antes de este fix, y sigue sin haberlos — `ui/product/add` nunca estuvo bajo `[TESTS OBLIGATORIOS]`; no invento una obligación nueva que no estaba) |
+
+### Verificación real en emulador (teclado abierto, las dos pantallas)
+
+Emulador `Medium_Phone_API_35`, instalación limpia del APK con este fix.
+Todas las capturas en `app/build/screenshots/` (ignoradas por git, regla
+de `CLAUDE.md` sección 7 punto 10).
+
+1. **Alta rápida, campo Costo:** tapeado el campo, tecleado "4599" con el
+   teclado abierto — `Costo: Q45.99` y `Precio de venta: Q95.00`
+   (sugerido en vivo) quedan **completos y legibles arriba del
+   teclado** — `app/build/screenshots/fix-01-cost-field-ime-open.png`. ✅
+2. **Alta rápida, campo Precio de venta:** mismo tapeado, tecleado
+   "12345" — `Q9,500,134.52` con el cursor visible, arriba del
+   teclado — `app/build/screenshots/fix-02-price-field-ime-open.png`. ✅
+3. **Flujo completo de alta, con categoría obligatoria:** foto real
+   tomada con la cámara del emulador (permiso de cámara concedido en el
+   diálogo real, "While using the app"), costo Q30.00, precio sugerido
+   Q60.00/ganancia Q30.00 en vivo, chip "Anillos" tocado y confirmado
+   `checked="true"` en el dump de accesibilidad, Guardar tocado →
+   "Guardada como XP-000001" —
+   `app/build/screenshots/fix-03-saved-confirmation.png`. Confirmado
+   además en la base real extraída del dispositivo
+   (`app/build/logs/db-dumps/joyeria.db`):
+   `1|XP-000001|Pieza sin nombre|3000|6000|1|...` (`category_id = 1`,
+   Anillos). ✅
+4. **Edición, campo Precio de venta:** abierto el detalle de XP-000001,
+   tapeado "Precio de venta", tecleado "9999" con el teclado abierto —
+   `Q600,099.99` con el cursor visible, completo arriba del teclado,
+   mismo comportamiento que en alta rápida —
+   `app/build/screenshots/fix-04-edit-price-field-ime-open.png`. ✅ (los
+   cambios de esta prueba de edición no se guardaron, se salió sin
+   tocar "Guardar cambios" — XP-000001 sigue con sus valores
+   originales.)
+5. **`canSave` con categoría (el cambio real de código, no solo visual):**
+   con foto, costo (Q15.00) y precio ya cargados y **sin** tocar ningún
+   chip de categoría, el botón "Guardar" queda deshabilitado —
+   confirmado no por apariencia sino leyendo el árbol de accesibilidad:
+   el nodo clickeable que envuelve el botón reporta `enabled="false"`
+   (`app/build/logs/ui_nosel.xml`) —
+   `app/build/screenshots/fix-07-save-disabled-without-category.png`. ✅
+
+### Incidente durante la verificación: ANR del emulador (no es un bug de la app)
+
+Al intentar medir el tiempo con un primer script de taps automatizados
+(inmediatamente después de un `am force-stop` + `am start` en frío), el
+emulador mostró **"Mother App isn't responding"**. Antes de asumir nada,
+lo investigué en vez de descartarlo o reintentar a ciegas (CLAUDE.md
+§2.1: leer el error completo, no adivinar):
+
+- `adb logcat` mostró la causa exacta: `ANR in ActivityRecord{...
+  gt.marcos.joyeria/.MainActivity...}. Reason: Input dispatching timed
+  out (Application does not have a focused window)` — un ANR de
+  despacho de input, no un `FATAL EXCEPTION` ni un deadlock del hilo
+  principal de la app (`grep` de `FATAL EXCEPTION`/`AndroidRuntime` para
+  `gt.marcos.joyeria` en todo el logcat de la sesión: **0 resultados**).
+- El mismo logcat mostró ANRs de **`com.android.vending`** y
+  **`com.google.android.inputmethod.latin`** (el teclado de Gboard) en
+  la misma ventana de tiempo, antes incluso de que mi script tocara la
+  app — imposible que mi código haya causado esos dos.
+- `adb shell top` confirmó el emulador con **600% CPU** (6 núcleos) casi
+  saturado por procesos ajenos a la app: `dex2oat64` recompilando
+  Google Docs en segundo plano, `com.google.android.gms` y
+  `com.android.vending:background`, y `kswapd0` (el sistema estaba
+  intercambiando memoria a disco). En el lado del host, `Get-Process`
+  mostró `qemu-system-x86_64` con miles de segundos de CPU acumulados y
+  dos daemons de Gradle todavía residentes de los builds anteriores de
+  esta misma sesión.
+- Conclusión: fue contención de recursos del entorno (emulador +
+  compilaciones/servicios de fondo + los dos `./gradlew` que corrí antes
+  en la misma máquina), no un problema introducido por el fix. Lo
+  confirmé además indirectamente: el intento de medición que coincidió
+  con el ANR **no llegó a guardar** ningún producto nuevo (verificado
+  contra la base real: seguía existiendo solo XP-000001) — se cayó a
+  mitad de camino, así que ese primer número (que había calculado en
+  16.60s) es inválido y lo descarto explícitamente, no lo uso para nada.
+- Una vez que `top` mostró el sistema en reposo (592% idle de 600%),
+  repetí la medición limpia y el flujo completó de punta a punta
+  ("Guardada como XP-000002", verificado también contra la base real).
+
+No hay ninguna acción de código de este fix relacionada con este
+incidente — lo dejo documentado en detalle porque un ANR durante una
+verificación merece la evidencia completa, no una mención de una línea.
+
+### Remedición de tiempo (pedida por el humano)
+
+**Metodología y su límite, dicho de entrada:** esto es una repetición
+mecánica de la secuencia de taps por ADB (`input tap`/`input text`),
+cronometrada con `date` de un extremo a otro, sobre el emulador ya en
+reposo (verificado con `top` antes de arrancar). **No es una medición
+con la usuaria real** ni con un humano tocando la pantalla — no tiene
+tiempo de lectura de las etiquetas, ni de decidir qué categoría tocar,
+ni la torpeza normal de un dedo real. Sirve como señal rápida de si el
+campo obligatorio nuevo (categoría) hace que el flujo se dispare muy por
+encima de 20 segundos incluso en el caso más optimista — no reemplaza
+el criterio 4 de la Fase 03, que exige la medición de ella con
+cronómetro real.
+
+Secuencia cronometrada (tap a tap, incluyendo pausas deliberadas para
+apertura de cámara ~1s y compresión/guardado de la foto ~1.2s, que sí
+son tiempos reales de espera y no artificios del script): tocar
+"Agregar pieza" → tocar "Tomar foto" → tocar el obturador → tocar Costo
+→ escribir "3000" → cerrar teclado → tocar el chip "Anillos" → deslizar
+para ver Guardar → tocar Guardar.
+
+**Resultado: 7.81 segundos**, con guardado confirmado ("Guardada como
+XP-000002", verificado contra la base real) — corrida válida, a
+diferencia del intento anterior interrumpido por el ANR.
+
+**Lectura honesta de este número:** 7.81s de ejecución mecánica no dice
+que una persona real tarde 7.81s — dice que la *secuencia* de toques
+necesaria (incluyendo el toque nuevo del chip de categoría, que no
+exige escribir nada, solo elegir entre 5 opciones visibles) no agrega
+pasos pesados ni tiempos de espera nuevos al flujo. El campo que más
+tiempo real le puede sumar a la usuaria es el de leer las 5 categorías y
+decidir cuál tocar — algo que un script no necesita hacer y que no se
+puede medir con ADB. Con el margen que deja este número frente al
+límite de 20 segundos, no veo señal de que el cambio lo dispare por
+encima — pero, tal como dejé anotado en el plan, **no cierro la Fase 03
+con esto**: sigue pendiente la medición real con la usuaria, con
+cronómetro, en su teléfono, como pide el criterio 4 original.
+
+### Archivos tocados (vs. lo planeado)
+
+Igual que el plan, más `ProductEditScreen.kt` (sumado al alcance por
+tu segundo pedido):
+
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductScreen.kt`
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/AddProductUiState.kt`
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/CategoryChipRow.kt` (nuevo)
+- `app/src/main/java/gt/marcos/joyeria/ui/product/edit/ProductEditScreen.kt` ⚠️ (agregado al alcance por pedido explícito del humano, no estaba en el plan original)
+- `app/src/main/res/values/strings.xml`
+- `CLAUDE.md`
+- `DECISIONES.md`
+- `ESTADO.md`
+
+No se tocó `AndroidManifest.xml` ni ningún otro archivo fuera de esta
+lista.
+
+### Suposiciones que tomé
+
+- Altura de chip `56.dp` vía `Modifier.heightIn(min = 56.dp)` sobre
+  `FilterChip` de Material3 (que por defecto es más chico): verificado
+  visualmente que no se ve roto, pero es mi criterio, no algo que
+  confirmaste vos mismo viendo el emulador.
+- Orden final de los campos (categoría inmediatamente después de
+  precio/ganancia, antes de cantidad/nombre/notas): elegido por mí
+  dentro de lo que el plan ya proponía.
+- No se tocaron los productos XP-000001/XP-000002 creados durante esta
+  verificación (son datos de prueba desechables, igual que en la
+  verificación de Fase 04); quedan en la base del emulador, no en
+  ningún archivo del repo.
+
+### Lo que NO hice
+
+- No cerré la Fase 03 (sigue pendiente su criterio 4: medición real con
+  la usuaria).
+- No toqué nada de `ui/product/list/**` ni de compras/ventas — fuera de
+  alcance de este fix.
+- No agregué tests nuevos para `canSave`/`CategoryChipRow`: `ui/product/add`
+  nunca estuvo bajo `[TESTS OBLIGATORIOS]` (Fase 03 solo lo exigía para
+  `MoneyDigitsInputTest`/`ImageStorageScalingTest`, funciones puras). No
+  inventé una obligación de test que no estaba pedida; lo verifiqué a
+  mano en el emulador como está documentado arriba.
+
+### Deuda técnica que dejé
+
+- Ninguna nueva relacionada con este fix. La deuda de Fase 03 (fotos
+  huérfanas ante muerte de proceso) sigue igual, sin relación con este
+  cambio.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno. Build y tests en verde, las dos pantallas verificadas con
+captura real y teclado abierto como pediste, el orden de modifiers
+correcto y confirmado (no solo "casi bien"), y la remedición de tiempo
+dio 7.81s mecánicos — muy por debajo de 20s, aunque con la salvedad
+explícita de que no reemplaza la medición real pendiente con la
+usuaria. Quedo esperando tu revisión antes de comitear/taguear.

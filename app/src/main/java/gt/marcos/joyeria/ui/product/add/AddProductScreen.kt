@@ -9,14 +9,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,16 +26,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,15 +37,17 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import gt.marcos.joyeria.R
-import gt.marcos.joyeria.data.repository.Category
 import gt.marcos.joyeria.ui.format.format
-import gt.marcos.joyeria.ui.product.CategoryDropdown
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 
 /**
  * Pantalla de alta rápida de pieza. Stateless y `@Preview`-able: recibe
  * estado y lambdas, nunca el ViewModel (CLAUDE.md sección 5). El wrapper
  * que sí conoce el ViewModel es `AddProductRoute`.
+ *
+ * Todos los campos están siempre visibles, sin nada para expandir (fix
+ * de usabilidad post Fase 03/04): foto, costo, precio y categoría son
+ * obligatorios (D-026); cantidad, nombre y notas son opcionales.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,16 +64,19 @@ fun AddProductScreen(
     onSavedConfirmationDismissed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var detailsExpanded by remember { mutableStateOf(false) }
-
     Scaffold(
         modifier = modifier,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.add_product_title)) }) },
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             Column(
+                // imePadding() ANTES de verticalScroll(): tiene que encoger
+                // el contenedor que scrollea, no agregarse como padding del
+                // contenido de adentro -- si no, el teclado tapa el campo
+                // enfocado en vez de que el scroll lo suba por encima.
                 modifier = Modifier
                     .fillMaxSize()
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -110,18 +108,33 @@ fun AddProductScreen(
                     )
                 }
 
-                MoreDetailsSection(
-                    expanded = detailsExpanded,
-                    onExpandedChange = { detailsExpanded = it },
-                    name = state.name,
-                    onNameChange = onNameChange,
+                CategoryChipRow(
                     categories = state.categories,
                     selectedCategoryId = state.categoryId,
-                    onCategorySelected = onCategorySelected,
-                    quantityText = state.quantityText,
-                    onQuantityChange = onQuantityChange,
-                    notes = state.notes,
-                    onNotesChange = onNotesChange,
+                    onCategorySelected = { id -> onCategorySelected(id) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = state.quantityText,
+                    onValueChange = onQuantityChange,
+                    label = { Text(stringResource(R.string.add_product_quantity_label)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = state.name,
+                    onValueChange = onNameChange,
+                    label = { Text(stringResource(R.string.add_product_name_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = state.notes,
+                    onValueChange = onNotesChange,
+                    label = { Text(stringResource(R.string.add_product_notes_label)) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
                 Button(
@@ -196,74 +209,6 @@ private fun TakePhotoButton(hasPhoto: Boolean, onClick: () -> Unit) {
         }
     }
 }
-
-@Composable
-private fun MoreDetailsSection(
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    name: String,
-    onNameChange: (String) -> Unit,
-    categories: List<Category>,
-    selectedCategoryId: Long?,
-    onCategorySelected: (Long?) -> Unit,
-    quantityText: String,
-    onQuantityChange: (String) -> Unit,
-    notes: String,
-    onNotesChange: (String) -> Unit,
-) {
-    Column {
-        TextButton(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(stringResource(R.string.add_product_more_details))
-                Icon(
-                    imageVector = expandIcon(expanded),
-                    contentDescription = null,
-                )
-            }
-        }
-        if (expanded) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = onNameChange,
-                    label = { Text(stringResource(R.string.add_product_name_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                CategoryDropdown(
-                    categories = categories,
-                    selectedCategoryId = selectedCategoryId,
-                    onCategorySelected = onCategorySelected,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = quantityText,
-                    onValueChange = onQuantityChange,
-                    label = { Text(stringResource(R.string.add_product_quantity_label)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = onNotesChange,
-                    label = { Text(stringResource(R.string.add_product_notes_label)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-    }
-}
-
-private fun expandIcon(expanded: Boolean): ImageVector =
-    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore
 
 @Preview(showBackground = true)
 @Composable

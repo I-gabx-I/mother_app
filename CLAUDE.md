@@ -247,9 +247,11 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
 
 Estas son requisitos, no sugerencias estéticas.
 
-- **Registrar una pieza nueva: máximo 3 taps y menos de 20 segundos.**
-  Pantalla de alta rápida: foto, costo, precio. Todo lo demás es opcional y se
-  edita después. Si el formulario de alta pide más de 4 campos obligatorios, está mal.
+- **Registrar una pieza nueva: máximo 4 taps y menos de 20 segundos.**
+  Pantalla de alta rápida: foto, costo, precio y categoría (D-026). Todo lo
+  demás (nombre, cantidad, notas) es opcional, visible sin necesidad de
+  expandir nada, y se edita después. Si el formulario de alta pide más de
+  4 campos obligatorios, está mal.
 - La pantalla de inicio tiene dos acciones grandes y obvias: **Vender** y **Agregar pieza**.
   No es un dashboard de métricas.
 - Tamaño mínimo de texto de cuerpo: 18sp. Área táctil mínima: 56dp.

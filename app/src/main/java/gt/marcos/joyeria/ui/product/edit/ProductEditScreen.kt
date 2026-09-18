@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -85,8 +86,13 @@ fun ProductEditScreen(
                 }
             } else {
                 Column(
+                    // Mismo fix que AddProductScreen: imePadding() antes de
+                    // verticalScroll(), para que el teclado encoja el
+                    // contenedor que scrollea en vez de taparlo (mismo bug,
+                    // misma clase de pantalla).
                     modifier = Modifier
                         .fillMaxSize()
+                        .imePadding()
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),

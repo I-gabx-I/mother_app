@@ -993,6 +993,50 @@ el archivo sospechoso) antes de gastar intentos cambiando versiones.
 
 ---
 
+## D-026 — CLAUDE.md sección 6: de 3 a 4 campos obligatorios en el alta rápida (categoría se vuelve obligatoria)
+
+**Contexto:** la prueba real con la usuaria (2026-09-17) mostró que los
+campos opcionales de la Fase 03 quedaban escondidos en un bloque
+colapsable ("Más detalles") y no los descubría sola. Al hacerlos todos
+visibles sin necesidad de expandir nada, categoría queda en una posición
+distinta a la que tenía: dejarla visible pero opcional no resuelve el
+problema de fondo que motivó D-021 (Fase 03 la dejó afuera del alta por
+falta de `CategoryRepository` en ese momento, no porque no importara) —
+sin categoría, la búsqueda/filtro de Fase 04 y el catálogo agrupado de
+Fase 10 sirven a medias, y en la práctica una usuaria que nunca está
+obligada a completarla no lo va a hacer después en edición.
+
+**Decisión:** CLAUDE.md sección 6 pasa de "máximo 3 taps" a "máximo 4
+taps": foto, costo, precio y categoría son los cuatro campos obligatorios
+del alta rápida. Categoría se selecciona con chips de un solo toque
+(`CategoryChipRow`, sin preselección y sin opción "sin categoría"), no
+con el `CategoryDropdown` compartido que sigue usando la pantalla de
+edición — para no perder el espíritu de "un toque por campo obligatorio"
+de la regla original.
+
+**Por qué no una excepción tácita:** CLAUDE.md sección 10 exige no
+adivinar y dejar las dudas escritas. Cambiar el comportamiento real de la
+pantalla sin actualizar la regla que lo describe habría dejado
+documentación y código diciendo cosas distintas — justo lo que el ritual
+de auditoría de la sección 7 (leer `ESTADO.md` + el diff del tag) no
+puede tolerar.
+
+**Descartado:**
+- Dejar categoría opcional y visible: no resuelve el problema real
+  (catálogo/filtro sin categoría), solo lo pospone.
+- Mantener el bloque colapsable solo para categoría: la prueba con la
+  usuaria real ya mostró que lo colapsado no se descubre.
+- Un `CategoryDropdown` en vez de chips: exige dos toques (abrir el menú,
+  elegir la opción) para un campo ahora obligatorio, más lento que un
+  chip de un solo toque para el caso más común (5 categorías fijas).
+
+**Consecuencia:** `AddProductUiState.canSave` suma `categoryId != null`.
+El criterio de tiempo de la Fase 03 (menos de 20 segundos, criterio 4)
+se vuelve a medir después de este cambio — ver `ESTADO.md`, "Fix de
+usabilidad de alta rápida", remedición de tiempo.
+
+---
+
 <!--
 ## D-00X — Título
 
