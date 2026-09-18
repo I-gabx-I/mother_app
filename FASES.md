@@ -232,21 +232,80 @@ existen desde la Fase 01 (D-011); esta fase agrega su DAO, repositorio y
 pantallas. Separada de Inventario (Fase 04) — ver **D-022** en
 `DECISIONES.md`.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/purchase/**`, `app/src/main/java/**/domain/usecase/*Purchase*.kt`, `app/src/main/java/**/data/**`, `strings.xml`
+**Efecto de una compra sobre `product.cost_cents` — D-029, ya
+decidido:** regla híbrida, una sola fórmula de promedio ponderado por
+cantidad:
+
+```
+totalActual = stock_qty_actual × cost_cents_actual
+totalLinea  = qty_comprada × unit_cost_cents + allocated_extra_cents   // costo real total de la línea, ya prorrateada, sin redondeos intermedios
+nuevoCosto  = ceilDiv(totalActual + totalLinea, stock_qty_actual + qty_comprada)
+```
+
+Cuando `stock_qty_actual = 0`, esta misma fórmula ya da exactamente el
+costo de la compra nueva (no es una rama de código aparte, ver D-029)
+— pero igual lleva un test dedicado que confirme ese caso explícitamente
+(criterio 4 abajo). `ceilDiv` redondea hacia arriba cuando la división
+no es exacta (mismo espíritu conservador que el redondeo de
+`suggestedPrice`, D-015): un centavo de más en el costo nunca hace que
+se muestre más ganancia de la real, un centavo de menos sí podría.
+
+**Archivos permitidos:** `app/src/main/java/**/ui/purchase/**`,
+`app/src/main/java/**/domain/usecase/*Purchase*.kt`,
+`app/src/main/java/**/domain/pricing/PricingCalculator.kt` (agregado:
+la fórmula de arriba es aritmética pura de dinero, mismo tipo de
+función que `profit`/`suggestedPrice` — no le corresponde a
+`usecase/*Purchase*.kt`, que es orquestación, no cálculo puro),
+`app/src/main/java/**/data/**`, `app/src/test/java/**/domain/**`,
+`app/src/test/java/**/data/**` (los dos últimos faltaban en la lista
+original — sin ellos no hay dónde escribir los tests que esta misma
+fase exige con `[TESTS OBLIGATORIOS]`; corrección de alcance, no una
+decisión de diseño), `strings.xml`
 
 **Entregable:**
-- Registro de compra con líneas, y prorrateo opcional de transporte local según `ESQUEMA.md`.
+- Registro de compra con líneas, y prorrateo opcional de transporte
+  local según `ESQUEMA.md`.
+- Al confirmar una compra, en una sola transacción: inserta `purchase` +
+  `purchase_item`(s), recalcula `product.cost_cents` con la fórmula de
+  arriba, suma `qty` a `product.stock_qty`, e inserta una fila en
+  `price_history` (mismo mecanismo que la edición manual de Fase 04;
+  la tabla ya existe desde la v1, no hace falta ninguna migración).
+- Una compra **nunca** cambia `product.sale_price_cents` de forma
+  automática. Si el costo nuevo deja la ganancia unitaria al precio de
+  venta **actual** en cero o negativa (`profit(nuevoCosto, precioActual)
+  <= 0`), la pantalla muestra un aviso sugiriendo revisar el precio —
+  decide ella, no el sistema.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
-2. **[TESTS OBLIGATORIOS]** El prorrateo tiene test: la suma de `allocated_extra_cents` es exactamente igual a `extra_cost_cents`, incluyendo un caso con residuo de redondeo (ej. Q10 entre 3 líneas).
+2. **[TESTS OBLIGATORIOS]** El prorrateo tiene test: la suma de
+   `allocated_extra_cents` es exactamente igual a `extra_cost_cents`,
+   incluyendo un caso con residuo de redondeo (ej. Q10 entre 3 líneas).
+3. **[TESTS OBLIGATORIOS]** El promedio ponderado tiene test con los
+   números del ejemplo de D-029 (10 u. a Q40 + 5 u. a Q55 → Q45 exacto)
+   y con un caso que no divide exacto, confirmando la dirección de
+   redondeo hacia arriba (ver `ESTADO.md`, "Fase 05 — Plan", para los
+   valores concretos).
+4. **[TESTS OBLIGATORIOS]** Test dedicado que confirme que una compra
+   con `stock_qty = 0` deja `cost_cents` en el costo real de la compra
+   nueva, no en un promedio con el valor viejo (D-029).
+5. Test de que registrar una compra inserta una fila en `price_history`
+   con el `cost_cents` nuevo.
+6. Test de que la compra, el recálculo de costo/stock y la fila de
+   `price_history` se escriben atómicamente (si algo falla a mitad de
+   camino, no queda una compra huérfana ni un costo a medio actualizar)
+   — mismo patrón de `db.withTransaction` que `ProductUidGenerator`
+   (Fase 01).
 
-**Nota abierta, a resolver antes de arrancar esta fase (no bloquea Fase
-04):** qué efecto tiene una compra sobre `product.cost_cents` y
-`product.stock_qty` del producto comprado. Ver la sección "Compras y el
-costo del producto — decisión pendiente" en `ESTADO.md` para las
-opciones y sus consecuencias sobre la ganancia histórica; no se decide
-en este documento hasta que el humano elija una.
+**Puntos sin resolver todavía — ver `ESTADO.md`, "Fase 05 — Plan"
+(2026-09-17), no se deciden en este documento:**
+- Qué hacer cuando una compra se registra con fecha retroactiva
+  (`purchased_at`) anterior a ventas ya existentes de ese producto —
+  propuesta con opciones, sin decidir.
+- Si `price_history` alcanza tal cual para reconstruir reportes de
+  "ganancia por ciclo de compra" (Fase 09, futura) o hace falta
+  agregarle columnas — propuesta de cambio a `ESQUEMA.md`, sin aplicar,
+  a la espera de aprobación explícita.
 
 **Commit:** `fase-05: bulk purchases` → tag `fase-05-ok`
 

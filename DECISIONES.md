@@ -1106,6 +1106,108 @@ referencia de cómo aplicar esta regla en la práctica.
 
 ---
 
+## D-029 — Costo del producto tras una compra: regla híbrida (promedio ponderado si hay stock, reemplazo directo si stock = 0). Rechaza la recomendación de la Opción A pura
+
+**Contexto:** "Compras y el costo del producto — decisión pendiente"
+(`ESTADO.md`, 2026-09-14) planteaba tres opciones (A: última compra, B:
+promedio ponderado, C: no tocar el costo) sin resolver, a la espera del
+humano. Claude Code recomendó la Opción A el 2026-09-17, con el
+argumento central de que era la única que nunca hace sobreestimar la
+ganancia. El humano rechazó esa recomendación con dos contraejemplos
+numéricos concretos.
+
+**Contraejemplo 1 — el argumento central de la recomendación de A era
+falso:** el razonamiento de A ("nunca sobreestima") asumía implícito
+que el costo de compra solo puede subir. Si el mayorista hace una
+promoción y el costo baja (ej. compra 5 unidades nuevas a Q30 en vez de
+Q55, con 10 unidades viejas a Q40 todavía en stock, vendiendo a Q100):
+con A, `cost_cents` pasa a Q30 y el sistema muestra **Q70** de ganancia
+sobre las 10 unidades viejas, cuya ganancia real es **Q60** — sobreestima
+exactamente lo que la recomendación decía que A nunca hacía.
+
+**Contraejemplo 2 — el número que de verdad le importa a la usuaria es
+el agregado, y ahí B es exacto, no aproximado:** mismo escenario (10 u.
+a Q40, +5 u. a Q55, venta a Q100). Ganancia **real** total de las 15
+unidades si se venden todas a Q100: `10×60 + 5×45 = Q825`. Con cada
+opción, la ganancia que el sistema mostraría para esas 15 unidades:
+
+| Opción | `cost_cents` resultante | Ganancia total mostrada (15 u.) | Error vs. Q825 real |
+|---|---|---|---|
+| A — última compra | Q55 | 15 × 45 = **Q675** | −Q150 |
+| B — promedio ponderado | Q45 (`(10·40+5·55)/15`) | 15 × 55 = **Q825** | **Q0** |
+| C — no se toca | Q40 | 15 × 60 = **Q900** | +Q75 |
+
+B da el total exacto porque es una identidad matemática, no una
+coincidencia: `Σ(qty_i · costo_i) = costoPromedio × Σqty_i` por
+definición de promedio ponderado, así que `ganancia total = ingreso
+total − costoPromedio×unidades` reproduce exactamente `Σ(ingreso_i −
+costo_i)` sin importar si el costo nuevo subió o bajó. A y C solo
+"aciertan" quedan del lado seguro por casualidad, según hacia dónde se
+mueva el precio de compra — no tienen una dirección de error
+consistente, y el Contraejemplo 1 ya mostró que A puede sobreestimar
+igual que C.
+
+**Decisión — regla híbrida, no un promedio simple ni un reemplazo simple:**
+
+- **Si `stock_qty == 0`** en el momento de registrar la compra (antes
+  de sumar la cantidad comprada): `cost_cents` se reemplaza directo por
+  el costo real de esta compra (`unit_cost_cents` + la parte
+  prorrateada de `extra_cost_cents` que le toca a la línea, por unidad).
+  No hay nada con qué promediar — el ciclo de stock anterior se cerró.
+- **Si `stock_qty > 0`:** `cost_cents` se recalcula como promedio
+  ponderado por cantidad entre el stock existente y la compra nueva.
+
+**Por qué el promedio (y no intentar algo "más exacto") cuando hay
+stock mezclado:** son piezas de joyería físicamente idénticas, sin
+etiqueta de lote — cuando se vende una, **no existe el dato** de si
+salió del lote de Q40 o del de Q55. Cualquier método que pretenda
+saberlo (ej. FIFO estricto, asumir que se vende primero lo viejo)
+inventa un dato que el negocio real no tiene forma de proveer. El
+promedio ponderado es la única respuesta que no finge una precisión que
+no existe, y además (Contraejemplo 2) es la que preserva exacto el
+número que de verdad le importa a fin de mes.
+
+**Nota de implementación (no cambia la regla, la simplifica):** la
+fórmula de promedio ponderado, evaluada en `stock_qty = 0`, ya da
+exactamente el costo de la compra nueva sin ningún caso especial —
+`(0×cualquierCosa + qty×costoLínea) / qty = costoLínea` es exacto
+siempre que la línea no tenga prorrateo (`allocated_extra_cents = 0`,
+el caso común). Es decir, "reemplazo directo" y "promedio ponderado"
+son la misma fórmula, no dos ramas de código distintas — el caso
+`stock = 0` es simplemente el caso donde el promedio no tiene con qué
+mezclarse. El plan de Fase 05 (`ESTADO.md`) igual incluye un test
+explícito y dedicado para este caso, como pidió el humano — la
+fórmula única no exime de probar el comportamiento.
+
+**Descartado:**
+- **Opción A pura** (recomendación anterior de Claude Code, retirada):
+  rota por el Contraejemplo 1 — su premisa central era falsa.
+- **Opción C pura:** ya estaba descartada por sobreestimar
+  indefinidamente cuando el costo sube (Contraejemplo 2); ahora se suma
+  que tampoco es consistente en la otra dirección.
+- **Un producto/lote nuevo por cada compra** (tratar cada compra como
+  una entidad de catálogo separada): rechazado explícitamente por el
+  humano. Multiplicaría el catálogo (la misma pieza aparecería varias
+  veces en el listado con fotos idénticas) y la usuaria tendría que
+  adivinar cuál tocar para vender — exactamente lo que Fase 03/04 se
+  esforzaron en evitar (CLAUDE.md sección 6). La separación por ciclos
+  de compra tiene que ser invisible en la pantalla de venta y visible
+  solo en reportes.
+
+**Consecuencia:** Fase 05 implementa la regla híbrida (una sola
+fórmula). Quedan, además, tres puntos que el plan de Fase 05
+(`ESTADO.md`) tiene que resolver o dejar explícitamente propuestos sin
+decidir, por pedido del humano: la dirección de redondeo de la división
+del promedio (a definir y testear, no es una decisión de negocio como
+esta), la política ante una compra registrada con fecha retroactiva
+posterior a ventas ya hechas (propuesta, sin decidir), y si
+`price_history` alcanza para reconstruir reportes de "ganancia por
+ciclo de compra" o hace falta agregarle columnas (propuesta de esquema,
+sin aplicar, a la espera de aprobación — `ESQUEMA.md` prohíbe
+inventar columnas sin ese paso).
+
+---
+
 <!--
 ## D-00X — Título
 

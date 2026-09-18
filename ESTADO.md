@@ -3732,3 +3732,277 @@ unidades que hay en stock:
 (A, B, C, o algo distinto) antes de que arranque el código de Fase 05;
 se registra en `DECISIONES.md` recién cuando se elija, como ya decía la
 sección original de 2026-09-14.
+
+---
+
+## Costo del producto tras una compra — decisión final: regla híbrida (rechaza mi recomendación de A)
+
+**Fecha:** 2026-09-17.
+
+El humano rechazó la recomendación de la Opción A de la sección
+anterior con dos contraejemplos numéricos que la tiran abajo por
+completo. Registrado como **D-029** en `DECISIONES.md` con el detalle
+completo — acá dejo solo el resumen para no duplicar, más lo que hace
+falta para escribir el plan de Fase 05.
+
+**Por qué A estaba mal (mi error, no una preferencia del humano):** mi
+argumento era "A nunca hace sobreestimar la ganancia." Eso asumía que
+el costo de compra solo sube. El humano mostró el caso contrario: si el
+mayorista hace una promoción y el costo **baja** (10 u. viejas a Q40,
+5 u. nuevas a **Q30** en vez de Q55, venta a Q100), A muestra **Q70**
+de ganancia sobre las viejas cuando la real es **Q60** — sobreestima,
+justo lo que yo decía que A evitaba siempre. Mi razonamiento tenía un
+caso no contemplado y lo di por bueno sin buscarlo.
+
+**El número que de verdad importa es el agregado, y ahí B es exacto:**
+ganancia real total de 15 unidades (10 a Q40, 5 a Q55, todas vendidas a
+Q100) = `10×60 + 5×45 = Q825`. A muestra Q675 (error −150), C muestra
+Q900 (error +75), B muestra exactamente Q825 (error 0) — no por
+casualidad, es una identidad matemática del promedio ponderado. La
+tabla completa está en D-029.
+
+**Decisión adoptada — regla híbrida, una sola fórmula:**
+
+```
+totalActual = stock_qty_actual × cost_cents_actual
+totalLinea  = qty_comprada × unit_cost_cents + allocated_extra_cents
+nuevoCosto  = ceilDiv(totalActual + totalLinea, stock_qty_actual + qty_comprada)
+```
+
+Con `stock_qty_actual = 0` esta fórmula ya da el costo de la compra
+nueva sin ningún caso especial (D-029, "Nota de implementación") —
+"reemplazo directo" y "promedio ponderado" son la misma cuenta, no dos
+ramas de código. El plan de abajo igual incluye el test dedicado que
+pidió el humano para el caso `stock = 0`.
+
+**Sobre "producto nuevo por compra":** descartado explícitamente por el
+humano — multiplicaría el catálogo (la misma pieza repetida con fotos
+idénticas) y la usuaria tendría que adivinar cuál tocar para vender.
+La separación por ciclos de compra es invisible en la venta, visible
+solo en reportes (ver más abajo, "¿Alcanza `price_history` para los
+reportes por ciclo?").
+
+---
+
+## Fase 05 — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-17. `FASES.md` Fase 05 ya está actualizado con la
+regla de D-029, los archivos permitidos corregidos (agregado
+`domain/pricing/PricingCalculator.kt` y las rutas de test que faltaban
+— ninguna de las dos es una decisión de diseño nueva, son
+correcciones de alcance, igual que la de Fase 01 con
+`libs.versions.toml`) y seis criterios de aceptación. Esto resuelve los
+puntos (a), (b) y (c) que pidió el humano; (d) queda resuelto acá abajo
+con una definición concreta; (e) y la pregunta de `price_history` para
+reportes por ciclo quedan **propuestos, sin decidir**, como se pidió
+explícitamente.
+
+### a) Redondeo del promedio — definido y con casos de test
+
+`ceilDiv(numerador, denominador)` para enteros no negativos:
+`(numerador + denominador - 1) / denominador`. Redondea hacia **arriba**
+cuando no divide exacto.
+
+**Por qué hacia arriba y no hacia abajo:** un costo redondeado de más
+nunca hace que el sistema muestre más ganancia de la que hay en
+realidad; uno redondeado de menos, sí. Mismo criterio conservador que
+ya está en el proyecto (CLAUDE.md 3.4, D-015) — no es una regla nueva,
+es aplicar la misma que ya existe a un lugar donde todavía no estaba
+escrita.
+
+**Por qué el cálculo se hace en totales, no promediando un "costo real
+de línea" ya redondeado:** si primero se calculara
+`unit_cost_cents + ceilDiv(allocated_extra_cents, qty)` como un valor
+aparte, y ese valor (ya redondeado una vez) se metiera en la fórmula
+del promedio (que redondea una segunda vez), el error de redondeo se
+podría acumular en dos pasos. Calculando todo en centavos totales
+(`qty_comprada × unit_cost_cents + allocated_extra_cents`, sin dividir
+nada todavía) y dividiendo una sola vez al final, hay un solo punto de
+redondeo posible, no dos. Esto es una decisión de implementación, no
+de negocio — la dejo definida acá para no reabrirla en el código.
+
+**Casos de test propuestos (`PricingCalculatorTest`, a agregar en
+Fase 05):**
+
+| Caso | stock actual, costo actual | compra: qty, costo unitario, extra prorrateado | Cálculo | Resultado esperado |
+|---|---|---|---|---|
+| Ejemplo de D-029, división exacta | 10 u., Q40 (4000) | 5 u., Q55 (5500), extra 0 | `(10·4000+5·5500)/15 = 67500/15` | **4500** (Q45), exacto, sin redondeo |
+| Promoción de D-029, división **no** exacta | 10 u., Q40 (4000) | 5 u., Q30 (3000), extra 0 | `(10·4000+5·3000)/15 = 55000/15 = 3666.66...` | **3667** (redondeado hacia arriba desde 3666.67) |
+| División con residuo, números chicos | 3 u., Q1.00 (100) | 4 u., Q1.75 (175), extra 0 | `(3·100+4·175)/7 = 1000/7 = 142.857...` | **143** (redondeado hacia arriba) |
+| `stock = 0`, sin prorrateo (criterio 4 de FASES.md) | 0 u., cualquier costo viejo (ej. 9999, "basura" de antes de tener stock) | 5 u., Q40 (4000), extra 0 | `(0·9999+5·4000)/5 = 20000/5` | **4000** exacto — confirma que el costo viejo no participa para nada |
+| `stock = 0`, **con** prorrateo (caso menos común, pero real) | 0 u. | 3 u., Q40 (4000), extra prorrateado 100 (Q1 de transporte) | `(0+3·4000+100)/3 = 12100/3 = 4033.33...` | **4034** (redondeado hacia arriba) — muestra que incluso en `stock=0` puede haber redondeo si hubo prorrateo |
+
+### b) Caso `stock = 0` — test dedicado
+
+Cubierto en la tabla de arriba (filas 4 y 5) y en el criterio 4 de
+`FASES.md`. El test verifica el **resultado**, no la existencia de un
+`if` en el código — si en algún refactor futuro alguien intenta
+"optimizar" separando esto en dos ramas y comete un error en una de las
+dos, este test lo detecta igual, porque compara el número final, no la
+estructura del código.
+
+### c) `price_history` en cada compra
+
+Reutiliza el mecanismo que ya existe de Fase 04 (actualizar
+`cost_cents` inserta una fila en `price_history`) — no hace falta un
+mecanismo nuevo, solo que `RegisterPurchaseUseCase` (o como se llame el
+caso de uso, en `domain/usecase/*Purchase*.kt`) llame al mismo camino
+que ya usa la edición manual. Test: registrar una compra inserta
+exactamente una fila nueva en `price_history` con el `cost_cents`
+recién calculado (criterio 5 de `FASES.md`).
+
+Estas tres escrituras (recalcular `product.cost_cents`/`stock_qty`,
+insertar `purchase`/`purchase_item`, insertar `price_history`) van en
+una sola transacción Room (`db.withTransaction`), mismo patrón que
+`ProductUidGenerator` (Fase 01) usa para su atomicidad — criterio 6 de
+`FASES.md`. Si algo falla a mitad de camino, no debe quedar ninguna de
+las tres escrituras aplicada sola.
+
+### d) Aviso cuando el margen cae — definido
+
+**Disparador exacto que propongo (queda para tu confirmación, no es
+tan obvio como a/b/c):** después de recalcular el costo, si
+`PricingCalculator.profit(nuevoCosto, precioDeVentaActual).cents <= 0`
+— es decir, si vendiendo al precio de hoy ya no ganaría nada o perdería
+plata — se muestra un aviso. **No** disparo el aviso ante cualquier
+caída de margen (una compra que sube el costo *siempre* baja algo el
+margen si el precio no se toca, así que "cualquier caída" avisaría en
+casi toda compra y se volvería ruido que ella aprende a ignorar —
+exactamente el tipo de fricción que CLAUDE.md sección 6 quiere evitar).
+Elegí el umbral de "ganancia cero o negativa" porque es el único punto
+donde no hace falta inventar ningún número de configuración nuevo (no
+hay un `app_setting` de "margen mínimo aceptable" en `ESQUEMA.md`, y no
+estoy proponiendo agregar uno) y representa un momento real de decisión
+para ella: vender al costo o perder plata es objetivamente distinto de
+"gano un poco menos que antes."
+
+El aviso **no cambia nada solo**: es un mensaje, ella decide si edita
+el precio o no (CLAUDE.md sección 6: "decide ella, no el sistema", ya
+en el entregable de `FASES.md`).
+
+### e) Compra con fecha retroactiva, posterior a ventas ya hechas — propuesta, sin decidir
+
+**El problema concreto:** se registra hoy una compra con `purchased_at`
+en el pasado (ej. hace 2 semanas), pero ya existen ventas de ese mismo
+producto con `sold_at` posterior a esa fecha (ej. vendida hace 1
+semana) — esas ventas ya usaron, y ya tienen fijado en su snapshot
+(D-002), el costo que estaba vigente *antes* de esta compra retroactiva,
+aunque cronológicamente la compra "debería" haber estado vigente para
+ellas.
+
+**Restricción dura que cualquier propuesta tiene que respetar, y que ya
+está resuelta por el esquema:** D-002 prohíbe recalcular ganancias
+históricas. Ninguna opción de abajo toca `sale_item` de ventas ya
+hechas, sin importar la fecha de la compra. Lo único que está en
+discusión es qué le pasa a `product.cost_cents`/`stock_qty` **hoy**.
+
+**Propuesta A — la fecha no participa del cálculo, es solo un dato
+descriptivo.** El recálculo de costo siempre usa el `stock_qty` real de
+hoy (el momento en que se registra la compra en el sistema), sin
+importar qué `purchased_at` haya elegido. La fecha queda para reportes
+de compras (cuánto gastó, cuándo), no para la matemática de costo.
+- Ventaja: cero lógica temporal nueva.
+- Riesgo: si ella pone una fecha vieja "para que quede bien anotado," el
+  costo se recalculó igual, como si la compra fuera de hoy — puede
+  sorprenderle si no se le avisa.
+
+**Propuesta B — bloquear si la fecha es anterior a la venta más
+reciente de ese producto.** No dejar guardar (o exigir confirmación
+explícita con un texto claro) si `purchased_at` < `MAX(sold_at)` de
+ventas no `CANCELLED` de ese producto.
+- Ventaja: elimina la ambigüedad de raíz.
+- Riesgo: fricción para un caso de uso legítimo — anotar compras
+  atrasadas es normal en un negocio real, y bloquearlo puede empujarla
+  a mentir la fecha con tal de que la app la deje guardar.
+
+**Propuesta C — advertencia informativa, se deja pasar igual, mismo
+cálculo simple de A.** Mensaje del tipo "Ya registraste ventas después
+de esta fecha; el costo se actualiza igual, a partir de hoy — esas
+ventas no cambian." Sin bloquear.
+
+**Mi inclinación, sin decidir por vos:** C — combina la simplicidad de
+A (ninguna lógica temporal en el cálculo) con la transparencia de no
+dejarla sorprendida, y sigue el mismo tono que el resto del proyecto
+usa para estos casos (avisar en vez de bloquear — D-015 evitó bloqueos
+duros en Fase 02 por la misma razón general). Pero lo dejo en tus
+manos, como pediste.
+
+### ¿Alcanza `price_history` para reportes de "ganancia por ciclo de compra"? — no alcanza; propuesta de esquema, sin aplicar
+
+Revisé `price_history` tal como está en `ESQUEMA.md`:
+`(id, product_id, cost_cents, sale_price_cents, changed_at)` — una fila
+plana cada vez que cambia costo o precio, sin decir **por qué** cambió.
+
+**Por qué no alcanza tal cual:** para el reporte que pediste ("este
+anillo, en el ciclo de enero a marzo, costó Q40 y dejó Q600") hace
+falta poder identificar, mirando el historial, **cuáles filas son el
+inicio de un ciclo nuevo** (una compra con `stock_qty = 0` antes de
+aplicarse — el único momento donde D-029 hace un reemplazo limpio, sin
+mezcla) y cuáles son solo un ajuste dentro del mismo ciclo (una compra
+que promedia con stock existente, o una edición manual de la usuaria).
+`price_history` de hoy no distingue estos tres casos entre sí — todas
+las filas tienen la misma forma. Sin esa distinción, cualquier intento
+de "adivinar" dónde empieza un ciclo mirando solo los números sería
+inventar un dato que no está — lo mismo que ya establecimos que no se
+puede hacer con qué unidad física salió en cada venta.
+
+**Propuesta (no aplicada, a la espera de tu aprobación — `ESQUEMA.md`
+prohíbe agregar columnas sin este paso):** agregar dos columnas a
+`price_history`:
+- `purchase_id: Long?` — FK → `purchase.id`, `null` cuando la fila
+  viene de una edición manual (no de una compra). Permite trazar cada
+  cambio de costo hasta la compra real que lo causó (proveedor, fecha,
+  cantidad).
+- `cycle_start: Boolean` — default `false`, `true` únicamente cuando la
+  fila se escribió porque `stock_qty` era `0` antes de esa compra (el
+  reemplazo limpio de D-029). Se guarda en el momento exacto en que se
+  sabe el hecho (al procesar la compra), no se reconstruye después —
+  reconstruirlo después implicaría rehacer un replay completo de
+  `purchase_item`/`sale_item` en orden cronológico para inferir cuándo
+  el stock pasó por cero, mucho más frágil y difícil de testear que
+  guardar el hecho una sola vez, en el momento en que ya se conoce con
+  certeza.
+
+Con esas dos columnas, el reporte de "ganancia por ciclo" (Fase 09,
+futura) se arma así: cada fila con `cycle_start = true` abre un ciclo
+nuevo (con el costo de esa fila); el ciclo se cierra en la fecha de la
+siguiente fila `cycle_start = true` del mismo producto (o "hoy" si es
+el ciclo vigente); la ganancia del ciclo se calcula sumando
+`(unit_price_cents - unit_cost_cents) × qty` de los `sale_item` de ese
+producto con `sold_at` dentro del rango del ciclo — usando los
+snapshots reales de cada venta (D-002), no el costo del ciclo aplicado
+retroactivamente a ventas que ya tienen su propio número fijado.
+
+**Esto no se implementa en Fase 05.** Lo dejo propuesto para que lo
+apruebes o lo ajustes antes de que se toque `ESQUEMA.md` — si se
+aprueba, al no haber instalaciones reales todavía (D-011: el umbral es
+después de la Fase 06), agregar estas dos columnas sigue siendo un
+cambio a la versión 1 de la base, sin migración.
+
+### Archivos que va a tocar Fase 05 (ya reflejado en `FASES.md`)
+
+- `app/src/main/java/**/ui/purchase/**` (pantallas nuevas)
+- `app/src/main/java/**/domain/usecase/*Purchase*.kt` (ej.
+  `RegisterPurchaseUseCase.kt`)
+- `app/src/main/java/**/domain/pricing/PricingCalculator.kt` (función
+  nueva de promedio ponderado, pura, sin conocer nada de "compras" —
+  recibe cantidades y montos genéricos, el caso de uso arma el
+  "costo real total de la línea" antes de llamarla)
+- `app/src/main/java/**/data/**` (DAO/repositorio de `purchase`/
+  `purchase_item`, ya con sus entidades desde Fase 01)
+- `app/src/test/java/**/domain/**`, `app/src/test/java/**/data/**`
+  (agregado a la lista, faltaba)
+- `strings.xml`
+
+### Bloqueos / preguntas para el humano
+
+1. **Punto (d):** confirmame que el umbral "ganancia cero o negativa al
+   precio actual" es el que querés para el aviso, o decime otro.
+2. **Punto (e):** elegí entre las Propuestas A/B/C (o algo distinto).
+3. **`price_history` + columnas nuevas:** aprobás, ajustás, o preferís
+   no resolver el reporte por ciclo todavía y dejarlo para cuando
+   llegue Fase 09 de verdad.
+
+No escribo código de Fase 05 hasta tener respuesta a estos tres puntos
+(el resto del plan — a, b, c, la fórmula, los archivos permitidos —
+ya está resuelto y no necesita más confirmación).
