@@ -17,18 +17,22 @@ Reglas:
 
 ## Estado actual
 
-- **Fases en curso (excepción autorizada, dos a la vez — ver sección
-  "Excepción al flujo de FASES.md" más abajo):**
-  - Fase 03 — Alta rápida de pieza (rama `fase/03-quick-add`). Implementada
-    y verificada. **No cerrada:** falta el criterio 4 (cronómetro real con
-    la usuaria final, medición mañana 2026-09-15). D-021 ya aprobada.
-  - Fase 04 — Inventario y edición (rama a abrir: `fase/04-inventory`,
-    desde `fase/03-quick-add`). Plan escrito, esperando OK del humano —
-    en particular, si se separa en Fase 04 (Inventario) + Fase 05
-    (Compras), con la renumeración que eso implica para las fases 05-12.
-- **Última fase cerrada:** `fix/seed-markup-bp` (tag `fix-seed-markup-bp`, mergeada a `main`); antes, Fase 02 — Motor de dinero y precios (tag `fase-02-ok`).
+**Actualizado 2026-09-17.**
+
+- **Fases 00-04: cerradas, tageadas y mergeadas a `main`** —
+  `fase-00-ok`, `fase-01-ok`, `fase-02-ok`, `fase-03-ok` (criterio 4
+  cumplido con medición real, ver "Fase 03 — Cierre" más abajo) y
+  `fase-04-ok`. `fix/quick-add-usability` (fix de usabilidad post
+  03/04: teclado tapando el campo de dinero, categoría obligatoria con
+  chips, campos visibles) también tageado (`fix-quick-add-usability`) y
+  mergeado a `main`.
 - **Versión de base de datos:** 1
-- **Bloqueos abiertos:** ver "Fase 03 — Plan", sección "Bloqueos / preguntas para el humano" (6 preguntas)
+- **Próximo paso, antes de escribir código de Fase 05 (Compras):** el
+  humano tiene que elegir qué efecto tiene una compra sobre
+  `product.cost_cents` (Opción A/B/C). Ver "Compras y el costo del
+  producto — decisión pendiente" y su resumen/recomendación más abajo
+  (2026-09-17). **No se empieza Fase 05 hasta esa decisión.**
+- **Bloqueos abiertos:** ninguno salvo la decisión de arriba.
 
 ---
 
@@ -3622,3 +3626,109 @@ correcto y confirmado (no solo "casi bien"), y la remedición de tiempo
 dio 7.81s mecánicos — muy por debajo de 20s, aunque con la salvedad
 explícita de que no reemplaza la medición real pendiente con la
 usuaria. Quedo esperando tu revisión antes de comitear/taguear.
+
+---
+
+## Fase 03 — Cierre: criterio 4 cumplido (medición real)
+
+**Fecha:** 2026-09-17.
+
+La usuaria registró una pieza en un teléfono real, **sin guía**, en
+**poco más de 15 segundos**, ya con la versión corregida por el fix de
+usabilidad (categoría obligatoria con chips de un toque, todos los
+campos visibles sin expandir nada). Margen contra el límite de 20
+segundos de `FASES.md`: **~5 segundos**.
+
+Con este número, el criterio 4 de Fase 03 queda cumplido con evidencia
+real (no con la remedición mecánica de 7.81s de la sección anterior,
+que era solo una señal previa, explícitamente no sustituta de esto).
+Fase 03 cerrada.
+
+**Tags aplicados y mergeados a `main` por el humano:**
+- `fase-03-ok` (Fase 03 — Alta rápida de pieza)
+- `fase-04-ok` (Fase 04 — Inventario y edición)
+- `fix-quick-add-usability` (este fix de usabilidad)
+
+**Nota para el futuro, dejada explícita por el humano:** volver a medir
+cuando la pantalla de inicio sume el botón "Vender" (Fase 06 — Venta de
+contado). D-024 (`DECISIONES.md`) ya documenta que la pantalla de
+inicio actual es provisoria (solo "Agregar pieza" e "Inventario") y que
+Fase 06 la reemplaza por la definitiva (Vender + Agregar pieza). Cambiar
+la pantalla de inicio puede cambiar cuántos toques hacen falta para
+llegar a "Agregar pieza" desde donde arranque el flujo real de venta —
+el margen de ~5 segundos de esta medición no queda garantizado después
+de ese cambio, hay que volver a cronometrar en Fase 06.
+
+---
+
+## Compras y el costo del producto — resumen y recomendación (2026-09-17)
+
+A pedido del humano, antes de escribir nada de Fase 05: resumen de las
+tres opciones de la sección "Compras y el costo del producto — decisión
+pendiente" (arriba, 2026-09-14), enfocado específicamente en su efecto
+sobre **el cálculo de ganancia** (no repito ahí el detalle de "capital
+invertido"/"precio sugerido", que ya está completo arriba), más una
+recomendación. **No decido yo** — esto es para que el humano elija.
+
+### Lo que las tres comparten, antes de comparar
+
+La ganancia de **ventas pasadas nunca cambia** pase lo que pase acá —
+son snapshots en `sale_item` (D-002), ninguna opción los toca. Esto es
+únicamente sobre la ganancia que se **muestra para ventas futuras**,
+mientras conviven en el mismo stock unidades compradas a costos
+distintos. Y una limitación que comparten las tres por igual:
+`ESQUEMA.md` no trackea lotes — `product.cost_cents` es un único valor,
+no "las 10 unidades viejas a Q40 y las 5 nuevas a Q55" por separado.
+Ninguna opción puede ser exacta unidad por unidad sin ese cambio de
+esquema, que no estoy proponiendo (fuera de alcance de esta decisión).
+
+### Ejemplo concreto (mismo ejemplo en las tres, para comparar directo)
+
+Tenía 10 unidades compradas a Q40, vendiéndolas a Q100 (ganancia real
+Q60). Compra 5 unidades más, ahora a Q55 (el mayorista subió el
+precio). Ella no cambia el precio de venta todavía: sigue en Q100. La
+ganancia que el sistema **muestra** para la próxima venta, de las 15
+unidades que hay en stock:
+
+| Opción | `cost_cents` después de la compra | Ganancia mostrada (precio Q100) | Dirección del error sobre las 10 unidades viejas (costo real Q40, ganancia real Q60) |
+|---|---|---|---|
+| **A — última compra** | Q55 | Q45 | **Subestima** (dice Q45, la ganancia real de esas unidades es Q60) |
+| **B — promedio ponderado** | Q45 ((10·40+5·55)/15) | Q55 | Ni exacto para las viejas (real Q60) ni para las nuevas (real Q45) — a mitad de camino |
+| **C — no se toca** | Q40 | Q60 | Exacto para las 10 viejas, pero **sobreestima** Q15 sobre cada una de las 5 nuevas (costo real Q55, ganancia real Q45) hasta que alguien edite el producto a mano |
+
+### Recomendación: Opción A (costo = última compra)
+
+1. **Es la única cuyo error, cuando existe, va en la dirección segura.**
+   Subestimar ganancia temporalmente (A) es preferible a sobreestimarla
+   indefinidamente (C) — para una usuaria no técnica que confía en el
+   número que ve (CLAUDE.md sección 1), es mucho peor que crea que gana
+   más de lo que gana y tome decisiones de precio o de gasto sobre esa
+   base falsa. B no tiene una dirección consistente: a veces subestima,
+   a veces sobreestima, según qué lote se esté vendiendo en ese momento.
+2. **Es la más simple de las tres.** Mismo mecanismo que ya existe para
+   editar el producto a mano en Fase 04 (actualiza `cost_cents`, inserta
+   fila en `price_history`) — sin fórmula nueva, sin recalcular nada en
+   cada compra.
+3. **Es la más fácil de explicarle a ella.** "El costo que ves es lo
+   último que pagaste" no necesita ninguna aclaración. La Opción B sí la
+   necesita (ya está anotado arriba: "¿por qué dice que me costó Q45 si
+   la última vez pagué Q55?") — CLAUDE.md sección 6 pide cero jerga y
+   cero sorpresas, y explicar un promedio ponderado a alguien que no lee
+   inglés ni "SKU" es exactamente ese tipo de fricción.
+4. **Es la que mejor conecta con para qué sirve el precio sugerido**
+   (D-014, `suggestedPrice`): decidir cuánto cobrar la próxima vez, dado
+   lo que acaba de pagar. Eso es literalmente "el costo de la última
+   compra", no un promedio histórico — la Opción A hace que el precio
+   sugerido reaccione de inmediato a que el mayorista le subió el
+   precio, que es la señal que más le importa a ella en el momento de
+   reponer stock.
+5. Dado que ninguna opción es exacta por unidad (limitación de esquema
+   compartida, arriba), la precisión extra que ofrece B para el reporte
+   de "capital invertido" (Fase 09, todavía sin diseñar en detalle) no
+   justifica el doble de complejidad y la pérdida de claridad en el
+   número que ella ve todos los días.
+
+**No implemento nada de esto todavía.** Queda para que el humano elija
+(A, B, C, o algo distinto) antes de que arranque el código de Fase 05;
+se registra en `DECISIONES.md` recién cuando se elija, como ya decía la
+sección original de 2026-09-14.

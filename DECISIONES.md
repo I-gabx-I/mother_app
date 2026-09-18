@@ -1037,6 +1037,75 @@ usabilidad de alta rápida", remedición de tiempo.
 
 ---
 
+## D-027 — CLAUDE.md sección 5: las respuestas del asistente al humano, en español
+
+**Contexto:** CLAUDE.md nunca definió en qué idioma van las respuestas
+de Claude Code en la conversación con el humano (sí definía código,
+comentarios y texto de la usuaria). Sin esa regla explícita, por
+defecto se contestó en inglés durante el fix de usabilidad de alta
+rápida (2026-09-17), pese a que el resto del proyecto (comentarios,
+`ESTADO.md`, `DECISIONES.md`) es consistentemente hispanohablante.
+
+**Decisión:** CLAUDE.md sección 5 suma: las respuestas de Claude Code al
+humano, en esta conversación, van en español. No cambia nada del código:
+identificadores, nombres de archivo y mensajes de commit siguen en
+inglés.
+
+**Por qué:** mismo motivo que D-016 (comentarios en español) — el
+equipo que lee estas respuestas (el humano, y quien audite `ESTADO.md`
+después) es hispanohablante. Faltaba decirlo con la misma explicitud
+con la que ya se dice todo lo demás sobre idioma en el proyecto.
+
+**Descartado:** dejarlo sin definir y confiar en que se infiera del
+resto del proyecto — ya se demostró que no alcanza, se derivó solo al
+inglés una vez.
+
+**Consecuencia:** ninguna sobre código. Aplica desde ahora en adelante
+en esta y futuras sesiones sobre este repositorio.
+
+---
+
+## D-028 — CLAUDE.md sección 7: una medición en entorno degradado se descarta, no se reporta
+
+**Contexto:** durante la verificación del fix de usabilidad de alta
+rápida (2026-09-17), un primer intento de cronometrar el flujo de alta
+de una pieza dio 16.60 segundos, pero coincidió con un ANR real del
+emulador (`Input dispatching timed out`, confirmado con `logcat` y con
+`top` mostrando el sistema al 600% CPU por procesos ajenos a la app —
+`dex2oat64`, Play Store en segundo plano, y dos daemons de Gradle de
+builds anteriores en la misma sesión). La corrida se descartó porque,
+verificado contra la base de datos real del emulador, ni siquiera había
+llegado a guardar el producto — se cayó a mitad de camino. El humano
+confirmó que descartarla fue lo correcto y pidió que quede como regla,
+no como una decisión puntual de esa sesión.
+
+**Decisión:** CLAUDE.md sección 7 suma el punto 11: una medición de
+tiempo o performance tomada en un entorno con contención de recursos
+real no es una medición válida, se descarta y se repite, **aunque el
+resultado hubiera sido favorable** — en este caso, 16.60s igual pasaba
+el límite de 20 segundos de `FASES.md`. Antes de cronometrar, hay que
+confirmar que el entorno está en reposo (ej. `adb shell top` con el
+sistema ocioso).
+
+**Por qué:** un resultado que "pasa" un criterio por casualidad, tomado
+en condiciones degradadas, no es evidencia de que el criterio se
+cumple — es ruido que coincidió con lo esperado, y queda indistinguible
+de una medición real a menos que alguien audite las condiciones exactas
+en las que se tomó. La única defensa contra eso es no reportarla nunca,
+ni siquiera como referencia informal.
+
+**Descartado:** reportar el número igual con una nota aclaratoria
+("tomado bajo carga, tomar con pinzas") — insuficiente, porque un
+número que aparece en `ESTADO.md` tiende a citarse después sin el
+contexto completo de por qué no vale.
+
+**Consecuencia:** la medición de reemplazo (7.81s, mismo `ESTADO.md`,
+misma fecha) se tomó recién después de confirmar con `top` que el
+emulador estaba en reposo (592% idle de 600%) — es el ejemplo de
+referencia de cómo aplicar esta regla en la práctica.
+
+---
+
 <!--
 ## D-00X — Título
 

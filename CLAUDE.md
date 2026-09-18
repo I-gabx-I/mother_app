@@ -205,6 +205,12 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
   **Todo texto visible por la usuaria: en español, y solo en `strings.xml`.**
   Prohibido hardcodear strings en Composables. Razón: permite revisar de un solo
   vistazo todo lo que ella va a leer, sin cazarlo por el código.
+  **Las respuestas de Claude Code al humano, en esta conversación: en
+  español.** No estaba definido y por defecto se contestó en inglés — el
+  equipo (el humano y quien audite `ESTADO.md`) es hispanohablante, mismo
+  motivo que los comentarios de código. Esto es sobre el chat, no sobre
+  el código: identificadores, nombres de archivo y mensajes de commit
+  siguen en inglés, sin cambios.
 - `domain` no importa nada de Android. Ni `Context`, ni Room, ni Compose.
   Si `domain` necesita Android, el diseño está mal.
 - Los ViewModels exponen un único `StateFlow<UiState>`. Nada de `LiveData`.
@@ -283,6 +289,20 @@ Estas son requisitos, no sugerencias estéticas.
     tocar `.gitignore`, ya lo cubre) y no chocan con el bloqueo de lecturas
     fuera del árbol de trabajo. `ESTADO.md` referencia la ruta relativa de
     cada archivo, no la pega entera ni la deja solo en la consola.
+11. **Una medición de tiempo o performance tomada en un entorno con
+    contención de recursos real (build corriendo en paralelo, ANRs de
+    otras apps en el emulador, CPU/host saturados) no es una medición
+    válida — se descarta y se repite, aunque el resultado haya sido
+    favorable.** Antes de cronometrar algo, confirmá que el entorno está
+    en reposo (ej. `adb shell top` mostrando el sistema ocioso, no un
+    build de Gradle corriendo al mismo tiempo). Ver `ESTADO.md`, fix de
+    usabilidad de alta rápida (2026-09-17): una corrida de 16.60s
+    coincidió con un ANR real del emulador por contención de CPU y se
+    descartó; esa corrida habría pasado el criterio de 20 segundos de
+    `FASES.md` sin que nadie se enterara de que el número no significaba
+    nada. Un resultado que "pasa" el criterio por casualidad, tomado en
+    condiciones degradadas, no es evidencia — es ruido que coincidió con
+    lo esperado.
 
 ### Git
 
