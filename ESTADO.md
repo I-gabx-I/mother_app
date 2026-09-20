@@ -17,7 +17,7 @@ Reglas:
 
 ## Estado actual
 
-**Actualizado 2026-09-17.**
+**Actualizado 2026-09-20.**
 
 - **Fases 00-04: cerradas, tageadas y mergeadas a `main`** —
   `fase-00-ok`, `fase-01-ok`, `fase-02-ok`, `fase-03-ok` (criterio 4
@@ -26,13 +26,26 @@ Reglas:
   03/04: teclado tapando el campo de dinero, categoría obligatoria con
   chips, campos visibles) también tageado (`fix-quick-add-usability`) y
   mergeado a `main`.
+- **`fix/money-field-plain-decimal`: mergeado a `main`** (tag
+  `fix-money-field`, sin `-ok` — no es una fase numerada). Reemplaza el
+  buffer de dígitos de Fase 03 por un campo de texto decimal normal con
+  filtro de entrada (D-030), tras un error de captura silencioso en la
+  prueba con la usuaria real. Ver "Fix `money-field-plain-decimal` —
+  Cierre" más abajo.
 - **Versión de base de datos:** 1
-- **Próximo paso, antes de escribir código de Fase 05 (Compras):** el
-  humano tiene que elegir qué efecto tiene una compra sobre
-  `product.cost_cents` (Opción A/B/C). Ver "Compras y el costo del
-  producto — decisión pendiente" y su resumen/recomendación más abajo
-  (2026-09-17). **No se empieza Fase 05 hasta esa decisión.**
-- **Bloqueos abiertos:** ninguno salvo la decisión de arriba.
+- **Fase 05 (Compras): decisión de costeo tomada, plan escrito, 3
+  preguntas puntuales sin responder.** El efecto de una compra sobre
+  `product.cost_cents` ya se decidió — regla híbrida (promedio
+  ponderado con stock, reemplazo directo si `stock_qty = 0`), **D-029**,
+  no la Opción A que se había recomendado. `FASES.md` Fase 05 y el plan
+  completo (ver "Fase 05 — Plan", 2026-09-17) ya están escritos con la
+  fórmula, el redondeo y los archivos permitidos resueltos. **No se
+  empieza a escribir código de Fase 05** hasta que el humano responda
+  las 3 preguntas abiertas de esa sección (umbral del aviso de margen,
+  qué hacer con una compra de fecha retroactiva, si `price_history`
+  necesita columnas nuevas para el reporte por ciclo).
+- **Bloqueos abiertos:** las 3 preguntas de Fase 05 de arriba. Ninguno
+  en `fix/money-field-plain-decimal` (ya cerrado y mergeado).
 
 ---
 
@@ -4006,3 +4019,494 @@ cambio a la versión 1 de la base, sin migración.
 No escribo código de Fase 05 hasta tener respuesta a estos tres puntos
 (el resto del plan — a, b, c, la fórmula, los archivos permitidos —
 ya está resuelto y no necesita más confirmación).
+
+---
+
+## Fix `money-field-plain-decimal` — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-19. Rama `fix/money-field-plain-decimal`, abierta desde
+`main` (ya con `fase-04-ok` y el fix de usabilidad de alta rápida
+mergeados). Fase 05 sigue en pausa (`docs/fase-05-purchase-cost-plan`,
+sin mergear) — este fix no la toca ni la retoma.
+
+**Motivo:** prueba real con la usuaria. `MoneyDigitsField` (el patrón de
+"buffer de dígitos" de Fase 03: ella tipea dígitos sueltos y el campo
+muestra el resultado ya formateado como moneda, interpretando los dos
+últimos dígitos como centavos) mostraba texto formateado sobre un estado
+que en realidad era otra cosa (un buffer de dígitos crudos, no el texto
+que ella ve). Eso hacía que el cursor cayera en posiciones inválidas
+dentro del texto formateado y que se guardaran números distintos a los
+tecleados — un error de captura silencioso, exactamente lo que la
+sección 3 de `CLAUDE.md` quiere evitar. El humano decidió revertir el
+patrón en vez de parchearlo: el campo pasa a ser un campo de texto
+decimal normal, como cualquier otro de la plataforma.
+
+**Esto es una reversión de diseño, no un fix incremental.** Como tal, no
+sale de la lista de "Archivos permitidos" de ninguna fase de `FASES.md`
+(Fase 03 y Fase 04, las que crearon y tocaron estos archivos, ya están
+cerradas y tageadas). Igual que con `fix/quick-add-usability`, defino yo
+mismo el alcance de archivos acá, no en `FASES.md`.
+
+### 1. Qué se elimina
+
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/MoneyDigitsField.kt`
+  (el Composable que mostraba `Money(digitsToCents(digits)).format()`
+  como `value` de un `OutlinedTextField` — la causa raíz: el `value`
+  mostrado nunca era el texto que ella tecleó).
+- `app/src/main/java/gt/marcos/joyeria/ui/product/add/MoneyDigitsInput.kt`
+  (`sanitizeMoneyDigits`, `digitsToCents` — la lógica pura del buffer).
+- `app/src/test/java/gt/marcos/joyeria/ui/product/add/MoneyDigitsInputTest.kt`
+  (sus 7 tests, todos sobre una interpretación que deja de existir — no
+  quedan como código muerto).
+
+### 2. Qué reemplaza al buffer: texto decimal plano, sin transformar
+
+**Regla de diseño central, para no repetir el mismo error de otra
+forma:** el Composable nuevo **no transforma `value` en ningún momento**
+— ni lo sanitiza, ni lo reformatea, ni le agrega el símbolo `Q`. Lo que
+Compose reporta en `onValueChange` es exactamente lo que queda guardado
+en el estado, y exactamente lo que se le vuelve a pasar como `value`. Es
+la causa raíz del bug de Fase 03 (mostrar un texto que no es el que ella
+tecleó) resuelta de raíz, no mitigada: si nunca se reescribe el texto
+mientras ella escribe, el cursor nunca puede caer en una posición que
+Compose no puso ahí mismo.
+
+Toda la interpretación (¿hay un monto válido? ¿cuántos centavos son?)
+vive en funciones puras aparte, que se **leen** al calcular
+`canSave`/`profit`/`suggestedPrice` — nunca al decidir qué mostrar en el
+campo mientras ella teclea.
+
+**Archivos nuevos**, en `ui/format/` (no en `ui/product/add/`, a
+diferencia del buffer viejo): esta lógica ahora la comparten alta rápida
+y edición por igual, y es la contraparte exacta de `Money.format()`
+(mismo paquete, mismo espíritu — una interpreta texto → centavos, la
+otra centavos → texto). Poner las dos ahí de paso corrige que
+`ProductEditScreen`/`ProductEditViewModel` importaran hoy funciones del
+paquete `ui/product/add` sin relación con "alta rápida", que ya era un
+olor de diseño heredado de Fase 04.
+
+- `app/src/main/java/gt/marcos/joyeria/ui/format/MoneyInput.kt`:
+  - `fun parseMoneyToCents(text: String): Long?`
+  - `fun Money.toEditableText(): String`
+- `app/src/main/java/gt/marcos/joyeria/ui/format/MoneyTextField.kt`:
+  - `@Composable fun MoneyTextField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier)`
+    — `OutlinedTextField` liso, `keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)`
+    (teclado numérico con tecla de punto/coma decimal, nunca el de
+    letras), sin `singleLine`/tamaño de letra distintos a los que ya
+    tenía `MoneyDigitsField` (se mantiene la altura de fuente
+    `headlineSmall` para que el monto se siga leyendo grande).
+
+### 3. Reglas exactas de `parseMoneyToCents` (con test para cada una)
+
+`null` significa "no hay un monto que se pueda guardar todavía" — vacío
+o inválido son el mismo caso para `canSave` (deshabilita Guardar), pero
+ambos casos se testean por separado para que quede explícito cuál es
+cuál.
+
+| Entrada | Resultado | Por qué |
+|---|---|---|
+| `"20"` | `2000` | número entero de quetzales |
+| `"20.5"` | `2050` | un decimal se completa con un cero a la derecha |
+| `"20.50"` | `2050` | dos decimales, caso normal |
+| `"0.05"` | `5` | menos de un quetzal |
+| `""` | `null` | sin valor todavía, no es un error |
+| `"20,50"` | `2050` | coma como separador decimal (Guatemala la usa) — se normaliza a punto antes de parsear |
+| `"20.999"` | `null` | **más de dos decimales, inválido — no se redondea.** Redondear "20.999" a "21.00" (o truncar a "20.99") guardaría un número que ella no tecleó: el mismo tipo de error silencioso que causó revertir el buffer de dígitos, solo que en la conversión en vez de en el cursor. Se trata igual que "abc": entrada que no se puede interpretar con certeza, botón Guardar deshabilitado, ella corrige a mano. |
+| `"abc"` | `null` | sin dígitos, entrada inválida |
+| `"20.5.3"` | `null` | dos separadores, ambiguo |
+| `"--"` | `null` | sin dígitos, entrada inválida |
+| `"-5"` | `null` | signo negativo — costo/precio no son negativos en este formulario; se trata como entrada inválida, no como "cero" ni se le quita el signo en silencio |
+| `" "` / solo espacios | `null` | se recorta (`trim()`) antes de evaluar; queda vacío |
+
+Implementación (para que quede clara la forma, se escribe igual al
+codificar):
+
+```kotlin
+private val MONEY_TEXT_REGEX = Regex("^[0-9]+(\\.[0-9]{1,2})?$")
+
+fun parseMoneyToCents(text: String): Long? {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return null
+    if (trimmed.count { it == '.' || it == ',' } > 1) return null
+
+    val normalized = trimmed.replace(',', '.')
+    if (!MONEY_TEXT_REGEX.matches(normalized)) return null
+
+    val parts = normalized.split('.')
+    val quetzales = parts[0].toLongOrNull() ?: return null
+    val centavos = if (parts.size == 2) parts[1].padEnd(2, '0').toLong() else 0L
+    return quetzales * 100 + centavos
+}
+```
+
+Un texto absurdamente largo de dígitos (`toLongOrNull()` sobre la parte
+de quetzales) devuelve `null` por desborde de `Long` en vez de crashear
+— no hace falta un tope de longitud a mano como el que tenía el buffer
+viejo (`MAX_MONEY_DIGITS = 9`); acá el tope lo da la propia conversión.
+
+### 4. `Money.toEditableText()` — por qué `Locale.ROOT` y no el locale de la usuaria
+
+Esta función se usa para **precargar** el precio de venta sugerido
+mientras ella escribe el costo (`AddProductViewModel`) y para mostrar el
+costo/precio actuales al entrar a editar una pieza
+(`ProductEditViewModel`). En los dos casos, el texto que produce **vuelve
+a entrar** al mismo `parseMoneyToCents` de arriba, que solo reconoce
+dígitos ASCII (`[0-9]`) y `.`/`,` como separador — no cualquier dígito
+Unicode.
+
+Por eso esta función usa `Locale.ROOT` (`String.format(Locale.ROOT,
+"%d.%02d", cents / 100, cents % 100)`), **no** el locale del dispositivo
+como sí hace `Money.format()` en `MoneyFormat.kt`. No es el caso de "dato
+persistido/impreso" que ya cubre la regla de `Locale.ROOT` en `CLAUDE.md`
+sección 5 (este texto sí se muestra en pantalla, para que ella lo lea y
+lo edite) — es un caso nuevo con la misma solución: un texto que, aunque
+se muestra en UI, se le vuelve a dar de comer al parser propio de la
+app, y ese parser es estricto en ASCII por diseño (sección 3). Con el
+locale del dispositivo, un teléfono con dígitos no arábigos (el mismo
+riesgo que ya señala CLAUDE.md para el `uid`) precargaría el campo con
+un texto que `parseMoneyToCents` no reconoce, dejando "Guardar"
+deshabilitado sin que ella haya escrito nada todavía — un bug peor que
+el que se está arreglando. Lo anoto acá como una extensión razonada de
+la regla existente, no como una decisión nueva de fondo; si preferís que
+quede como decisión aparte en `DECISIONES.md`, lo aviso al cerrar.
+
+### 5. Cambios en estado y pantallas
+
+**`AddProductUiState.kt` / `ProductEditUiState.kt`:**
+- `costDigits`/`salePriceDigits` (`String`, buffer de dígitos) →
+  `costText`/`salePriceText` (`String`, texto tal cual lo escribió —
+  nombre nuevo a propósito, para que no quede ninguna referencia a
+  "dígitos" describiendo algo que ya no es eso).
+- `cost`/`salePrice` pasan de `Money` (con `0` como valor por defecto
+  silencioso cuando el texto estaba vacío) a **`Money?`** — `null`
+  cuando `parseMoneyToCents` devuelve `null`. Es más correcto que el
+  comportamiento viejo: antes, un campo vacío internamente ya era "Money
+  de 0 centavos" (contenido por `canSave` mirando el texto, no el
+  `Money`), ahora "sin valor todavía" y "cero de verdad" no se
+  confunden en ningún punto de la cadena, ni siquiera momentáneamente.
+- `canSave` cambia de `costDigits.isNotEmpty() && salePriceDigits.isNotEmpty()`
+  a `cost != null && salePrice != null` — cubre vacío **e** inválido con
+  la misma condición.
+- `suggestedPrice`/`profit` (alta rápida) y `profit` (edición) ya
+  devuelven `Money?`; ahora la nulidad también puede venir de un texto
+  inválido, no solo de "todavía no escribió nada" — el efecto en
+  pantalla es el mismo que ya existía (no se muestra la línea), no hace
+  falta un mensaje de error aparte, la ausencia del dato ya comunica
+  "todavía no hay nada que calcular".
+- **Nada de `!!`** (CLAUDE.md sección 5): `onSaveClick` en los dos
+  ViewModels lee `state.cost`/`state.salePrice` como variables locales
+  nullable y sale temprano (`return`) si falta alguna, en vez de forzar
+  con `!!` protegido por `canSave`.
+
+**`AddProductScreen.kt` / `ProductEditScreen.kt`:** cambian el import de
+`MoneyDigitsField` (paquete `ui/product/add`) por `MoneyTextField`
+(paquete `ui/format`), y los parámetros/estado que consumen pasan de
+`costDigits`/`onCostDigitsChange` a `costText`/`onCostTextChange` (mismo
+renombre en las lambdas del Composable). `ProductEditScreen` además
+envuelve la línea de ganancia en `state.profit?.let { ... }` (antes la
+mostraba siempre, porque `profit` nunca era `null`) — mismo patrón que
+ya usa `AddProductScreen` para `profit`/`suggestedPrice`.
+
+**`AddProductViewModel.kt` / `ProductEditViewModel.kt`:**
+`onCostDigitsChanged`/`onSalePriceDigitsChanged` → `onCostTextChanged`/
+`onSalePriceTextChanged`, y en vez de `sanitizeMoneyDigits(raw)` guardan
+`raw` tal cual (nada que sanitizar: ver punto 2, el Composable no
+transforma nada, así que el ViewModel tampoco). En
+`AddProductViewModel.onCostTextChanged`, el precio sugerido se precarga
+con `suggested.toEditableText()` (texto decimal, ej. `"80.00"`) en vez
+de `suggested.cents.toString()` (que hoy escribe el número crudo de
+centavos, ej. `"8000"`, porque el campo de destino leía dígitos-buffer).
+En `ProductEditViewModel.init`, `costDigits = detail.cost.cents.toString()`
+→ `costText = detail.cost.toEditableText()` (mismo motivo).
+
+**`AddProductRoute.kt` / `ProductEditRoute.kt`:** solo el renombre de los
+parámetros que pasan al Composable (`onCostDigitsChange` →
+`onCostTextChange`, apuntando a `viewModel::onCostTextChanged`), sin
+cambios de lógica.
+
+### 6. Tests nuevos — `app/src/test/java/gt/marcos/joyeria/ui/format/MoneyInputTest.kt`
+
+JUnit4 puro, sin Robolectric (función pura, mismo criterio que D-012
+aplicó a `MoneyDigitsInputTest`). Un test por fila de la tabla del punto
+3, más:
+- `parseMoneyToCents` y `Money.toEditableText()` son inversas para el
+  ejemplo canónico: `parseMoneyToCents(Money(2000).toEditableText()) == 2000L`.
+- `Money(5).toEditableText() == "0.05"` (borde bajo un quetzal, la
+  contraparte de la fila `"0.05" → 5` de la tabla).
+
+### 7. Verificación manual pendiente (antes de cerrar)
+
+- `./gradlew assembleDebug` y `testDebugUnitTest` en verde.
+- Confirmar en el emulador que el campo de costo/precio abre teclado
+  numérico con tecla decimal (no el de letras) en las dos pantallas —
+  captura en `app/build/screenshots/`, como pide `CLAUDE.md` sección 7.
+- Escribir a mano "20,50" y "20.999" en el campo de costo de alta rápida
+  y confirmar visualmente: el primero calcula sugerido/ganancia con
+  normalidad, el segundo deja "Guardar" deshabilitado y no crashea.
+- Confirmar que tocar en cualquier punto del texto ya escrito posiciona
+  el cursor ahí (el síntoma original) — no hay forma de automatizar esto
+  sin Compose UI testing, que no está en el stack; queda como
+  verificación visual con captura, igual que la rotación de foto en
+  Fase 03.
+
+### 8. `DECISIONES.md` — decisión a agregar al cerrar (D-030, texto borrador)
+
+**Contexto:** el patrón de "buffer de dígitos" de `MoneyDigitsField`
+(Fase 03, mandado literal en el entregable de esa fase en `FASES.md`:
+"dígito a dígito, sin punto decimal que tipear") se probó con la
+usuaria real y causó un error de captura silencioso: el campo mostraba
+`Money(...).format()` como `value`, un texto que nunca coincidía con lo
+que ella había tecleado, y el cursor caía en posiciones que no
+correspondían a lo que veía en pantalla — guardando números distintos a
+los escritos.
+
+**Decisión:** eliminar el buffer de dígitos. El campo de costo/precio es
+un campo de texto decimal normal (`MoneyTextField`, `ui/format/`), sin
+ninguna transformación del texto mientras se escribe. La conversión a
+centavos vive en una función pura (`parseMoneyToCents`, `ui/format/`)
+que se lee solo para calcular `canSave`/ganancia/sugerido, nunca para
+decidir qué mostrar en el campo.
+
+**Por qué:** un campo de texto estándar es lo que la usuaria ya sabe
+usar de cualquier otra app del teléfono — no hay curva de aprendizaje
+que resolverle, y si se equivoca al escribir, corrige tocando donde
+quiera, como en cualquier otro campo. El patrón anterior "innovaba"
+donde no hacía falta, y esa innovación fue la causa directa del bug.
+
+**Descartado:** parchear `MoneyDigitsField` (por ejemplo, recalculando
+la posición del cursor cada vez que el texto formateado cambia) — se
+descartó porque el diagnóstico real es que mostrar un texto que no es
+el tecleado es la causa, no un detalle de implementación del cursor;
+cualquier parche sobre el mismo patrón deja la misma clase de bug
+disponible para la próxima tecla rara (borrar en medio, seleccionar y
+pegar, etc.).
+
+**Consecuencia:** `FASES.md` Fase 03 queda con una nota corta señalando
+que su entregable original ("dígito a dígito, sin punto decimal que
+tipear") fue reemplazado por esta decisión — no se reescribe el texto
+histórico de la fase ya cerrada, se agrega la nota al lado, mismo
+patrón que D-024 (nota de vencimiento) y D-022 (notas de renumeración
+sobre fases ya cerradas).
+
+*(Este texto es el borrador que voy a llevar a `DECISIONES.md` al cerrar
+el fix, junto con el commit y el tag correspondiente — no lo escribo
+ahí todavía, según lo pedido: plan acá primero, y paro.)*
+
+### Bloqueos / preguntas para el humano
+
+- Ninguno que detenga el fix. Un solo punto para tu confirmación, no
+  bloqueante: el punto 4 (`Locale.ROOT` en `toEditableText()`) es una
+  extensión mía de una regla existente a un caso que `CLAUDE.md` no
+  cubre literalmente (texto editable que se re-parsea, no un dato solo
+  mostrado ni solo persistido). Si preferís que quede como su propia
+  entrada en `DECISIONES.md` en vez de una nota dentro de D-030, lo
+  separo al cerrar.
+
+**No escribo código todavía — queda a la espera de tu confirmación sobre
+este plan**, como pediste.
+
+---
+
+## Fix `money-field-plain-decimal` — Cierre
+
+**Fecha:** 2026-09-20. Rama `fix/money-field-plain-decimal`.
+
+Aprobaste el plan con dos cambios sobre lo que había propuesto:
+
+1. **Filtro de entrada en vez de rechazo de texto completo.** Mi
+   propuesta original era dejar que `parseMoneyToCents` devolviera
+   `null` para "20.999"/"abc"/etc. y deshabilitar Guardar. Corregiste
+   esto: un carácter que no corresponde **no entra** al campo — el
+   tercer decimal, una letra, un segundo separador, un signo, se
+   ignoran en el momento, sin dejar nunca un texto "roto" en pantalla.
+   El estado inválido queda reservado solo para el campo vacío o a
+   mitad de escribir.
+2. **`Locale.ROOT` en `toEditableText()` confirmado sin decisión
+   aparte** — ya lo cubre `CLAUDE.md` sección 5, no hace falta una
+   entrada nueva. Documentado así en D-030 (ver abajo, y ver la nota de
+   numeración).
+
+Implementé el punto 1 con `TextFieldValue` (texto + selección) en vez
+de `String` — es lo que permite descartar una tecla inválida sin
+perder ni recalcular la posición del cursor: si el texto propuesto no
+matchea `isValidMoneyInputText`, `MoneyTextField` simplemente no
+actualiza su estado interno, y el `OutlinedTextField` vuelve a mostrar
+el mismo `TextFieldValue` de antes de esa tecla, cursor incluido.
+
+### Qué se hizo
+
+- Eliminados `MoneyDigitsField.kt`, `MoneyDigitsInput.kt` y
+  `MoneyDigitsInputTest.kt` (`git rm`, no quedan como código muerto).
+- Nuevos `ui/format/MoneyInput.kt` (`isValidMoneyInputText`,
+  `parseMoneyToCents`, `Money.toEditableText()`) y
+  `ui/format/MoneyTextField.kt` (el Composable, con `TextFieldValue`).
+- `AddProductUiState.kt` / `ProductEditUiState.kt`: `costDigits`/
+  `salePriceDigits` → `costText`/`salePriceText`; `cost`/`salePrice`
+  pasan a `Money?`; `canSave` exige los dos no nulos (en edición,
+  antes no dependía del dinero en absoluto — ahora sí, porque el
+  dinero ahora puede estar incompleto).
+- `AddProductViewModel.kt` / `ProductEditViewModel.kt`: renombradas
+  `onCost/SalePriceDigitsChanged` → `onCost/SalePriceTextChanged`, ya
+  no sanitizan nada (el filtro ya ocurrió en `MoneyTextField`);
+  `onSaveClick` en los dos lee `cost`/`salePrice` como variables
+  locales nullable y sale temprano si falta alguna — nada de `!!`. El
+  precio sugerido se precarga con `suggested.toEditableText()` en vez
+  de `suggested.cents.toString()`.
+- `AddProductScreen.kt` / `ProductEditScreen.kt` / `AddProductRoute.kt`
+  / `ProductEditRoute.kt`: cambiado `MoneyDigitsField` por
+  `MoneyTextField`, renombrados los parámetros. `ProductEditScreen`
+  ahora envuelve la línea de ganancia en `state.profit?.let { ... }`
+  (antes `profit` nunca era `null`).
+- `app/src/test/java/gt/marcos/joyeria/ui/format/MoneyInputTest.kt`:
+  30 tests nuevos (JUnit4 puro, sin Robolectric) — uno por cada fila de
+  la tabla del plan, más los de `isValidMoneyInputText` (qué entra
+  mientras escribe) y la inversa `parseMoneyToCents`/`toEditableText()`.
+- `FASES.md`: nota corta en el entregable de Fase 03 señalando el
+  reemplazo, con referencia a D-030 (fase ya cerrada, no se reescribe
+  el resto).
+- `DECISIONES.md`: **D-030**. Primero la registré como D-029 (esta
+  rama sale de `main`, cuya última decisión es D-028), pero la rama sin
+  mergear de Fase 05 ya usa D-029 para el costeo de compras; el humano
+  decidió que esa conserva el número y esta pasa a D-030. Renumerado
+  en `DECISIONES.md`, `FASES.md` y acá; los comentarios de código ya
+  decían D-030 desde el principio (verificado con `grep`, no queda
+  ninguna referencia a D-029 apuntando a esta decisión).
+
+### Archivos tocados
+
+Dentro del alcance que definí en el plan (esta no es una fase de
+`FASES.md`, así que no hay una lista "oficial" previa):
+`ui/format/MoneyInput.kt` (nuevo), `ui/format/MoneyTextField.kt`
+(nuevo), `ui/test/.../ui/format/MoneyInputTest.kt` (nuevo),
+`ui/product/add/{AddProductScreen,AddProductViewModel,AddProductUiState,AddProductRoute}.kt`,
+`ui/product/edit/{ProductEditScreen,ProductEditViewModel,ProductEditUiState,ProductEditRoute}.kt`,
+`FASES.md`, `DECISIONES.md`, `ESTADO.md`. Eliminados los tres archivos
+del buffer de dígitos (punto 1 de arriba).
+
+### Verificación
+
+| # | Qué | Cómo | Resultado |
+|---|---|---|---|
+| 1 | Build y tests | `./gradlew testDebugUnitTest assembleDebug` | ✅ BUILD SUCCESSFUL, todos los tests en verde (incluye los 30 nuevos de `MoneyInputTest`) |
+| 2 | Teclado numérico con decimal, no de letras | Capturas en las dos pantallas (`money-field-01...`, `money-field-11...`) | ✅ keypad numérico con `,` y `.` visibles, sin letras |
+| 3 | Escribir con punto, letra por letra | `money-field-01-period-2050.png` (alta rápida) | ✅ "20.50" tecleado exacto, cursor al final |
+| 4 | Tercer decimal no entra | `money-field-02-third-decimal-blocked.png` (alta rápida), `money-field-11-edit-third-decimal-blocked.png` (edición) | ✅ el texto se queda en "20.50" en las dos pantallas, sin cambio |
+| 5 | Corregir tocando en medio del número (el bug original) | `money-field-03-midtext-cursor-edit.png` (alta rápida: "20.50" → cursor 3 izquierdas → "1" → "201.50"), `money-field-13-edit-midtext-cursor.png` (edición: "33,75" → cursor 4 izquierdas → "1" → "313,75") | ✅ el dígito se inserta exactamente donde estaba el cursor, en las dos pantallas |
+| 6 | Escribir con coma, letra por letra, sin perder el decimal | `money-field-04-comma-2050.png` (alta rápida: "20,50"), `money-field-12-edit-comma-3375.png` (edición: "33,75") | ✅ la coma queda tal cual se tecleó, sin perder ningún carácter |
+| 7 | Cálculo correcto a partir de una coma | `money-field-05-suggested-price-prefill.png`: costo "20,50" → sugerido "Q45.00", ganancia "Q24.50" | ✅ `parseMoneyToCents` interpreta la coma igual que el punto |
+
+Capturas en `app/build/screenshots/money-field-01...15...*.png`
+(referenciadas arriba y abajo por nombre).
+
+### Verificación contra la base de datos (pedida antes del commit)
+
+Las capturas prueban que el campo se ve bien; esto prueba que el número
+que llega a la base es el correcto. Mismo método de Fase 04: traer la
+base real de la app con `adb exec-out run-as gt.marcos.joyeria cat
+databases/joyeria.db{,-wal,-shm}` (Room usa WAL, sin el `-wal` el
+cambio recién escrito puede no estar en el archivo principal) y
+consultarla con `sqlite3` local. Salidas en
+`app/build/logs/db-dumps/money-field/product-after-add.txt` y
+`product-after-edit.txt`.
+
+**Alta rápida, costo tecleado "20,50" (con coma), letra por letra**
+(`money-field-04-comma-2050.png`, guardada como XP-000003):
+
+```
+=== product ===
+3|XP-000003|Pieza sin nombre|2050|4500|1
+```
+
+`cost_cents = 2050` ✅ (y `sale_price_cents = 4500`, el sugerido que se
+precargó a partir de esa coma).
+
+**Edición, costo cambiado a "33,75" (con coma), letra por letra, y
+"Guardar cambios"** (`money-field-14-edit-comma-before-save.png`,
+`money-field-15-edit-comma-saved.png`):
+
+```
+=== product ===
+3|XP-000003|Pieza sin nombre|3375|4500|1
+=== price_history ===
+1|3|3375|4500|1789885636079
+```
+
+`cost_cents = 3375` ✅, y se insertó la fila de `price_history` con el
+costo nuevo (mecanismo de Fase 04, intacto). Las dos rutas de guardado
+(alta rápida y edición) convierten la coma al centavo exacto.
+
+Nota honesta sobre el orden: la pieza XP-000003 se había guardado con
+"20,50" durante la verificación de pantallas (más arriba), antes de que
+pidieras esta comprobación; la consulta a la base es posterior a tu
+pedido y la hice sobre esa misma pieza, y después agregué el caso de
+edición para cubrir también la segunda ruta de guardado. El estado
+intermedio que había tecleado en edición durante la prueba de cursor
+("313,75") no se guardó — la base lo confirma: seguía en 2050 antes de
+esta edición.
+
+**Un hallazgo que corrige una expectativa tuya, no un bug:** dijiste
+"eso significa que el campo siempre muestra punto, aunque ella escriba
+coma. Está bien que '20,50' termine mostrándose como '20.50'". Verificado
+en el emulador: **no es así, y no debería serlo.** Mientras ella escribe,
+el campo nunca reformatea lo que tecleó (regla 1 de D-030) — "20,50"
+se queda mostrando la coma tal cual, en las dos pantallas, todo el
+tiempo. El punto (`Locale.ROOT`, `toEditableText()`) solo aparece en
+texto que la propia app generó y le ofrece como valor de partida: el
+precio de venta sugerido que se precarga sola, o los valores de
+costo/precio al volver a entrar a editar una pieza ya guardada (ahí sí
+verifiqué que el "20,50" que ella tecleó en su momento se recarga como
+"20.50" al reabrir esa pieza — captura `money-field-10-edit-open.png`).
+Convertir la coma a punto **mientras ella todavía está escribiendo**
+habría reintroducido justo el patrón que estamos revirtiendo (mostrar
+algo distinto de lo tecleado); dejarla tal cual, y solo normalizar en
+los textos que la app genera por su cuenta, es consistente con D-030 y
+con lo que vos mismo pediste en el punto 1 ("no puede pasar que se le
+borre el carácter o se le pierda el decimal mientras teclea" — no se
+pierde nada, se muestra literal).
+
+**Resuelto por el humano:** se deja como está, sin normalizar en vivo.
+Quedó como regla explícita en D-030: el campo NUNCA reformatea lo que
+la usuaria está tecleando; el formateo solo aplica a texto que genera
+la app.
+
+### Suposiciones que tomé
+
+- `canSave` de `ProductEditUiState` ahora exige `cost != null && salePrice
+  != null` — antes no dependía del dinero en absoluto, porque `cost`/
+  `salePrice` nunca eran `null` (el buffer viejo defaulteaba a 0 en
+  silencio). Es necesario para no guardar con un monto incompleto sin
+  usar `!!`, y es coherente con que la pantalla de alta rápida ya
+  bloqueaba Guardar por la misma razón.
+- El texto de precarga de costo/precio al entrar a editar
+  (`detail.cost.toEditableText()`) reemplaza a `detail.cost.cents.toString()`
+  — antes mostraba el número crudo de centavos porque el campo viejo
+  leía un buffer de dígitos; con un campo de texto decimal normal tiene
+  que mostrar el monto en formato decimal, no centavos pelados.
+
+### Lo que NO hice
+
+- No implementé nada de Fase 05 (compras) — esa sigue en pausa, sin
+  tocar, en su propia rama sin mergear.
+- No agregué un mensaje de error visible para el estado "campo vacío"
+  más allá de deshabilitar Guardar — no lo pediste, y agregar un texto
+  de error nuevo hoy sería inventar alcance no pedido.
+- No corregí `ProductEditRoute.kt`/`AddProductRoute.kt` más allá de los
+  renombres de parámetros — no había otra lógica que tocar ahí.
+
+### Bloqueos / preguntas para el humano — resueltos
+
+1. **Numeración de decisiones:** había quedado como D-029 (esta rama
+   sale de `main`, última decisión D-028), colisionando con la D-029 de
+   `docs/fase-05-purchase-cost-plan`. Resuelto por el humano: la de
+   compras conserva D-029 (más vieja, más peso); esta pasa a **D-030**.
+   Renumerado en `DECISIONES.md`, `FASES.md` y este archivo; verificado
+   con `grep -rn "D-029\|D-030"` que no queda ninguna referencia a esta
+   decisión con el número viejo (los comentarios de código ya decían
+   D-030).
+2. **Coma vs. punto mientras escribe:** resuelto, se deja como está —
+   sin normalizar en vivo. Regla explícita agregada a D-030.
+3. **Commit y tag:** mismo patrón que `fix/quick-add-usability` — un
+   solo commit en la rama, mensaje descriptivo, sin tag. Tag y merge los
+   hace el humano.
+
+Ningún bloqueo abierto. El fix queda listo para merge.

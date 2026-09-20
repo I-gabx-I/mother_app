@@ -148,6 +148,13 @@ solo se declara su entidad.
   (dígito a dígito, sin punto decimal que tipear ni ambigüedad de locale)
   y la lógica de esa interpretación vive en una función pura, separada del
   Composable, testeable sin Robolectric.
+  **Reemplazado — ver D-030 en `DECISIONES.md`:** este patrón de "buffer
+  de dígitos" (`MoneyDigitsField`) se probó con la usuaria real y causó
+  un error de captura silencioso (el cursor caía en posiciones que no
+  correspondían a lo que ella veía en pantalla). Desde el fix
+  `money-field-plain-decimal`, el campo es un texto decimal normal con
+  filtro de entrada (`MoneyTextField`, `ui/format/`), no un buffer de
+  dígitos. No se reescribe el resto de esta fase, ya cerrada y tageada.
 - La rotación de la foto (`imageInfo.rotationDegrees` de CameraX) se aplica
   antes de comprimir. Se confirma **visualmente** con una captura real
   (no alcanza con el tamaño del archivo): una foto tomada en vertical se

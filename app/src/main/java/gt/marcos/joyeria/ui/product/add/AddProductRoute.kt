@@ -30,8 +30,8 @@ fun AddProductRoute(viewModel: AddProductViewModel = hiltViewModel(), modifier: 
     AddProductScreen(
         state = state,
         onTakePhotoClick = { isCameraOpen = true },
-        onCostDigitsChange = viewModel::onCostDigitsChanged,
-        onSalePriceDigitsChange = viewModel::onSalePriceDigitsChanged,
+        onCostTextChange = viewModel::onCostTextChanged,
+        onSalePriceTextChange = viewModel::onSalePriceTextChanged,
         onNameChange = viewModel::onNameChanged,
         onCategorySelected = viewModel::onCategorySelected,
         onQuantityChange = viewModel::onQuantityChanged,

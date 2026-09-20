@@ -8,6 +8,7 @@ import gt.marcos.joyeria.data.repository.AddProductInput
 import gt.marcos.joyeria.data.repository.AppSettingRepository
 import gt.marcos.joyeria.data.repository.CategoryRepository
 import gt.marcos.joyeria.domain.usecase.AddProductUseCase
+import gt.marcos.joyeria.ui.format.toEditableText
 import gt.marcos.joyeria.util.ImageStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,9 +65,13 @@ class AddProductViewModel @Inject constructor(
         }
     }
 
-    fun onCostDigitsChanged(raw: String) {
+    /**
+     * `raw` ya viene filtrado por `MoneyTextField` (D-030): siempre es un
+     * texto decimal parcial válido, nunca hace falta sanitizarlo acá.
+     */
+    fun onCostTextChanged(raw: String) {
         _uiState.update { state ->
-            val withNewCost = state.copy(costDigits = sanitizeMoneyDigits(raw))
+            val withNewCost = state.copy(costText = raw)
             if (state.salePriceManuallyEdited) {
                 withNewCost
             } else {
@@ -74,14 +79,14 @@ class AddProductViewModel @Inject constructor(
                 // con el sugerido -- FASES.md: "mientras escribe el costo, la
                 // app muestra en vivo el precio sugerido".
                 val suggested = withNewCost.suggestedPrice
-                if (suggested != null) withNewCost.copy(salePriceDigits = suggested.cents.toString()) else withNewCost
+                if (suggested != null) withNewCost.copy(salePriceText = suggested.toEditableText()) else withNewCost
             }
         }
     }
 
-    fun onSalePriceDigitsChanged(raw: String) {
+    fun onSalePriceTextChanged(raw: String) {
         _uiState.update {
-            it.copy(salePriceDigits = sanitizeMoneyDigits(raw), salePriceManuallyEdited = true)
+            it.copy(salePriceText = raw, salePriceManuallyEdited = true)
         }
     }
 
@@ -108,15 +113,17 @@ class AddProductViewModel @Inject constructor(
     fun onSaveClick(defaultName: String) {
         val state = _uiState.value
         val photoPath = state.photoPath
-        if (!state.canSave || photoPath == null) return
+        val cost = state.cost
+        val salePrice = state.salePrice
+        if (!state.canSave || photoPath == null || cost == null || salePrice == null) return
 
         _uiState.update { it.copy(isSaving = true) }
         viewModelScope.launch {
             val input = AddProductInput(
                 name = state.name.trim().ifBlank { defaultName },
                 categoryId = state.categoryId,
-                cost = state.cost,
-                salePrice = state.salePrice,
+                cost = cost,
+                salePrice = salePrice,
                 stockQty = state.stockQty,
                 photoPath = photoPath,
                 notes = state.notes.trim().ifBlank { null },

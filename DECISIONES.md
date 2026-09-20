@@ -1208,6 +1208,131 @@ inventar columnas sin ese paso).
 
 ---
 
+## D-030 — El campo de costo/precio vuelve a ser texto decimal plano, con filtro de entrada (reemplaza al buffer de dígitos de Fase 03)
+
+*(Numeración: D-029 está reservada para la decisión de costeo de compras
+de la rama `docs/fase-05-purchase-cost-plan`, todavía sin mergear a
+`main` al momento de escribir esta. Esta entrada se registró primero
+como D-029 en esta rama y se renumeró a D-030 por decisión del humano,
+para que la de compras conserve su número.)*
+
+**Contexto:** `MoneyDigitsField` (Fase 03: "dígito a dígito, sin punto
+decimal que tipear ni ambigüedad de locale") se probó con la usuaria
+real y causó un error de captura silencioso. El campo mostraba
+`Money(digitsToCents(digits)).format()` como `value` de un
+`OutlinedTextField` — un texto que nunca coincidía con lo que ella
+acababa de teclear. El cursor caía en posiciones del texto formateado
+que no correspondían a lo que ella veía, y terminaba guardando números
+distintos a los escritos.
+
+**Decisión:** eliminar el buffer de dígitos por completo
+(`MoneyDigitsField.kt`, `MoneyDigitsInput.kt` y su test). El campo de
+costo/precio (`MoneyTextField`, `ui/format/`) es ahora un campo de
+texto decimal normal, con dos reglas:
+
+1. **El campo NUNCA reformatea lo que la usuaria está tecleando.** Lo
+   que Compose reporta en `onValueChange` es, letra por letra, lo mismo
+   que se le vuelve a pasar como `value` — nunca se le presenta un texto
+   "corregido", normalizado ni distinto al que acaba de teclear. Ni
+   siquiera para cambiar una coma por un punto: si tipea "20,50", el
+   campo muestra "20,50" mientras lo tipea y después. **El formateo
+   solo aplica a texto que genera la app** (precio sugerido precargado,
+   valores al reabrir una pieza para editar), nunca al texto que ella
+   tiene bajo el cursor. Esto es lo que permite que el cursor se
+   comporte como en cualquier campo de la plataforma, incluso al tocar
+   en medio del texto ya escrito — normalizar "en vivo" sería volver a
+   transformar el texto bajo el cursor, exactamente el patrón que causó
+   el bug. Regla explícita del humano al cerrar este fix, después de
+   verificarlo en el emulador.
+2. **Un carácter que no corresponde a un número decimal válido
+   simplemente no entra al campo** (letras, un segundo separador
+   decimal, un tercer dígito después del separador, un signo). No se
+   acepta el cambio y se lo "corrige" después: se descarta antes de que
+   llegue a mostrarse, dejando el texto y el cursor exactamente donde
+   estaban. Esto reemplaza la idea original del plan (rechazar el texto
+   completo como "inválido" y deshabilitar Guardar) — corrección
+   pedida explícitamente: deshabilitar Guardar sin ninguna señal visual
+   de qué está mal es indistinguible, para una usuaria no técnica, de
+   un campo roto. Con el filtro de entrada, el único estado "inválido"
+   que puede quedar es el campo vacío o a mitad de escribir (ej. "20."
+   recién tecleado el separador) — nunca un texto con basura adentro.
+
+La conversión a centavos (`parseMoneyToCents`, `ui/format/MoneyInput.kt`)
+sigue viviendo aparte, pura y testeada, pero ahora se lee **solo** para
+decidir si ya hay un monto completo (`canSave`, ganancia, precio
+sugerido) — nunca para decidir qué mostrar en el campo. Sigue sin
+redondear ni inventar un número para una entrada que no puede
+interpretar con certeza (ej. si algo externo al filtro de entrada
+alguna vez le pasara "20.999", devuelve `null`, no "21.00" ni "20.99")
+— defensa en profundidad, aunque el filtro de `MoneyTextField` ya no
+deja que ella tipee eso.
+
+Acepta coma o punto como separador decimal (Guatemala usa las dos). El
+texto que ella escribe **nunca se reformatea a la fuerza a punto**: si
+tipea "20,50", el campo sigue mostrando "20,50" tal cual, con la coma,
+mientras ella escribe — es la aplicación directa de la regla 1 de
+arriba. El punto sí aparece, pero solo en texto que la propia app
+generó por su cuenta y le muestra como valor de partida: el precio de
+venta sugerido que se precarga mientras escribe el costo, y los
+valores de costo/precio al entrar a editar una pieza ya guardada
+(`Money.toEditableText()`, `Locale.ROOT`) — ese texto no es lo que ella
+tecleó, es un dato que la app calculó y le ofrece, y por eso sí tiene
+un formato fijo. Verificado a mano en el emulador, con captura
+(`app/build/screenshots/money-field-*.png`): escribir "20,50" letra por
+letra no pierde ningún carácter ni el separador en ningún punto de la
+escritura, en las dos pantallas.
+
+**Por qué:** un campo de texto estándar es lo que la usuaria ya sabe
+usar de cualquier otra app del teléfono — no hay curva de aprendizaje
+que resolverle, y si se equivoca al escribir, corrige tocando donde
+quiera, como en cualquier otro campo. El patrón anterior "innovaba"
+donde no hacía falta, y esa innovación fue la causa directa del bug.
+Filtrar en vez de rechazar además evita dejar un estado "inválido" sin
+explicación en pantalla: la usuaria ve que la tecla no hizo nada y
+sigue escribiendo, en vez de ver el botón Guardar apagado sin saber
+por qué.
+
+**`Locale.ROOT` en `Money.toEditableText()`:** confirmado sin decisión
+aparte — ya lo cubre la regla de `CLAUDE.md` sección 5 ("todo formateo
+de un dato que se persiste o se imprime usa `Locale.ROOT`"), extendida
+al mismo caso: este texto se le vuelve a dar de comer a
+`isValidMoneyInputText`/`parseMoneyToCents`, que solo reconocen dígitos
+ASCII, así que cuenta como un dato que se vuelve a leer como clave, no
+solo como texto que se le muestra a ella para leer. `Money.format()`
+(`MoneyFormat.kt`) sigue usando el locale de la usuaria porque ese
+texto nunca se vuelve a parsear.
+
+**Descartado:**
+- Parchear `MoneyDigitsField` (ej. recalculando la posición del cursor
+  cada vez que el texto formateado cambia) — el diagnóstico real es que
+  mostrar un texto que no es el tecleado es la causa, no un detalle de
+  implementación del cursor; cualquier parche sobre el mismo patrón
+  deja la misma clase de bug disponible para la próxima tecla rara.
+- Rechazar el texto completo como "inválido" en vez de filtrar entrada
+  por entrada (primera versión de este plan, en `ESTADO.md`) —
+  descartada por el humano: un botón deshabilitado sin explicación en
+  pantalla es indistinguible de un campo roto para una usuaria no
+  técnica.
+- Redondear o truncar una entrada con más de dos decimales en vez de no
+  dejarla entrar — inventaría un número que ella no tecleó, el mismo
+  tipo de error silencioso que causó revertir el buffer de dígitos.
+
+**Consecuencia:**
+- `FASES.md` Fase 03 queda con una nota corta señalando que su
+  entregable original ("dígito a dígito, sin punto decimal que
+  tipear") fue reemplazado por esta decisión — no se reescribe el texto
+  histórico de la fase ya cerrada.
+- **Numeración:** esta rama (`fix/money-field-plain-decimal`) sale de
+  `main`, donde la última decisión registrada es D-028; la rama
+  `docs/fase-05-purchase-cost-plan` (sin mergear) ya usa D-029 para la
+  regla de costo tras una compra. Para no dejar dos decisiones con el
+  mismo número, esta quedó como D-030 (decisión del humano: la de
+  compras es más vieja y de más peso, conserva D-029). Cuando se
+  integren las dos ramas, `DECISIONES.md` va a tener un D-029 y un
+  D-030 consecutivos, sin hueco ni duplicado.
+
+---
+
 <!--
 ## D-00X — Título
 

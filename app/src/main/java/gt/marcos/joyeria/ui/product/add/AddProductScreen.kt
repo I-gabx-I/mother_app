@@ -37,6 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.ui.format.MoneyTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 
@@ -54,8 +55,8 @@ import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 fun AddProductScreen(
     state: AddProductUiState,
     onTakePhotoClick: () -> Unit,
-    onCostDigitsChange: (String) -> Unit,
-    onSalePriceDigitsChange: (String) -> Unit,
+    onCostTextChange: (String) -> Unit,
+    onSalePriceTextChange: (String) -> Unit,
     onNameChange: (String) -> Unit,
     onCategorySelected: (Long?) -> Unit,
     onQuantityChange: (String) -> Unit,
@@ -83,15 +84,15 @@ fun AddProductScreen(
             ) {
                 PhotoField(photoPath = state.photoPath, onTakePhotoClick = onTakePhotoClick)
 
-                MoneyDigitsField(
+                MoneyTextField(
                     label = stringResource(R.string.add_product_cost_label),
-                    digits = state.costDigits,
-                    onDigitsChange = onCostDigitsChange,
+                    value = state.costText,
+                    onValueChange = onCostTextChange,
                 )
-                MoneyDigitsField(
+                MoneyTextField(
                     label = stringResource(R.string.add_product_sale_price_label),
-                    digits = state.salePriceDigits,
-                    onDigitsChange = onSalePriceDigitsChange,
+                    value = state.salePriceText,
+                    onValueChange = onSalePriceTextChange,
                 )
 
                 state.suggestedPrice?.let { suggested ->
@@ -216,14 +217,14 @@ private fun AddProductScreenPreview() {
     JoyeriaTheme {
         AddProductScreen(
             state = AddProductUiState(
-                costDigits = "4000",
-                salePriceDigits = "8000",
+                costText = "40.00",
+                salePriceText = "80.00",
                 defaultMarkupBp = 10000,
                 roundingStep = gt.marcos.joyeria.domain.model.Money(500),
             ),
             onTakePhotoClick = {},
-            onCostDigitsChange = {},
-            onSalePriceDigitsChange = {},
+            onCostTextChange = {},
+            onSalePriceTextChange = {},
             onNameChange = {},
             onCategorySelected = {},
             onQuantityChange = {},

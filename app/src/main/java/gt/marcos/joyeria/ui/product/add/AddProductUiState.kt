@@ -3,17 +3,18 @@ package gt.marcos.joyeria.ui.product.add
 import gt.marcos.joyeria.data.repository.Category
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.pricing.PricingCalculator
+import gt.marcos.joyeria.ui.format.parseMoneyToCents
 
 /**
  * Estado único de la pantalla de alta rápida (CLAUDE.md sección 5: los
  * ViewModels exponen un único `StateFlow<UiState>`). Los tres campos
- * obligatorios son `photoPath`, `costDigits` y `salePriceDigits` — el
+ * obligatorios son `photoPath`, `costText` y `salePriceText` — el
  * resto tiene su valor por defecto ya aplicado o se resuelve al guardar.
  */
 data class AddProductUiState(
     val photoPath: String? = null,
-    val costDigits: String = "",
-    val salePriceDigits: String = "",
+    val costText: String = "",
+    val salePriceText: String = "",
     val salePriceManuallyEdited: Boolean = false,
     val name: String = "",
     val categoryId: Long? = null,
@@ -26,23 +27,28 @@ data class AddProductUiState(
     val savedUid: String? = null,
     val cameraPermissionDeniedMessage: String? = null,
 ) {
-    val cost: Money get() = Money(digitsToCents(costDigits))
-    val salePrice: Money get() = Money(digitsToCents(salePriceDigits))
+    // `null` mientras el texto esté vacío o a mitad de escribir (ej. "20."
+    // recién tecleado el separador) -- MoneyTextField ya garantiza que
+    // nunca llega acá un texto con letras, dos separadores o un tercer
+    // decimal (D-030), así que la única invalidez posible es "incompleto".
+    val cost: Money? get() = parseMoneyToCents(costText)?.let(::Money)
+    val salePrice: Money? get() = parseMoneyToCents(salePriceText)?.let(::Money)
     val stockQty: Int get() = quantityText.toIntOrNull()?.coerceAtLeast(1) ?: 1
 
-    /** `null` mientras no haya costo o todavía no se cargó la configuración de precios. */
+    /** `null` mientras no haya costo completo o todavía no se cargó la configuración de precios. */
     val suggestedPrice: Money?
         get() {
-            if (costDigits.isEmpty()) return null
+            val cost = cost ?: return null
             val bp = defaultMarkupBp ?: return null
             val step = roundingStep ?: return null
             return PricingCalculator.suggestedPrice(cost, bp, step)
         }
 
-    /** `null` mientras falte costo o precio: no hay ganancia que mostrar todavía. */
+    /** `null` mientras falte costo o precio completos: no hay ganancia que mostrar todavía. */
     val profit: Money?
         get() {
-            if (costDigits.isEmpty() || salePriceDigits.isEmpty()) return null
+            val cost = cost ?: return null
+            val salePrice = salePrice ?: return null
             return PricingCalculator.profit(cost, salePrice)
         }
 
@@ -52,8 +58,8 @@ data class AddProductUiState(
      */
     val canSave: Boolean
         get() = photoPath != null &&
-            costDigits.isNotEmpty() &&
-            salePriceDigits.isNotEmpty() &&
+            cost != null &&
+            salePrice != null &&
             categoryId != null &&
             !isSaving
 }
