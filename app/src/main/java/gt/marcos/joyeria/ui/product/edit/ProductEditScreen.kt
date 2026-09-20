@@ -39,9 +39,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.ui.format.MoneyTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.product.CategoryDropdown
-import gt.marcos.joyeria.ui.product.add.MoneyDigitsField
 
 /**
  * Pantalla de detalle/edición. Stateless y `@Preview`-able (CLAUDE.md
@@ -53,8 +53,8 @@ fun ProductEditScreen(
     state: ProductEditUiState,
     onNameChange: (String) -> Unit,
     onCategorySelected: (Long?) -> Unit,
-    onCostDigitsChange: (String) -> Unit,
-    onSalePriceDigitsChange: (String) -> Unit,
+    onCostTextChange: (String) -> Unit,
+    onSalePriceTextChange: (String) -> Unit,
     onQuantityChange: (String) -> Unit,
     onSupplierChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
@@ -112,21 +112,23 @@ fun ProductEditScreen(
                         onCategorySelected = onCategorySelected,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    MoneyDigitsField(
+                    MoneyTextField(
                         label = stringResource(R.string.add_product_cost_label),
-                        digits = state.costDigits,
-                        onDigitsChange = onCostDigitsChange,
+                        value = state.costText,
+                        onValueChange = onCostTextChange,
                     )
-                    MoneyDigitsField(
+                    MoneyTextField(
                         label = stringResource(R.string.add_product_sale_price_label),
-                        digits = state.salePriceDigits,
-                        onDigitsChange = onSalePriceDigitsChange,
+                        value = state.salePriceText,
+                        onValueChange = onSalePriceTextChange,
                     )
-                    Text(
-                        text = stringResource(R.string.add_product_profit, state.profit.format()),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    state.profit?.let { profit ->
+                        Text(
+                            text = stringResource(R.string.add_product_profit, profit.format()),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     OutlinedTextField(
                         value = state.quantityText,
                         onValueChange = onQuantityChange,

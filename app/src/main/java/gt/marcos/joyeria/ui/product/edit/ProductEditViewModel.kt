@@ -9,7 +9,7 @@ import gt.marcos.joyeria.data.repository.EditProductInput
 import gt.marcos.joyeria.data.repository.ProductRepository
 import gt.marcos.joyeria.domain.usecase.ArchiveProductUseCase
 import gt.marcos.joyeria.domain.usecase.EditProductUseCase
-import gt.marcos.joyeria.ui.product.add.sanitizeMoneyDigits
+import gt.marcos.joyeria.ui.format.toEditableText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,8 +48,8 @@ class ProductEditViewModel @Inject constructor(
                         uid = detail.uid,
                         name = detail.name,
                         categoryId = detail.categoryId,
-                        costDigits = detail.cost.cents.toString(),
-                        salePriceDigits = detail.salePrice.cents.toString(),
+                        costText = detail.cost.toEditableText(),
+                        salePriceText = detail.salePrice.toEditableText(),
                         quantityText = detail.stockQty.toString(),
                         supplier = detail.supplier.orEmpty(),
                         notes = detail.notes.orEmpty(),
@@ -74,12 +74,13 @@ class ProductEditViewModel @Inject constructor(
         _uiState.update { it.copy(categoryId = categoryId) }
     }
 
-    fun onCostDigitsChanged(raw: String) {
-        _uiState.update { it.copy(costDigits = sanitizeMoneyDigits(raw)) }
+    /** `raw` ya viene filtrado por `MoneyTextField` (D-030): nunca hace falta sanitizarlo acá. */
+    fun onCostTextChanged(raw: String) {
+        _uiState.update { it.copy(costText = raw) }
     }
 
-    fun onSalePriceDigitsChanged(raw: String) {
-        _uiState.update { it.copy(salePriceDigits = sanitizeMoneyDigits(raw)) }
+    fun onSalePriceTextChanged(raw: String) {
+        _uiState.update { it.copy(salePriceText = raw) }
     }
 
     fun onQuantityChanged(raw: String) {
@@ -96,7 +97,9 @@ class ProductEditViewModel @Inject constructor(
 
     fun onSaveClick() {
         val state = _uiState.value
-        if (!state.canSave) return
+        val cost = state.cost
+        val salePrice = state.salePrice
+        if (!state.canSave || cost == null || salePrice == null) return
 
         _uiState.update { it.copy(isSaving = true) }
         viewModelScope.launch {
@@ -105,8 +108,8 @@ class ProductEditViewModel @Inject constructor(
                     id = productId,
                     name = state.name.trim(),
                     categoryId = state.categoryId,
-                    cost = state.cost,
-                    salePrice = state.salePrice,
+                    cost = cost,
+                    salePrice = salePrice,
                     stockQty = state.stockQty,
                     supplier = state.supplier.trim().ifBlank { null },
                     notes = state.notes.trim().ifBlank { null },
