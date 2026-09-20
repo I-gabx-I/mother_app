@@ -11,6 +11,7 @@ import gt.marcos.joyeria.data.local.dao.ProductDao
 import gt.marcos.joyeria.data.local.dao.PurchaseDao
 import gt.marcos.joyeria.data.local.dao.PurchaseItemDao
 import gt.marcos.joyeria.data.local.dao.SaleDao
+import gt.marcos.joyeria.data.local.dao.SaleItemDao
 import gt.marcos.joyeria.data.local.entity.AppSettingEntity
 import gt.marcos.joyeria.data.local.entity.CategoryEntity
 import gt.marcos.joyeria.data.local.entity.CustomerEntity
@@ -49,6 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun purchaseDao(): PurchaseDao
     abstract fun purchaseItemDao(): PurchaseItemDao
     abstract fun saleDao(): SaleDao
+    abstract fun saleItemDao(): SaleItemDao
 
     /**
      * Semilla de las 5 categorías y de las claves de app_setting, en la

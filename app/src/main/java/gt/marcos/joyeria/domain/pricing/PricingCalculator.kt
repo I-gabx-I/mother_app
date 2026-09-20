@@ -24,6 +24,19 @@ object PricingCalculator {
         salePrice - cost
 
     /**
+     * `gananciaDeVenta` de `ESQUEMA.md`: (total - descuento) - costo total
+     * de la venta. Nunca divide, nunca es null -- una venta con descuento
+     * grande puede dar cero o negativo, y eso es un resultado legítimo, no
+     * un error (CLAUDE.md 3.5/D-015: "ganancia negativa permitida y
+     * correcta"). Se centraliza acá, no se calcula suelto en el ViewModel
+     * ni en el repositorio, para que la vista previa en pantalla (Fase 06,
+     * D-035) y el valor que de verdad se guarda usen la misma cuenta sin
+     * poder divergir.
+     */
+    fun saleProfit(total: Money, discount: Money, totalCost: Money): Money =
+        (total - discount) - totalCost
+
+    /**
      * Margen sobre venta, en puntos básicos: gananciaUnitaria * 10000 / salePriceCents.
      * `null` cuando salePrice.cents == 0: no hay precio de venta con el cual
      * expresar un porcentaje (D-015). No es lo mismo que un margen real de 0%.

@@ -888,6 +888,18 @@ temporal y bien intencionado.
 `FASES.md` cuando se abra esa fase, no ahora): la pantalla de inicio
 final reemplaza a la provisoria, con "Vender" funcional.
 
+**Cumplida (Fase 06, 2026-09-20):** `HomeScreen` ya muestra las dos
+acciones grandes que pide CLAUDE.md sección 6 — "Vender" (nueva,
+primera) y "Agregar pieza" (segunda) — con "Inventario", "Registrar
+compra" y "Ventas de hoy" como enlaces chicos debajo, sin competir con
+las dos grandes. La desviación temporal que registraba esta decisión
+queda cerrada; el texto de arriba se deja tal cual, sin editar, como
+registro de por qué la pantalla de Fase 04 se veía distinta. (Nota de
+proceso: el humano pidió primero "quitar la nota de desviación de
+`DECISIONES.md`" y luego confirmó que eso contradecía la regla del
+propio archivo de no editar ni borrar una decisión pasada — este
+bloque es la forma correcta de cerrarla sin borrar nada.)
+
 ---
 
 ## D-025 — Descartada la hipótesis de versión: el bloqueo de KSP/Hilt en Fase 04 era un comentario KDoc mal escrito, no una incompatibilidad de versiones
@@ -1696,6 +1708,196 @@ original solo tenía `app/src/test/java/**/data/**`) y el criterio 8
 menciona `androidTest`, no `app/src/test`, para este test puntual. El
 resto de los tests de Fase 05 (`PricingCalculatorTest`,
 `PurchaseRepositoryTest`) siguen en `app/src/test` sin ningún cambio.
+
+---
+
+## D-035 — Aviso de venta con pérdida: monto exacto en quetzales, evaluado sobre el total de la venta, no línea por línea
+
+**Contexto:** "Fase 06 — Plan" (`ESTADO.md`, 2026-09-20) propuso avisar
+antes de confirmar una venta si `gananciaDeVenta <= 0`, sin bloquear.
+El humano aprobó avisar antes, con dos correcciones: (1) el texto tiene
+que decir cuánto se pierde en quetzales, no solo que hay un problema;
+(2) faltaba definir sobre qué se evalúa el aviso cuando la venta tiene
+varias líneas — el total puede ser positivo con una línea individual en
+pérdida (ej. tres anillos con buena ganancia y un collar rematado).
+
+**Decisión — dos partes:**
+
+1. **El aviso muestra el monto exacto**, no una etiqueta genérica:
+   "Vas a perder Q30.00 en esta venta. ¿Confirmás igual?" cuando
+   `gananciaDeVenta < 0` (con el valor absoluto formateado), y "Esta
+   venta no te va a dejar ninguna ganancia. ¿Confirmás igual?" para el
+   caso exacto de `gananciaDeVenta == 0` (no hay un monto que mostrar
+   ahí, "perder Q0.00" no dice nada real). Dos strings distintos, no
+   uno con un número que puede ser cero.
+2. **El aviso se evalúa sobre el total de la venta** (`(total_cents -
+   discount_cents) - total_cost_cents`, la misma `gananciaDeVenta` de
+   `ESQUEMA.md`), no línea por línea.
+
+**Por qué el total y no línea por línea — dos razones, no solo la
+intuición de que "es como ella piensa la venta":**
+
+1. **El esquema no tiene con qué calcular una pérdida por línea real:**
+   `discount_cents` vive en `sale`, a nivel de venta — no existe
+   ninguna columna de descuento en `sale_item` (`ESQUEMA.md`).
+   Cualquier "ganancia de esta línea después del descuento" tendría que
+   inventar una forma de repartir el descuento entre líneas (proporcional
+   al subtotal, como el prorrateo de transporte de compras, D-029) que
+   no está en el esquema ni se persiste en ningún lado — sería un
+   número calculado solo para mostrar en pantalla, distinto de
+   cualquier cosa que la base efectivamente guarda. Evaluar sobre el
+   total usa exactamente los mismos tres campos que se van a persistir
+   tal cual (`total_cents`, `discount_cents`, `total_cost_cents`) — el
+   aviso y el dato guardado nunca pueden divergir porque son la misma
+   cuenta.
+2. **Aunque se calculara, no hay nada que ella pueda hacer distinto
+   con un aviso por línea:** el descuento de esta pantalla es único
+   para toda la venta (`FASES.md`: "descuento opcional", uno solo, no
+   por pieza) — no existe una forma de aplicarle un descuento menor
+   solo al collar y dejar los anillos como estaban. Un aviso "esta
+   línea da pérdida" sin ninguna acción distinta disponible (más allá
+   de sacar esa línea entera de la venta, algo que ya puede hacer sin
+   que el aviso se lo diga) es información que no cambia ninguna
+   decisión — y CLAUDE.md sección 6 pide avisos que sirvan para decidir,
+   no ruido.
+
+**Descartado:**
+- Aviso por línea con reparto proporcional del descuento: técnicamente
+  posible (mismo patrón que D-029 usa para transporte), pero inventa un
+  número que no se persiste en ningún lado y no habilita ninguna
+  acción que ella no tenga ya disponible.
+- Un solo aviso sin el monto ("el descuento deja la venta bajo el
+  costo"): rechazado explícitamente — una etiqueta no es información
+  para decidir, un monto en quetzales sí.
+
+**Consecuencia:** `RegisterSaleUiState` calcula `profit` una sola vez
+(sobre el total, vía `PricingCalculator.saleProfit`) y ese mismo valor
+alimenta tanto la vista previa en pantalla como la condición del
+diálogo de confirmación — no hay un cálculo por línea en ningún lado
+de esta fase. Dos strings nuevos en `strings.xml`
+(`sale_confirm_loss_warning` con el monto, `sale_confirm_zero_profit_warning`
+sin monto).
+
+---
+
+## D-036 — Líneas duplicadas del mismo producto en una venta: se rechazan, no se fusionan en silencio
+
+**Contexto:** revisión de código de Fase 06. `SaleRepository.register()`
+recibía `input.lines` sin validar que cada producto apareciera una sola
+vez. Si dos líneas traían el mismo `productId`, ambas leían
+`productDao.getById()` **antes** de que ninguna escribiera — la misma
+fila, el mismo `stockQty` original — así que los dos chequeos de
+`qty <= stock` se evaluaban contra ese mismo número (con stock 1 y dos
+líneas de `qty = 1`, las dos "pasaban"), y las dos llamadas a
+`productDao.update()` partían del mismo `product.stockQty` original: la
+segunda pisaba el resultado de la primera en vez de sumarse. Resultado:
+se vendían 2 unidades, el stock bajaba en 1, y nada fallaba ni avisaba.
+
+**Decisión:** `register()` rechaza la operación completa
+(`require()`, `IllegalArgumentException`) si `input.lines` trae el
+mismo `productId` en más de una línea, calculado antes de leer o
+escribir nada.
+
+**Por qué rechazar y no fusionar (sumar las cantidades en una sola
+línea) en silencio:**
+- El carrito de `RegisterSaleUiState`/`RegisterSaleViewModel` ya
+  agrupa por producto (`onProductSelected` incrementa la línea
+  existente en vez de agregar una segunda) — un duplicado que llega
+  hasta el repositorio no es un caso de uso real de la pantalla actual,
+  es la señal de que algo aguas arriba dejó de cumplir esa garantía
+  (un cambio futuro en la UI, un test mal armado, una futura pantalla
+  de venta que arme `RegisterSaleInput` distinto). Fusionar en
+  silencio escondería exactamente ese tipo de error en vez de
+  mostrarlo — mismo argumento que ya se usó para no devolver
+  `Money.ZERO` en silencio en `weightedAverageCost` (Fase 05): un
+  crash claro en desarrollo es preferible a un resultado "razonable"
+  que tapa un bug real aguas arriba.
+- El repositorio es la frontera transaccional (`ESTADO.md`, "Fase 06
+  — Plan", punto 1) y no puede depender de que quien lo llama "se
+  porte bien" — pero eso no obliga a que la frontera *arregle* la
+  entrada inválida; alcanza con que la *rechace* de forma ruidosa. Ya
+  hay precedente de este criterio en el propio archivo: `checkNotNull`
+  para un producto inexistente y `check` para stock insuficiente no
+  intentan "corregir" la venta, la abortan entera.
+
+**Descartado:** agrupar (`groupBy(productId).sumOf(qty)`) las líneas
+antes de validar y escribir una sola vez por producto — técnicamente
+resuelve el bug de stock, pero convierte un error de contrato en un
+comportamiento normal, y el día que aparezca un duplicado por una
+razón real (una futura pantalla que sí necesite dos líneas del mismo
+producto con, por ejemplo, precios distintos) quedaría enmascarado en
+vez de forzar una decisión de diseño explícita en ese momento.
+
+**Consecuencia:** `SaleRepository.register()` valida
+`input.lines.groupingBy { it.productId }.eachCount()` antes de tocar
+la base. Test:
+`SaleRepositoryTest.register_duplicateProductInTwoLines_throwsInsteadOfSilentlyOversellingStock`
+— dos líneas del mismo producto con stock exacto para una sola,
+confirma que lanza y que el stock/la base quedan intactos (nunca que
+pase en silencio).
+
+---
+
+## D-037 — Motivo de anulación de venta: opcional, con sugerencias de un tap (cumple D-006)
+
+**Contexto:** revisión de código de Fase 06. D-006 exige que las
+ventas se anulen "con motivo y fecha", y `ESQUEMA.md` ya tiene la
+columna `cancel_reason` en `sale` desde la v1 — pero `SaleRepository.cancel()`
+guardaba `cancelReason = null` fijo, sin ninguna forma de capturarlo
+desde la pantalla. Anular es la única operación destructiva que la
+usuaria puede hacer sola; sin motivo, una venta anulada meses atrás
+queda sin ninguna explicación en el historial.
+
+**Decisión:** el motivo es **opcional**, con tres sugerencias de un
+solo toque en el diálogo de anulación ("Devolución", "Error al
+registrar", "Otra") que llenan un campo de texto editable; texto en
+blanco se persiste como `cancelReason = null` (nunca como cadena
+vacía).
+
+**Por qué opcional y no obligatorio:** anular es, por definición, algo
+que ella hace apurada, a menudo justo después de darse cuenta de un
+error — obligarla a escribir con el teclado en ese momento es
+fricción exactamente cuando menos la puede pagar (mismo espíritu que
+CLAUDE.md sección 6: la app no le puede pedir más de lo necesario en
+el momento de más apuro). Un motivo vacío sigue siendo mejor que
+bloquear la anulación entera por un campo de texto — el dato que
+importa más (que se anuló, y cuándo) ya se captura solo,
+independiente del motivo.
+
+**Por qué sugerencias de un tap y no solo un campo libre:** las dos
+razones más comunes de anular una venta ("me la devolvieron",
+"me equivoqué al cargarla") son previsibles y cortas — ofrecerlas de
+un toque cubre el caso común sin tipeo, y "Otra" limpia el campo para
+que escriba lo que haga falta cuando ninguna de las dos aplica. No es
+una lista cerrada: el campo de texto sigue editable después de tocar
+cualquier sugerencia.
+
+**Descartado:**
+- Motivo obligatorio con validación que bloquee "Sí, anular" hasta
+  escribir algo: rechazado por la fricción ya explicada, y porque
+  D-006 no pide "obligatorio", pide "con motivo" — que puede ser una
+  cadena vacía documentada como tal, no forzada.
+- Un menú desplegable cerrado de motivos predefinidos (sin campo
+  libre): más rígido que lo que la usuaria necesita — un cuaderno
+  físico no tiene esa restricción, y una anulación real puede tener un
+  motivo que ninguna lista fija anticipa.
+
+**Consecuencia:** `SaleRepository.cancel()` recibe `cancelReason:
+String?` como parámetro (junto con `cancelledAt`, ver la nota de abajo
+sobre por qué también se movió como parámetro). `TodaySalesUiState`
+suma `cancelReasonText`; `TodaySalesViewModel.onCancelConfirm()` recorta
+espacios y convierte blanco en `null` antes de llamar al caso de uso.
+Tres strings nuevos en `strings.xml`
+(`today_sales_cancel_reason_label` y las dos sugerencias con texto
+fijo; "Otra" no tiene texto propio, limpia el campo).
+
+**Nota relacionada, mismo commit:** `cancel()` recibía también
+`cancelledAt` calculado adentro con `System.currentTimeMillis()`,
+distinto del patrón que `register()` ya usa para `soldAt` (recibido
+como parámetro desde el `ViewModel`). Se corrigió para que
+`cancelledAt` también sea un parámetro — mismo criterio en las dos
+operaciones, y `SaleRepositoryTest` puede ahora comparar contra un
+valor exacto en vez de solo `isNotNull()`.
 
 ---
 

@@ -13,4 +13,6 @@ sealed class JoyeriaDestination(val route: String) {
         fun createRoute(productId: Long) = "product_edit/$productId"
     }
     data object RegisterPurchase : JoyeriaDestination("register_purchase")
+    data object RegisterSale : JoyeriaDestination("register_sale")
+    data object TodaySales : JoyeriaDestination("today_sales")
 }

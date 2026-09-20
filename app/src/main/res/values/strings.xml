@@ -77,4 +77,45 @@
     <string name="purchase_warning_profit">%1$s: ya no deja ganancia al precio de venta actual (nuevo costo: %2$s). Revisá el precio.</string>
     <string name="purchase_warning_retroactive">Anotaste una fecha anterior a una venta que ya hiciste. El costo nuevo aplica desde hoy — no cambia la ganancia de lo que ya vendiste.</string>
     <string name="purchase_warnings_dismiss">Entendido</string>
+
+    <!-- Fase 06: inicio definitivo (D-024, cumplida) -->
+    <string name="home_sell">Vender</string>
+    <string name="home_today_sales">Ventas de hoy</string>
+
+    <!-- Fase 06: vender -->
+    <string name="sale_title">Vender</string>
+    <string name="sale_cart_title">Carrito</string>
+    <string name="sale_available_title">Piezas disponibles</string>
+    <string name="sale_empty_products">No tenés piezas con stock para vender.</string>
+    <string name="sale_line_qty_label">Cantidad</string>
+    <string name="sale_line_stock_warning">Solo quedan %1$d en stock</string>
+    <string name="sale_line_remove">Quitar esta pieza</string>
+    <string name="sale_discount_label">Descuento (opcional)</string>
+    <string name="sale_discount_exceeds_subtotal">El descuento no puede ser mayor al total de la venta</string>
+    <string name="sale_total_label">Total: %1$s</string>
+    <string name="sale_profit_label">Ganancia: %1$s</string>
+    <string name="sale_confirm_button">Confirmar venta</string>
+    <string name="sale_confirm_dialog_title">Confirmar venta</string>
+    <string name="sale_confirm_loss_warning">Vas a perder %1$s en esta venta. ¿Confirmás igual?</string>
+    <string name="sale_confirm_zero_profit_warning">Esta venta no te va a dejar ninguna ganancia. ¿Confirmás igual?</string>
+    <string name="sale_confirm_dialog_confirm">Sí, confirmar</string>
+    <string name="sale_confirm_dialog_cancel">Revisar</string>
+    <string name="sale_saved_confirmation">Venta guardada</string>
+
+    <!-- Fase 06: ventas de hoy -->
+    <string name="today_sales_title">Ventas de hoy</string>
+    <string name="today_sales_empty">Todavía no vendiste nada hoy.</string>
+    <string name="today_sales_total_label">Total: %1$s</string>
+    <string name="today_sales_profit_label">Ganancia: %1$s</string>
+    <string name="today_sales_item_line">%1$d × %2$s (%3$s)</string>
+    <string name="today_sales_detail_title">Detalle de la venta</string>
+    <string name="today_sales_cancel_button">Anular venta</string>
+    <string name="today_sales_cancel_confirm_title">¿Anular esta venta?</string>
+    <string name="today_sales_cancel_confirm_message">El stock de las piezas vendidas vuelve a sumarse. Esta acción no se puede deshacer.</string>
+    <string name="today_sales_cancel_confirm_confirm">Sí, anular</string>
+    <string name="today_sales_cancel_confirm_cancel">Cancelar</string>
+    <string name="today_sales_cancel_reason_label">Motivo (opcional)</string>
+    <string name="today_sales_cancel_reason_suggestion_return">Devolución</string>
+    <string name="today_sales_cancel_reason_suggestion_mistake">Error al registrar</string>
+    <string name="today_sales_cancel_reason_suggestion_other">Otra</string>
 </resources>

@@ -355,13 +355,36 @@ acá, no en `app/src/test`), `gradle/libs.versions.toml`,
 
 **Objetivo:** registrar una venta al contado con snapshots y descuento de stock.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/sale/**`, `app/src/main/java/**/domain/usecase/RegisterSale*.kt`, `app/src/main/java/**/data/**`, `strings.xml`
+**Archivos permitidos:** `app/src/main/java/**/ui/sale/**`,
+`app/src/main/java/**/domain/usecase/*Sale*.kt` (corrección de
+alcance: el glob original, `RegisterSale*.kt`, no matchea
+`CancelSaleUseCase.kt` — mismo tipo de corrección que `*Purchase*.kt`
+tuvo en Fase 05), `app/src/main/java/**/domain/pricing/PricingCalculator.kt`
+(agregado: `saleProfit`, aritmética pura de dinero, no le corresponde a
+`usecase/*Sale*.kt` que es orquestación), `app/src/main/java/**/ui/navigation/**`
+(agregado: destinos nuevos en el `NavHost` y `HomeScreen` deja de ser
+provisoria, D-024), `app/src/main/java/**/data/**`,
+`app/src/test/java/**/domain/**`, `app/src/test/java/**/data/**`,
+`app/src/test/java/**/ui/sale/**` (agregados: la lista original no
+tenía ningún directorio de test, y la fase exige
+`[TESTS OBLIGATORIOS]` — mismo olvido que tuvo Fase 05; el último es
+para probar la validación pura de `RegisterSaleUiState`, sin
+Robolectric, mismo criterio que `MoneyInputTest` en
+`ui/format`), `strings.xml`
 
 **Entregable:**
-- Flujo de venta: elegir piezas, cantidades, descuento opcional, confirmar.
-- Al confirmar, en una sola transacción: crea `sale` + `sale_item` con snapshots, descuenta `stock_qty`.
+- Flujo de venta: elegir piezas (lista con fotos, no un buscador de
+  texto como camino principal — ver `ESTADO.md`, "Fase 06 — Plan",
+  punto 3), cantidades, descuento opcional, confirmar.
+- Al confirmar, en una sola transacción: crea `sale` + `sale_item` con
+  snapshots (tomados leyendo el producto fresco del DAO dentro de la
+  misma transacción — ver `ESTADO.md` punto 1), descuenta `stock_qty`.
+- Si el descuento deja `gananciaDeVenta <= 0`, aviso con el monto
+  exacto antes de confirmar, sin bloquear — D-035.
 - Anulación de venta (`CANCELLED`) que devuelve el stock.
 - Pantalla "Ventas de hoy" con total vendido y ganancia del día.
+- `HomeScreen` deja de ser provisoria (D-024, cumplida): "Vender" y
+  "Agregar pieza" son las dos acciones grandes.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
@@ -369,6 +392,12 @@ acá, no en `app/src/test`), `gradle/libs.versions.toml`,
 3. Test: no se puede vender más unidades de las que hay en stock.
 4. Test: anular una venta devuelve exactamente el stock descontado.
 5. Test: la venta y sus líneas se crean atómicamente (si falla una línea, no queda venta huérfana).
+6. Verificación manual (documentada en `ESTADO.md`, no automatizable):
+   escribir una cantidad inválida, una cantidad mayor al stock, un
+   descuento con coma, y un descuento mayor al subtotal — con captura.
+   **La medición de tiempo de "alta rápida" con cronómetro real queda
+   pendiente para la usuaria**, no se resuelve en este cierre (D-024
+   cambia dónde está el botón en Home).
 
 **Commit:** `fase-06: cash sales` → tag `fase-06-ok`
 

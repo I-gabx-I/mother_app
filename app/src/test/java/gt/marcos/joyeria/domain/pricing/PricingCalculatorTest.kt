@@ -465,4 +465,58 @@ class PricingCalculatorTest {
         assertThat(bias).isAtLeast(0L)
         assertThat(bias).isEqualTo(13L)
     }
+
+    // --- saleProfit: gananciaDeVenta de ESQUEMA.md, Fase 06. Nunca divide,
+    // nunca es null -- una venta con descuento grande puede dar cero o
+    // negativo, y eso es correcto (D-015/CLAUDE.md 3.5). ---
+
+    @Test
+    fun saleProfit_noDiscount_isTotalMinusCost() {
+        val result = PricingCalculator.saleProfit(
+            total = Money(10000),
+            discount = Money.ZERO,
+            totalCost = Money(4000),
+        )
+
+        assertThat(result).isEqualTo(Money(6000))
+    }
+
+    @Test
+    fun saleProfit_withDiscount_subtractsDiscountBeforeCost() {
+        val result = PricingCalculator.saleProfit(
+            total = Money(10000),
+            discount = Money(1000),
+            totalCost = Money(4000),
+        )
+
+        assertThat(result).isEqualTo(Money(5000))
+    }
+
+    @Test
+    fun saleProfit_discountEqualsSubtotalMinusCost_isExactlyZero() {
+        // El descuento deja el ingreso neto justo igual al costo total --
+        // ni ganancia ni pérdida, un resultado real, no un centinela.
+        val result = PricingCalculator.saleProfit(
+            total = Money(10000),
+            discount = Money(6000),
+            totalCost = Money(4000),
+        )
+
+        assertThat(result).isEqualTo(Money.ZERO)
+    }
+
+    @Test
+    fun saleProfit_discountBiggerThanNeeded_isNegative() {
+        // D-035: la venta con descuento grande da pérdida real -- se
+        // permite y se calcula tal cual, el aviso de si avisar o no es
+        // responsabilidad de la UI (RegisterSaleUiState), no de esta
+        // función.
+        val result = PricingCalculator.saleProfit(
+            total = Money(10000),
+            discount = Money(8000),
+            totalCost = Money(4000),
+        )
+
+        assertThat(result).isEqualTo(Money(-2000))
+    }
 }

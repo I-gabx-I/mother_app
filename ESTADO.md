@@ -4851,3 +4851,655 @@ no habían salido en la implementación original:
 existente necesitó tocarse, porque ningún camino real de la app llega
 nunca a `currentStockQty + purchaseQty <= 0` (`purchaseQty` siempre
 `>= 1` desde la pantalla de compra, `currentStockQty` nunca negativo).
+
+---
+
+## Fase 06 — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-20. Rama `fase/06-cash-sales`, abierta desde `main`
+(fases 00-05 cerradas y tageadas). Fin del MVP: al cerrar esta fase, la
+usuaria puede reemplazar el cuaderno de verdad (CLAUDE.md sección 1).
+
+### 1. Los snapshots — dónde se toman y por qué ahí
+
+**Dónde:** dentro de `SaleRepository.register()`, dentro del mismo
+`db.withTransaction { }` que inserta la venta, leyendo cada producto
+**fresco desde el DAO** (`productDao.getById(line.productId)`) en el
+momento exacto de armar cada `SaleItemEntity` — nunca desde el
+`ProductSummary` que el `ViewModel` tiene en memoria (cacheado desde la
+última vez que `observeFiltered()` emitió), y nunca recalculado a
+partir de algo que ya pasó por `PricingCalculator` en la pantalla.
+
+```kotlin
+// Dentro de la transacción, por cada línea:
+val product = checkNotNull(productDao.getById(line.productId)) { ... }
+SaleItemEntity(
+    saleId = saleId,
+    productId = product.id,
+    productUidSnapshot = product.uid,
+    productNameSnapshot = product.name,
+    qty = line.qty,
+    unitPriceCents = product.salePriceCents,  // snapshot, no line.unitPrice de la UI
+    unitCostCents = product.costCents,        // snapshot, no line.unitCost de la UI
+)
+```
+
+**Por qué ahí y no en otro lado:**
+- **No en el `ViewModel`/UI:** el `ProductSummary` que arma la lista de
+  piezas para elegir viene de un `Flow` que se observa desde que se
+  abrió la pantalla. Nada impide, en teoría, que el precio o el costo
+  de un producto cambien entre que ella abre "Vender" y el momento en
+  que aprieta "Confirmar" (edición manual en otra pestaña de la app,
+  aunque sea la misma persona con el mismo teléfono — la garantía no
+  puede depender de que eso "no pase en la práctica"). Tomar el
+  snapshot recién al confirmar, leyendo la fila real, es lo único que
+  no depende de esa suposición.
+- **No en un paso previo a la transacción** (ej. leer los productos
+  antes de abrir `withTransaction`, guardar el resultado, y recién
+  después escribir): entre ese `SELECT` suelto y el `INSERT` real
+  podría (en teoría, y sobre todo a futuro con más pantallas
+  concurrentes) colarse otra escritura — exactamente el mismo
+  razonamiento que ya se aplicó en Fase 01 para `ProductUidGenerator`
+  y en Fase 05 para `PurchaseRepository`: una sola transacción, lectura
+  y escritura juntas, es lo que da la garantía real, no "leer justo
+  antes".
+- **Mismo patrón ya establecido, no uno nuevo:** `PurchaseRepository`
+  (Fase 05) ya lee `productDao.getById()` fresco adentro de su propia
+  transacción antes de recalcular `cost_cents`. `SaleRepository` hace
+  exactamente lo mismo, por la misma razón — es la tercera vez que este
+  patrón aparece (Fase 01, 05, 06), así que queda como el patrón
+  estándar del proyecto para "leer el estado real justo antes de
+  escribir sobre él", no una decisión nueva cada vez.
+
+**Test que lo prueba (criterio 2 de `FASES.md`):** registrar una venta,
+después cambiar `cost_cents`/`sale_price_cents` del producto (vía
+`productDao.update`, simulando una edición posterior o incluso una
+compra que recalcula el costo), releer la fila de `sale_item` de esa
+venta ya registrada, y confirmar que `unit_cost_cents`/
+`unit_price_cents` **no cambiaron** — siguen siendo los valores de
+cuando se vendió. Un segundo test calcula "ganancia de esa venta"
+**solo** con los campos de `sale_item` (nunca con un `JOIN` a
+`product`) y confirma que da el número viejo. Esto es literalmente
+D-002 puesto a prueba, no una verificación indirecta.
+
+### 2. Captura de datos: cantidad y descuento
+
+**Contexto que pesa acá:** los dos únicos bugs reales de todo el
+proyecto (el buffer de dígitos de Fase 03, y el `Money.ZERO`/`ceilDiv`
+silencioso de Fase 05 encontrado en revisión) salieron de campos de
+captura, y ningún test los agarró — aparecieron con uso real o con
+lectura de código. Esta pantalla tiene dos campos de captura nuevos
+(cantidad por línea, descuento), así que van con el mismo cuidado.
+
+**Descuento (dinero):** `MoneyTextField` de `ui/format/`, tal cual —
+cero código nuevo para esto. Mismo comportamiento que ya está probado
+y verificado desde D-030: nunca reformatea lo que ella teclea (una
+coma se queda como coma), filtra caracter por caracter (una letra o un
+segundo separador no entran), campo vacío = `Money.ZERO` (sin
+descuento), texto incompleto = no bloquea nada más que a sí mismo.
+Verificación en el emulador con captura: escribir un descuento con
+coma, confirmar que no se pierde ningún carácter mientras escribe —
+mismo protocolo que ya se corrió para Fase 05.
+
+**Cantidad (entero), nuevo — `QuantityTextField`, local a `ui/sale/`:**
+un campo chico, hermano de `MoneyTextField` pero para enteros, con el
+mismo mecanismo (`TextFieldValue`, nunca `String` simple) para no
+repetir el riesgo de desincronizar cursor y estado. Vive dentro de
+`ui/sale/` porque hoy es el único consumidor — si una fase futura
+necesita lo mismo en otro lado, se generaliza a `ui/format/` en ese
+momento (CLAUDE.md sección 5: no adelantar abstracciones sin un
+segundo caso de uso real).
+
+Dos clases de "entrada inválida", con **dos tratamientos distintos a
+propósito**, no el mismo para las dos:
+
+1. **Un carácter que no es un dígito** (letra, signo, decimal): se
+   filtra al nivel del carácter, igual que `MoneyTextField` — la tecla
+   no entra, sin mensaje, porque es una regla de formato fija y
+   predecible ("este campo es un número entero") que ella ya conoce de
+   cualquier campo numérico de cualquier app.
+2. **Un número de piezas mayor al stock disponible:** acá **no** se
+   filtra al nivel del carácter. Bloquear el dígito que hace que
+   "2" pase a "12" cuando el stock es 5 dejaría el campo en "2" sin
+   ninguna señal de por qué el "1" no entró — a diferencia de "máximo
+   dos decimales", el tope de stock es un número que cambia por pieza
+   y que ella no tiene manera de adivinar mientras escribe, así que
+   bloquearlo en silencio sería indistinguible de un campo roto (el
+   mismo argumento que ya usaste para rechazar el rechazo silencioso de
+   "20.999" en el campo de dinero, D-030). En cambio: el texto se deja
+   escribir completo, la línea queda marcada como incompleta (mismo
+   concepto que "20." en el campo de dinero: válido para seguir
+   escribiendo, no listo para guardar) **y se muestra un texto claro**
+   ("Solo quedan 5 en stock") al lado del campo — "Confirmar venta"
+   queda deshabilitado mientras tanto. Mismo criterio para cantidad
+   vacía o `0` (incompleta, sin mensaje, igual que un campo de dinero
+   vacío) y para **descuento mayor al subtotal del carrito** (mismo
+   tratamiento: no se filtra al tipear, se marca incompleto con un
+   mensaje, porque el tope —el subtotal— también es un número que
+   cambia y ella no puede anticipar).
+
+**Verificación planeada en el emulador, con captura (antes de cerrar,
+mismo protocolo que Fases 03/05):**
+- Escribir una cantidad con una letra en medio → no entra.
+- Escribir una cantidad mayor al stock disponible → el texto se
+  escribe completo, aparece el aviso, "Confirmar venta" queda
+  deshabilitado.
+- Escribir el descuento con coma, letra por letra → no se pierde
+  ningún carácter ni el separador (mismo test que ya se hizo para
+  Fase 05, repetido acá porque es un campo nuevo, no el mismo
+  `Composable` con estado reutilizado).
+- Escribir un descuento mayor al subtotal → aviso, sin bloquear el
+  guardado de las otras líneas.
+
+### 3. ¿Cómo elige las piezas? — propuesta
+
+**Ella vende en su trabajo, apurada, con el teléfono en una mano.**
+Lo que hace más lento un campo de texto en esa situación no es el
+tipeo en sí, es **tener que saber qué escribir**: acordarse de un
+nombre exacto o un código (`XP-000042`) no es algo que una persona haga
+rápido bajo presión, y `CLAUDE.md` sección 6 ya lo dice para el uid
+("Código de la pieza sí, UID no" — no es un dato que ella maneje de
+memoria). Reconocer una foto, en cambio, no requiere memoria de texto
+en absoluto — es lo mismo que ella ya hace con el cuaderno físico:
+mira la pieza en la mano o en la vitrina, la reconoce a simple vista.
+
+**Propuesta:** lista de piezas activas **con stock > 0** (se excluyen
+las agotadas: no tiene sentido ofrecer algo que no se puede vender),
+con foto, nombre, código y precio — **visualmente el mismo componente
+que ya existe en `ProductListScreen` (Fase 04)**, no uno nuevo que ella
+tenga que aprender. Tocar una fila la agrega al carrito con cantidad 1
+(el caso común — una pieza por venta — queda en un solo toque); si
+aparece dos veces, suma. Una caja de búsqueda por nombre o código
+arriba, **igual que Inventario**, para cuando el catálogo crezca y
+scrollear ya no alcance — no es el camino principal, es el atajo para
+cuando hace falta.
+
+**Por qué no un buscador como camino principal:** typear un nombre o
+código con una mano, rápido, es exactamente el tipo de interacción que
+más se presta a error bajo presión (la misma clase de situación que
+causó los dos bugs reales del proyecto). Reconocer y tocar una foto no.
+
+**Por qué no un escáner de código de barras:** existe en el stack
+(Fase 11, ML Kit) pero no en esta fase — CLAUDE.md sección 9 prohíbe
+adelantar trabajo de fases futuras, y además todavía no hay ninguna
+etiqueta impresa que escanear (Fase 11 es la que las genera).
+
+**Qué NO incluyo, a propósito, para no inflar el alcance:** filtro por
+categoría en esta pantalla (existe en Inventario; acá el criterio de
+"stock > 0" ya reduce bastante la lista, y un filtro más es una caja
+más y un toque más antes de llegar a lo que se busca) y edición del
+precio por línea (no está en el entregable de `FASES.md`: "elegir
+piezas, cantidades, descuento opcional" — el descuento es a nivel
+venta, no por pieza).
+
+### 4. Descuento que deja la venta por debajo del costo — resuelto (D-035)
+
+**El caso:** `gananciaDeVenta = (total_cents - discount_cents) -
+total_cost_cents` (`ESQUEMA.md`) puede dar cero o negativo si el
+descuento es grande. D-015/CLAUDE.md 3.5 ya establecieron que una
+ganancia negativa es un resultado **legítimo**, no un error a esconder
+("ganancia negativa permitida y correcta", `FASES.md` Fase 02) — así
+que "prohibirlo" de raíz iría en contra de una regla que el propio
+proyecto ya fijó. La pregunta real es si hace falta un paso extra antes
+de guardar algo así.
+
+**Aprobado: avisar antes de confirmar, nunca bloquear** — con dos
+correcciones del humano, registradas en **D-035**:
+
+1. **El aviso dice cuánto se pierde, en quetzales**, no una etiqueta
+   genérica: "Vas a perder Q30.00 en esta venta. ¿Confirmás igual?"
+   cuando `profit < 0`, y "Esta venta no te va a dejar ninguna
+   ganancia. ¿Confirmás igual?" para el caso exacto `profit == 0` (dos
+   strings distintos, no uno con un monto que puede ser cero). "Sí,
+   confirmar" / "Revisar" (vuelve al formulario sin guardar nada).
+2. **El aviso se evalúa sobre el total de la venta, no línea por
+   línea** — con varias piezas, el total puede ser positivo aunque una
+   línea individual esté en pérdida (ej. tres anillos con buena
+   ganancia y un collar rematado). Se decidió evaluar sobre el total
+   por dos razones (D-035 tiene el detalle completo): el esquema no
+   tiene ninguna columna de descuento por línea (`discount_cents` es
+   de `sale`, no de `sale_item`) así que una "pérdida de esta línea"
+   sería un número inventado en pantalla, calculado con un reparto que
+   no se persiste en ningún lado; y aunque se calculara, ella no tiene
+   forma de aplicar un descuento distinto a una sola pieza — un aviso
+   por línea no habilitaría ninguna decisión que no tenga ya
+   disponible (sacar esa línea de la venta).
+
+**Por qué antes y no después (a diferencia del aviso de compras de
+Fase 05, que sí es posterior):** una compra ya es un hecho consumado
+cuando se registra — el dinero salió de verdad en el mayorista, avisar
+después solo la ayuda a decidir el precio de venta futuro. Una venta
+con descuento todavía **no pasó** en el momento de tocar "Confirmar":
+avisar antes le da la chance real de bajar el descuento o cancelar,
+algo que después de guardado solo podría deshacer anulando la venta
+entera — más fricción, no menos.
+
+**Por qué un solo aviso (ALERTA) y no dos niveles como D-031:** D-031
+necesitaba dos niveles porque "recién compré más caro" es progresivo
+(margen que baja de a poco). Acá el disparador es puntual: un
+descuento puntual que ella tipea una sola vez, y la pregunta que
+importa es binaria — ¿esta venta específica da ganancia o no? Agregar
+un piso de margen (reusar `min_margin_bp`) para el "casi sin ganancia"
+es posible, pero es una capa más para un caso que no se pidió — se
+descartó a favor de la versión simple.
+
+### 5. La pantalla de inicio deja de ser provisoria (D-024)
+
+**Diseño final, según CLAUDE.md sección 6:** dos acciones grandes —
+**"Vender"** primero (`Button`, relleno, el lugar que hoy tiene
+"Agregar pieza"), **"Agregar pieza"** segunda (pasa a `OutlinedButton`,
+el lugar que hoy tiene "Inventario"). "Inventario", "Registrar compra"
+y la nueva "Ventas de hoy" bajan a acciones chicas (`TextButton`),
+mismo tratamiento que ya tiene "Registrar compra" desde Fase 05 — no
+compiten con las dos grandes, y esta pantalla sigue sin ser "un
+dashboard de métricas" (CLAUDE.md sección 6): son enlaces, no números.
+
+**Por qué "Vender" primero:** CLAUDE.md sección 6 ya las nombra en ese
+orden ("Vender y Agregar pieza"), y además es la acción que se repite
+más seguido una vez que hay inventario cargado — agregar piezas nuevas
+es esporádico, vender es diario.
+
+**Consecuencia que ya anticipás vos: hay que volver a medir el tiempo
+de alta rápida.** "Agregar pieza" se mueve de la primera posición
+grande a la segunda — el trayecto (Home → Agregar pieza) sigue siendo
+**un toque**, no cambia la cuenta de "3 toques" de Fase 03, pero sí
+cambia **dónde** está el botón en la pantalla, y la medición de tiempo
+real (la última dio ~15-16s contra el límite de 20s, margen de unos 5)
+se hizo con la posición vieja. Dejo la app lista para esa medición al
+cerrar la fase, pero **la mide ella, en un teléfono real, no yo en el
+emulador** — como en Fase 03. Te aviso apenas esté lista la build para
+que se la pases.
+
+**D-024 — resuelto:** el humano confirmó que "quitar la nota" fue un
+error de su parte, contradecía la propia regla de `DECISIONES.md` de
+no editar ni borrar una decisión pasada. Se agregó a D-024 un bloque
+**"Cumplida (Fase 06, 2026-09-20)"** al final, sin tocar una letra de
+lo que ya decía — mismo patrón que ya existe en este archivo para
+decisiones que se resuelven después (D-013 tiene una nota así,
+apuntando a D-014). Ya aplicado en `DECISIONES.md`.
+
+### Arquitectura
+
+**Entidades/esquema:** `sale`/`sale_item` ya existen desde la v1
+(D-011) — Fase 06 no toca `ESQUEMA.md`, no hace falta ninguna
+migración.
+
+**`SaleDao`** (`data/local/dao/`, **extiende** el archivo que Fase 05
+creó con un solo método — D-032 ya avisó que esto iba a pasar, no
+crear uno competidor):
+- `getLastSaleDate(productId)` — ya existe, sin cambios.
+- `insert(sale: SaleEntity): Long`
+- `getById(id): SaleEntity?`
+- `updateStatus(id, status, cancelledAt, cancelReason)` — para anular.
+- `observeBetween(startMillis, endMillis): Flow<List<SaleEntity>>` —
+  excluye `CANCELLED` a nivel de consulta, para "Ventas de hoy".
+
+**`SaleItemDao`** (nuevo):
+- `insertAll(items: List<SaleItemEntity>)`
+- `getForSale(saleId): List<SaleItemEntity>` — hace falta para
+  restaurar stock al anular (necesito `product_id` y `qty` de cada
+  línea).
+
+**`SaleRepository`** (`data/repository/`, nuevo, mismo patrón que
+`PurchaseRepository`):
+- `register(input): RegisterSaleResult` — una transacción:
+  valida `qty <= stock` por línea (`IllegalStateException` si no, para
+  la Fase de "defensa en profundidad" — la UI ya no deja llegar acá con
+  un valor inválido, pero el repositorio no confía ciegamente en la UI,
+  mismo criterio que `PurchaseRepository` con `checkNotNull`), snapshot
+  de cada producto (punto 1), inserta `sale` (`type = CASH`, `status =
+  PAID`, `customer_id = null` — clientes y crédito son Fase 07) +
+  `sale_item`(s), descuenta `stock_qty`.
+- `cancel(saleId): Unit` — una transacción: marca `CANCELLED` con
+  `cancelled_at`, lee las líneas con `SaleItemDao.getForSale`, devuelve
+  `qty` a `product.stock_qty` por cada una (salteando silenciosamente
+  si `product_id` es `null` — no puede pasar con datos reales porque
+  los productos se archivan, nunca se borran físico, D-006, pero el
+  esquema permite el `null` vía `ON DELETE SET NULL` y no hay a qué
+  producto devolverle stock si de verdad no existe más).
+- `observeToday(): Flow<List<SaleSummary>>` — límites del día con la
+  zona horaria del dispositivo (Guatemala, en la práctica); el ajuste
+  fino de zona horaria para reportes es tarea explícita de Fase 09
+  (`FASES.md`), no se resuelve acá con más rigor del que pide esta
+  fase.
+
+**`PricingCalculator` (agregado, un método puro más):**
+`saleProfit(total: Money, discount: Money, totalCost: Money): Money =
+(total - discount) - totalCost` — es literalmente `gananciaDeVenta` de
+`ESQUEMA.md`; se centraliza acá (no se calcula suelto en el
+`ViewModel` ni en el repositorio) para que la vista previa en pantalla
+y el valor que de verdad se guarda usen la misma cuenta, sin poder
+divergir. Tests de borde: descuento `0`, descuento igual al subtotal
+exacto (ganancia = `-totalCost`), y el caso canónico positivo.
+
+**`domain/usecase`:** `RegisterSaleUseCase` y `CancelSaleUseCase`
+(pasos directos a `SaleRepository`, mismo patrón que
+`AddProductUseCase`/`RegisterPurchaseUseCase`).
+
+**UI (`ui/sale/`):**
+- `RegisterSaleScreen`/`ViewModel`/`UiState`/`Route`: la pantalla de
+  "Vender" (punto 3).
+- `QuantityTextField.kt` (punto 2).
+- `TodaySalesScreen`/`ViewModel`/`UiState`/`Route`: lista de ventas de
+  hoy con total y ganancia; tocar una fila abre un diálogo con el
+  detalle de líneas y el botón "Anular venta" (confirmación con texto
+  claro, CLAUDE.md sección 6) — no una pantalla nueva aparte, para no
+  sumar una ruta más de lo que el entregable pide.
+
+**Navegación:** destino `RegisterSale` (ruta de "Vender") y
+`TodaySales` nuevos en `JoyeriaNavHost`; `HomeScreen` reordenado (punto
+5).
+
+### Corrección de alcance a "Archivos permitidos" de `FASES.md` (no son decisiones de diseño, mismo criterio que las correcciones de Fase 05)
+
+La lista original de Fase 06 es `ui/sale/**`,
+`domain/usecase/RegisterSale*.kt`, `data/**`, `strings.xml` — faltan
+cuatro cosas para poder cumplir lo que la misma fase pide:
+
+- `domain/usecase/RegisterSale*.kt` → **`domain/usecase/*Sale*.kt`**:
+  el glob original no matchea `CancelSaleUseCase.kt` (tiene que
+  *empezar* con "RegisterSale"). Mismo tipo de corrección que Fase 05
+  tuvo con `*Purchase*.kt`.
+- `domain/pricing/PricingCalculator.kt`: para `saleProfit` — no
+  cubierto por ningún glob de la lista original.
+- `ui/navigation/**`: para el destino nuevo y reordenar `HomeScreen` —
+  la misma corrección que ya hizo falta en Fase 05.
+- `app/src/test/java/**/domain/**` y `app/src/test/java/**/data/**`:
+  la lista original no tiene **ningún** directorio de test, y la fase
+  está marcada `[TESTS OBLIGATORIOS]` — sin esto no hay dónde escribir
+  los tests que la misma fase exige. Mismo olvido que tuvo Fase 05
+  antes de corregirlo.
+
+### Criterios de aceptación de `FASES.md` — cómo se van a cumplir
+
+| # | Criterio | Cómo |
+|---|---|---|
+| 1 | Build y tests pasan | `./gradlew testDebugUnitTest assembleDebug` |
+| 2 | Venta + cambio de precio → ganancia de esa venta no cambia | Punto 1: test que cambia `cost_cents`/`sale_price_cents` después de vender y relee `sale_item` |
+| 3 | No se puede vender más de lo que hay en stock | Test de repositorio: `qty > stock` lanza, no queda venta ni línea escrita (atomicidad) |
+| 4 | Anular devuelve exactamente el stock descontado | Test: registrar, anular, `stock_qty` vuelve al valor original exacto |
+| 5 | Venta y líneas atómicas | Test de repositorio con una línea inválida a mitad de una venta de varias líneas, mismo patrón que `PurchaseRepositoryTest` |
+
+**Tests extra, no numerados pero exigidos por CLAUDE.md sección 8**
+("toda función que toque dinero lleva test con casos de borde"):
+`saleProfit` (descuento 0, descuento = subtotal, caso canónico),
+`QuantityTextField`/validación de `qty > stock` y `descuento >
+subtotal` a nivel de `UiState` (sin Robolectric, son funciones/estado
+puros).
+
+### Verificación manual planeada (antes de cerrar)
+
+- Las capturas del punto 2 (cantidad inválida, cantidad > stock,
+  descuento con coma, descuento > subtotal).
+- Flujo completo en el emulador: elegir 2-3 piezas, cantidades,
+  descuento, confirmar, ver el total/ganancia correctos contra la base
+  real (mismo protocolo `adb exec-out run-as ... cat databases/` que
+  Fase 05).
+- Anular una venta y confirmar en la base que el stock volvió y
+  `status = CANCELLED`.
+- **Lo que NO voy a hacer yo:** la medición de tiempo de "alta rápida"
+  con cronómetro — esa la hace la usuaria real, según el punto 5.
+
+### Bloqueos / preguntas para el humano — todos resueltos (2026-09-20)
+
+1. **D-024:** resuelto — bloque "Cumplida" agregado, sin borrar nada.
+2. **Captura (punto 2):** aprobada tal cual, sin cambios.
+3. **Elección de piezas (punto 3):** aprobada tal cual, sin cambios.
+4. **Descuento bajo costo (punto 4):** aprobado avisar antes sin
+   bloquear, con dos correcciones — monto exacto en quetzales, y
+   evaluado sobre el total de la venta, no línea por línea (D-035, con
+   el razonamiento completo de por qué el total, no solo la preferencia
+   del humano).
+5. **Corrección de "Archivos permitidos":** aprobada, ya aplicada en
+   `FASES.md`.
+
+Ningún bloqueo abierto. Empiezo el código.
+
+---
+
+## Fase 06 — Cierre
+
+**Rama:** `fase/06-cash-sales`, abierta desde `main` (fases 00-05
+tageadas). Fin del MVP (CLAUDE.md sección 1). Un solo commit, sin tag
+— como se pidió.
+
+### Qué se hizo
+
+**Datos (`data/`):**
+- `SaleDao` (**extendido**, no reemplazado — D-032 ya avisó que esto
+  iba a pasar): `insert`, `getById`, `updateStatus` (para anular),
+  `observeBetween` (excluye `CANCELLED` a nivel de consulta). El
+  método de Fase 05, `getLastSaleDate`, sin cambios.
+- `SaleItemDao` (nuevo): `insertAll`, `getForSale` (hace falta para
+  restaurar stock al anular).
+- `SaleRepository` (nuevo, mismo patrón que `PurchaseRepository`):
+  `register()` — una transacción que lee cada producto **fresco desde
+  el DAO** dentro de la misma transacción para tomar el snapshot
+  (punto 1 del plan), valida `qty <= stock` por línea
+  (`IllegalStateException` si no — defensa en profundidad, la UI ya
+  no deja llegar acá con un valor inválido pero el repositorio no
+  confía ciegamente en ella), inserta `sale`/`sale_item`(s), descuenta
+  `stock_qty`. `cancel()` — una transacción que marca `CANCELLED` con
+  `cancelled_at`, lee las líneas y devuelve `qty` a `stock_qty` por
+  cada una. `observeBetween()`/`getDetail()` para "Ventas de hoy".
+
+**Dominio:** `PricingCalculator.saleProfit(total, discount, totalCost)
+= (total - discount) - totalCost` — literalmente `gananciaDeVenta` de
+`ESQUEMA.md`, centralizado para que la vista previa en pantalla y el
+valor que se guarda usen la misma cuenta. `RegisterSaleUseCase` y
+`CancelSaleUseCase` (pasos directos al repositorio).
+
+**UI (`ui/sale/`):**
+- `QuantityTextField.kt`: campo de enteros con `TextFieldValue` (mismo
+  mecanismo que `MoneyTextField`), filtra caracter por caracter
+  dígitos no numéricos, acepta un `supportingText` opcional para el
+  aviso dinámico de stock.
+- `RegisterSaleScreen`/`ViewModel`/`UiState`/`Route`: pantalla
+  "Vender" — buscador, carrito con cantidad editable por línea, lista
+  de piezas con foto (stock > 0), descuento (`MoneyTextField` de
+  `ui/format/` sin cambios, D-030), Total/Ganancia, diálogo de
+  confirmación con pérdida (D-035), diálogo de éxito.
+- `TodaySalesScreen`/`ViewModel`/`UiState`/`Route`: lista de ventas de
+  hoy con totales, detalle por venta (líneas con snapshot), "Anular
+  venta" con confirmación de texto claro (CLAUDE.md sección 6).
+
+**Navegación y Home (D-024, cumplida):** destinos `RegisterSale` y
+`TodaySales` nuevos en `JoyeriaNavHost`. `HomeScreen` reordenado según
+el plan: "Vender" (`Button`, relleno) primero, "Agregar pieza"
+(`OutlinedButton`) segundo, "Inventario"/"Ventas de hoy"/"Registrar
+compra" como `TextButton` chicos debajo.
+
+**`DECISIONES.md`:** D-024 cerrada con un bloque "Cumplida" agregado
+al final (nada editado ni borrado). D-035 nueva, con el razonamiento
+completo de las dos correcciones del humano (monto exacto en
+quetzales, evaluación sobre el total de la venta).
+
+**`FASES.md`:** "Archivos permitidos" de Fase 06 corregido (glob
+`*Sale*.kt`, `domain/pricing/PricingCalculator.kt`,
+`ui/navigation/**`, directorios de test) — mismo tipo de corrección ya
+hecha en Fase 05.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | Build y tests pasan | `./gradlew testDebugUnitTest assembleDebug` | ✅ 125 tests, 0 fallos |
+| 2 | Venta + cambio de precio → ganancia de esa venta no cambia | `SaleRepositoryTest.register_snapshotSurvivesProductPriceChange_saleProfitDoesNotChange` | ✅ |
+| 3 | No se puede vender más de lo que hay en stock | `SaleRepositoryTest.register_cannotSellMoreThanStock` | ✅ |
+| 4 | Anular devuelve exactamente el stock descontado | `SaleRepositoryTest.cancel_returnsExactlyTheDiscountedStock` + verificación manual en base real | ✅ |
+| 5 | Venta y líneas atómicas | `SaleRepositoryTest.register_isAtomic_ifOneLineFailsNothingIsSaved` | ✅ |
+| 6 | Captura de cantidad/descuento verificada en el emulador, con capturas | Ver sección siguiente | ✅ (medición de tiempo real de alta rápida: pendiente, la hace la usuaria) |
+
+### Tests agregados
+
+- `PricingCalculatorTest`: +4 (`saleProfit` — sin descuento, con
+  descuento, descuento exacto al punto de equilibrio, descuento mayor
+  al necesario). Total del archivo: 39.
+- `SaleRepositoryTest` (nuevo, Robolectric): 7 — snapshot sobrevive a
+  cambio de precio, stock insuficiente, anulación devuelve stock,
+  anular dos veces no duplica el stock devuelto, atomicidad,
+  `observeBetween` excluye canceladas y fuera de rango.
+- `RegisterSaleUiStateTest` (nuevo, JUnit4 puro, sin Robolectric): 19
+  — validez de línea (vacía, cero, dentro/igual/mayor a stock),
+  parseo de descuento (vacío, válido, con coma, incompleto),
+  `discountExceedsSubtotal`, `profit` (negativo no bloquea, null
+  mientras el descuento está incompleto o excede el subtotal),
+  `canSave`, filtro de `availableProducts` (excluye stock 0, busca por
+  nombre/código sin distinguir mayúsculas).
+
+Total: 125 tests, 0 fallos (95 de Fase 05 + 30 nuevos).
+
+### Verificación manual en el emulador (con capturas, `app/build/screenshots/fase06-*.png`)
+
+Protocolo igual al de Fases 03/05: build real instalada, interacción
+por `adb input`/`uiautomator dump` para coordenadas exactas, capturas
+en cada paso.
+
+1. **Cantidad — letra en medio:** no entra ningún carácter no
+   numérico (`fase06-05-*`).
+2. **Cantidad mayor al stock:** el texto se escribe completo ("5" con
+   stock 4), aparece "Solo quedan 4 en stock", "Confirmar venta" queda
+   deshabilitado (capturas previas a esta sesión).
+3. **Cantidad válida:** cambiar a "2" recalcula Total/Ganancia
+   correctamente (`fase06-06-qty-set-2.png`: Total Q18,000.00,
+   Ganancia -Q18,750.02 para 2 × Q9,000.00 con costo heredado de
+   Fase 05).
+4. **Descuento con coma:** tipeado "10,50" carácter por carácter, sin
+   perder ningún dígito ni el separador — confirmado tanto visualmente
+   (`fase06-11-discount-comma-confirmed.png`) como leyendo el
+   `EditText` real vía `uiautomator dump` (texto exacto `"10,50"`,
+   Total recalculado a Q8,989.50). D-030 sigue intacto: cero
+   reformateo de lo que ella tipea.
+5. **Descuento mayor al subtotal:** aviso en rojo ("El descuento no
+   puede ser mayor al total de la venta"), "Confirmar venta"
+   deshabilitado (`fase06-12-discount-exceeds.png`,
+   `fase06-14-discount-exceeds-fixed.png`).
+6. **Diálogo de pérdida (D-035):** con descuento en `0.00` y el costo
+   heredado de Fase 05 (Q18,375.01) mayor al precio (Q9,000.00), el
+   diálogo mostró exactamente **"Vas a perder Q9,375.01 en esta venta.
+   ¿Confirmás igual?"** — el monto exacto en quetzales, no una
+   etiqueta genérica (`fase06-16-loss-dialog.png`).
+7. **Guardado y verificación en base real:** confirmada la venta,
+   diálogo "Venta guardada", stock bajó de 4 a 3
+   (`fase06-17-saved.png`). Verificado con `adb exec-out run-as ...
+   cat databases/joyeria.db{,-wal,-shm}` (la lectura sin el `-wal` da
+   datos viejos — se pull-earon los tres archivos juntos): `sale`
+   (`total_cents=900000`, `total_cost_cents=1837501`,
+   `discount_cents=0`, `status=PAID`), `sale_item` (snapshot completo:
+   uid, nombre, cantidad, precio y costo unitario), `product.stock_qty
+   = 3`.
+8. **"Ventas de hoy":** totales agregados correctos
+   (`fase06-20-today-sales.png`), detalle por venta con la línea
+   snapshot (`fase06-21-sale-detail.png`), confirmación de anulación
+   con texto claro (`fase06-22-cancel-confirm.png`), y tras confirmar
+   la venta desaparece de la lista (excluida por `observeBetween`,
+   `fase06-23-cancelled.png`). Verificado en base real:
+   `sale.status = CANCELLED` con `cancelled_at` seteado,
+   `product.stock_qty` vuelto a `4`.
+
+**Bug real encontrado durante esta verificación (no en revisión de
+código) y corregido en el mismo commit:** con un descuento mayor al
+subtotal, la fila de "Total" seguía mostrando un número —
+`Total: -Q500.00` — aunque la venta ya estuviera bloqueada para
+guardar. Mismo espíritu que el bug ya evitado de "Ganancia: Q0.00" con
+el carrito vacío (D-015/D-030): un cálculo que no corresponde a ningún
+estado válido no debe imprimirse como si lo fuera. Corregido
+condicionando también el bloque de Total/Ganancia a
+`!state.discountExceedsSubtotal` en `RegisterSaleScreen.kt`. Verificado
+de nuevo en el emulador tras el fix
+(`fase06-14-discount-exceeds-fixed.png`: con el mismo descuento
+excesivo, ya no aparece ningún "Total") y con la suite completa
+(125 tests, 0 fallos, sin que ningún test existente necesitara
+tocarse).
+
+### Suposiciones que tomé
+
+- El "carrito" vive solo en memoria del `ViewModel` (no se persiste
+  como borrador) — si la usuaria sale de la pantalla sin confirmar, se
+  pierde. No pedido explícitamente, pero `FASES.md` no exige un
+  borrador y agregar uno sería alcance no pedido.
+- Tocar una fila de "Piezas disponibles" que ya está en el carrito
+  suma 1 a la cantidad existente en vez de agregar una línea
+  duplicada — mismo criterio implícito de "una fila por producto" que
+  ya usa `RegisterPurchaseScreen`.
+
+### Lo que NO hice
+
+- **La medición real de tiempo de "alta rápida" con cronómetro.** El
+  botón "Agregar pieza" cambió de posición (primera acción grande →
+  segunda), así que la medición de ~15-16s de Fase 03 ya no es válida
+  para la posición actual del botón. La build está lista para esa
+  medición — **la hace la usuaria, en un teléfono real, no yo en el
+  emulador**, como ya se hizo en Fase 03. Avisar al humano para que se
+  la pase apenas se apruebe esta fase.
+- No agregué ningún reporte ni pantalla de historial más allá de "hoy"
+  — eso es Fase 09.
+- No toqué `customer_id`/crédito en `sale` (queda `null`,
+  `type = "CASH"` fijo) — clientes y ventas a plazo son Fase 07.
+
+### Deuda técnica que dejé
+
+Ninguna deliberada dentro del alcance de esta fase.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno. Fase 06 queda lista para revisión, tag y merge — con la
+salvedad explícita de la medición real de tiempo pendiente (no es un
+bloqueo de código, es un paso que corresponde a la usuaria).
+
+### Revisión de código post-cierre (2026-09-20, mismo commit vía amend)
+
+El humano encontró dos bugs reales y una inconsistencia menor:
+
+1. **Bug real: líneas duplicadas del mismo producto vendían de más sin
+   avisar.** `register()` no validaba que cada `productId` apareciera
+   una sola vez en `input.lines`. Con dos líneas del mismo producto,
+   ambas leían el mismo `product.stockQty` original (antes de que
+   ninguna escribiera), así que los dos chequeos de stock pasaban
+   igual con stock insuficiente para las dos juntas, y las dos
+   llamadas a `productDao.update()` partían del mismo valor original
+   — la segunda pisaba a la primera en vez de sumarse. Con stock 1 y
+   dos líneas de `qty = 1`, la base terminaba vendiendo 2 unidades con
+   el stock bajando solo 1, sin ningún error. Corregido: `register()`
+   ahora rechaza la venta completa (`require()`) si detecta el mismo
+   `productId` repetido, calculado antes de leer o escribir nada —
+   registrado como **D-036**, con la justificación completa de por
+   qué rechazar y no fusionar las cantidades en silencio. Test nuevo:
+   `SaleRepositoryTest.register_duplicateProductInTwoLines_throwsInsteadOfSilentlyOversellingStock`.
+2. **D-006 incumplida: la anulación nunca guardaba el motivo.**
+   `cancel()` hardcodeaba `cancelReason = null` — sin ninguna forma de
+   capturarlo desde la pantalla, la única operación destructiva que la
+   usuaria puede hacer quedaba sin explicación en el historial.
+   Corregido con **D-037**: el diálogo de "Anular venta" suma tres
+   chips de sugerencia de un solo toque ("Devolución", "Error al
+   registrar", "Otra") que llenan un campo de texto editable y
+   opcional; texto en blanco se persiste como `null`, no como cadena
+   vacía. `SaleRepository.cancel()`/`CancelSaleUseCase` reciben
+   `cancelReason: String?` como parámetro nuevo.
+3. **Inconsistencia menor: `cancelledAt` no era determinístico.**
+   `cancel()` llamaba a `System.currentTimeMillis()` adentro del
+   repositorio, a diferencia de `register()` que recibe `soldAt` desde
+   afuera — imposible de testear con un valor exacto. Corregido:
+   `cancelledAt` ahora es un parámetro más, igual que `soldAt`;
+   `TodaySalesViewModel.onCancelConfirm()` es quien decide "ahora",
+   mismo patrón que `RegisterSaleViewModel.save()` ya usa.
+
+**Verificación manual repetida tras el fix** (`app/build/screenshots/fase06-fix-*.png`):
+venta real registrada y anulada de nuevo con la build corregida,
+tocando la sugerencia "Devolución" en el diálogo (el campo se llena
+con el texto exacto, sigue editable) y confirmando. Verificado en la
+base real: `sale.cancel_reason = 'Devolución'` en la fila de la venta
+anulada en esta sesión, `product.stock_qty` vuelto a su valor
+original. La venta anulada en la verificación manual original de esta
+fase (antes del fix) sigue con `cancel_reason = NULL` en la base — dato
+histórico correcto, no algo que haya que corregir retroactivamente.
+
+`./gradlew testDebugUnitTest` tras los tres fixes: **127 tests, 0
+fallos** (125 + 2 nuevos:
+`register_duplicateProductInTwoLines_throwsInsteadOfSilentlyOversellingStock`
+y `cancel_withoutReason_persistsNullNotEmptyString`). Los tests
+existentes de `cancel()` se actualizaron para pasar `cancelledAt`/
+`cancelReason` explícitos en vez de solo `saleId` — ningún test quedó
+probando el comportamiento viejo.
+
+---

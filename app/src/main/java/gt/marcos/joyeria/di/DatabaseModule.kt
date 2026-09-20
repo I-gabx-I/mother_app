@@ -15,6 +15,7 @@ import gt.marcos.joyeria.data.local.dao.ProductDao
 import gt.marcos.joyeria.data.local.dao.PurchaseDao
 import gt.marcos.joyeria.data.local.dao.PurchaseItemDao
 import gt.marcos.joyeria.data.local.dao.SaleDao
+import gt.marcos.joyeria.data.local.dao.SaleItemDao
 import javax.inject.Singleton
 
 @Module
@@ -49,4 +50,7 @@ object DatabaseModule {
 
     @Provides
     fun provideSaleDao(database: AppDatabase): SaleDao = database.saleDao()
+
+    @Provides
+    fun provideSaleItemDao(database: AppDatabase): SaleItemDao = database.saleItemDao()
 }

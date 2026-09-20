@@ -11,6 +11,8 @@ import gt.marcos.joyeria.ui.product.add.AddProductRoute
 import gt.marcos.joyeria.ui.product.edit.ProductEditRoute
 import gt.marcos.joyeria.ui.product.list.ProductListRoute
 import gt.marcos.joyeria.ui.purchase.RegisterPurchaseRoute
+import gt.marcos.joyeria.ui.sale.RegisterSaleRoute
+import gt.marcos.joyeria.ui.sale.TodaySalesRoute
 
 /**
  * Único `NavHost` de la app (Fase 04, D-023). Cada pantalla nueva de
@@ -21,10 +23,18 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = JoyeriaDestination.Home.route) {
         composable(JoyeriaDestination.Home.route) {
             HomeRoute(
+                onSellClick = { navController.navigate(JoyeriaDestination.RegisterSale.route) },
                 onAddProductClick = { navController.navigate(JoyeriaDestination.AddProduct.route) },
                 onInventoryClick = { navController.navigate(JoyeriaDestination.ProductList.route) },
                 onRegisterPurchaseClick = { navController.navigate(JoyeriaDestination.RegisterPurchase.route) },
+                onTodaySalesClick = { navController.navigate(JoyeriaDestination.TodaySales.route) },
             )
+        }
+        composable(JoyeriaDestination.RegisterSale.route) {
+            RegisterSaleRoute(onBackClick = { navController.popBackStack() })
+        }
+        composable(JoyeriaDestination.TodaySales.route) {
+            TodaySalesRoute(onBackClick = { navController.popBackStack() })
         }
         composable(JoyeriaDestination.RegisterPurchase.route) {
             RegisterPurchaseRoute(onBackClick = { navController.popBackStack() })
