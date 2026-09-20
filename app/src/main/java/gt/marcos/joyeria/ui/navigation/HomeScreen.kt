@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -24,14 +26,26 @@ import gt.marcos.joyeria.R
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 
 /**
- * Pantalla de inicio **provisoria** (D-024): las dos acciones que
+ * Pantalla de inicio **provisoria** (D-024): las dos acciones grandes que
  * existen hoy, "Agregar pieza" e "Inventario". CLAUDE.md sección 6 pide
  * "Vender" y "Agregar pieza" -- esta pantalla se reemplaza en Fase 06,
  * cuando "Vender" exista de verdad. Stateless (no tiene estado propio
  * que gestionar todavía).
+ *
+ * ⚠️ Fase 05 agrega acá "Registrar compra" como una tercera acción, más
+ * chica y sin ícono grande -- no compite con las dos "grandes y obvias"
+ * de CLAUDE.md sección 6, pero necesita algún punto de entrada real y
+ * esta pantalla es el único lugar de navegación que no pertenece a otra
+ * fase todavía en curso. Se revisa junto con el resto de esta pantalla
+ * cuando Fase 06 la reemplace por la definitiva (D-024).
  */
 @Composable
-fun HomeScreen(onAddProductClick: () -> Unit, onInventoryClick: () -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    onAddProductClick: () -> Unit,
+    onInventoryClick: () -> Unit,
+    onRegisterPurchaseClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Scaffold(modifier = modifier) { innerPadding ->
         Column(
             modifier = Modifier
@@ -64,19 +78,39 @@ fun HomeScreen(onAddProductClick: () -> Unit, onInventoryClick: () -> Unit, modi
                 Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.home_inventory), style = MaterialTheme.typography.titleMedium)
             }
+            TextButton(
+                onClick = onRegisterPurchaseClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .padding(top = 8.dp),
+            ) {
+                Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(stringResource(R.string.home_register_purchase))
+            }
         }
     }
 }
 
 @Composable
-fun HomeRoute(onAddProductClick: () -> Unit, onInventoryClick: () -> Unit, modifier: Modifier = Modifier) {
-    HomeScreen(onAddProductClick = onAddProductClick, onInventoryClick = onInventoryClick, modifier = modifier)
+fun HomeRoute(
+    onAddProductClick: () -> Unit,
+    onInventoryClick: () -> Unit,
+    onRegisterPurchaseClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    HomeScreen(
+        onAddProductClick = onAddProductClick,
+        onInventoryClick = onInventoryClick,
+        onRegisterPurchaseClick = onRegisterPurchaseClick,
+        modifier = modifier,
+    )
 }
 
 @Preview(showBackground = true)
 @Composable
 private fun HomeScreenPreview() {
     JoyeriaTheme {
-        HomeScreen(onAddProductClick = {}, onInventoryClick = {})
+        HomeScreen(onAddProductClick = {}, onInventoryClick = {}, onRegisterPurchaseClick = {})
     }
 }

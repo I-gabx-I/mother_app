@@ -33,6 +33,31 @@ Cada cambio posterior incrementa la versión y agrega una `Migration` nueva con 
 
 ---
 
+## Versión de base de datos: 2 (fase 05) — primera migración real del proyecto
+
+Agrega dos columnas a `price_history` (`purchase_id`, `cycle_start`, ver
+esa tabla más abajo) y la clave `min_margin_bp` a `app_setting`. A
+diferencia de la versión 1 (D-011: todas las tablas creadas de una sola
+vez porque no había instalaciones reales), esta sí es una migración de
+verdad — es la primera vez que el esquema cambia con la posibilidad de
+que ya exista una base instalada, y es intencional adelantarla a Fase 05
+mientras la usuaria todavía no tiene inventario real, para no tener que
+migrar datos reales la primera vez que se toque el esquema.
+
+`Migration(1, 2)` recrea `price_history` completa (tabla nueva, copiar
+filas, borrar la vieja, renombrar) en vez de `ALTER TABLE ADD COLUMN`
+para la columna con `FOREIGN KEY` (`purchase_id`) — `ALTER TABLE` de
+SQLite no agrega la restricción de forma confiable ni recrea los
+índices; el patrón de recrear la tabla es el que documenta Room para
+agregar una columna con FK. Las filas existentes quedan con
+`purchase_id = NULL` y `cycle_start = 0` (ninguna fila vieja pudo venir
+de una compra, porque `purchase`/`purchase_item` no tenían DAO hasta
+esta misma fase). `app/schemas/gt.marcos.joyeria.data.local.AppDatabase/2.json`
+se commitea junto con `1.json`, sin tocarlo — ver D-031/D-032/D-033 en
+`DECISIONES.md`.
+
+---
+
 ## `category` — Categoría de producto
 
 | Columna | Tipo | Notas |
@@ -74,7 +99,7 @@ Notas:
 
 ---
 
-## `price_history` — Historial de precios (tabla en Fase 01; DAO y UI en Fase 04)
+## `price_history` — Historial de precios (tabla en Fase 01; DAO y UI en Fase 04; `purchase_id`/`cycle_start` en Fase 05, versión 2)
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -83,9 +108,16 @@ Notas:
 | `cost_cents` | Long | |
 | `sale_price_cents` | Long | |
 | `changed_at` | Long | |
+| `purchase_id` | Long? | FK → `purchase.id`, `ON DELETE SET NULL`. `null` cuando la fila viene de una edición manual (Fase 04), no de una compra. Agregada en versión 2 (Fase 05) |
+| `cycle_start` | Boolean | default `false`. `true` únicamente cuando la fila se escribió porque `stock_qty` era `0` justo antes de esa compra (el reemplazo limpio de D-029) — es el inicio de un ciclo de compra nuevo. Se guarda en el momento en que se procesa la compra, no se reconstruye después. Agregada en versión 2 (Fase 05) |
 
 Se inserta una fila cada vez que cambia costo o precio. Sirve para responder
-"¿por qué ganaba más antes con este anillo?".
+"¿por qué ganaba más antes con este anillo?", y con `purchase_id`/`cycle_start`
+también para reconstruir el reporte de "ganancia por ciclo de compra"
+(Fase 09, futura) sin tener que inferir después cuándo empezó cada ciclo —
+ver D-033 en `DECISIONES.md` sobre por qué esto no se pudo diferir a Fase 09.
+
+Índice nuevo: `purchase_id`.
 
 ---
 
@@ -217,6 +249,7 @@ Claves iniciales:
 | `stale_stock_days` | `90` | alerta de capital estancado |
 | `next_product_uid_seq` | `1` | contador del `uid` |
 | `owner_name` | `""` | para encabezar catálogos y estados de cuenta |
+| `min_margin_bp` | `2500` | piso de margen sobre venta, en puntos básicos (D-031). Por debajo de esto, Fase 05 muestra una ADVERTENCIA al registrar una compra. `2500` = 25.00%: con `default_markup_bp = 10000` (recargo 100%, margen 50%), ganar menos de la mitad de lo normal. Agregada en versión 2 (Fase 05) |
 
 **Los valores de `app_setting` se parsean siempre a `Long` o `Int`, nunca a
 `Double`** (ver D-010 en `DECISIONES.md`). `value` se persiste como `String`
@@ -248,6 +281,16 @@ saldoDeVenta       = (total_cents - discount_cents) - Σ payment.amount_cents
 Todos llevan test unitario, incluyendo los casos `cost_cents = 0` y
 `sale_price_cents = 0` (las dos divisiones posibles): no se divide entre cero,
 se devuelve un resultado explícito, no un crash ni un `NaN`.
+
+**`valorInventario` no es exacto al centavo cuando hubo compras con
+promedio ponderado (D-029, adenda de Fase 05):** el redondeo hacia
+arriba del costo tras una compra (`weightedAverageCost`) multiplica el
+centavo de más por todo el `stock_qty`, no solo por lo comprado, y el
+sesgo se acumula compra tras compra sin autocorregirse. El error es
+siempre hacia arriba (nunca subestima) y en la práctica son centavos,
+pero cualquier reporte que muestre este cálculo (Fase 09, futura)
+tiene que saber que no es un número exacto — ver D-029 en
+`DECISIONES.md` para el ejemplo numérico y el test que lo mide.
 
 **`default_markup_bp` unificado con `recargoSobreCosto` (D-014, reemplaza a D-010):**
 `suggestedPrice(cost, markupBp, roundingStep) = cost + cost * markupBp / 10000`.

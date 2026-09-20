@@ -32,20 +32,18 @@ Reglas:
   filtro de entrada (D-030), tras un error de captura silencioso en la
   prueba con la usuaria real. Ver "Fix `money-field-plain-decimal` —
   Cierre" más abajo.
-- **Versión de base de datos:** 1
-- **Fase 05 (Compras): decisión de costeo tomada, plan escrito, 3
-  preguntas puntuales sin responder.** El efecto de una compra sobre
-  `product.cost_cents` ya se decidió — regla híbrida (promedio
-  ponderado con stock, reemplazo directo si `stock_qty = 0`), **D-029**,
-  no la Opción A que se había recomendado. `FASES.md` Fase 05 y el plan
-  completo (ver "Fase 05 — Plan", 2026-09-17) ya están escritos con la
-  fórmula, el redondeo y los archivos permitidos resueltos. **No se
-  empieza a escribir código de Fase 05** hasta que el humano responda
-  las 3 preguntas abiertas de esa sección (umbral del aviso de margen,
-  qué hacer con una compra de fecha retroactiva, si `price_history`
-  necesita columnas nuevas para el reporte por ciclo).
-- **Bloqueos abiertos:** las 3 preguntas de Fase 05 de arriba. Ninguno
-  en `fix/money-field-plain-decimal` (ya cerrado y mergeado).
+- **Fase 05 (Compras): código completo en `fase/05-purchases`, un
+  commit, lista para revisión/tag/merge.** Registro de compra con
+  líneas y prorrateo de transporte, costo por promedio ponderado
+  (D-029), dos avisos de margen (D-031), aviso de compra retroactiva
+  (D-032), y la primera migración real del proyecto (v1 → v2, D-033:
+  `purchase_id`/`cycle_start` en `price_history`, `min_margin_bp` en
+  `app_setting`). 93 tests unitarios + 2 instrumentados, todos en
+  verde; migración y pantalla de compra verificadas a mano en el
+  emulador con datos reales. Ver "Fase 05 — Cierre" más abajo.
+- **Versión de base de datos:** 2 (desde `fase/05-purchases`; `main`
+  sigue en 1 hasta que esta rama se mergee).
+- **Bloqueos abiertos:** ninguno.
 
 ---
 
@@ -4510,3 +4508,346 @@ la app.
    hace el humano.
 
 Ningún bloqueo abierto. El fix queda listo para merge.
+
+---
+
+## Fase 05 — Plan, actualización con las tres respuestas del humano (2026-09-20)
+
+**Rama:** `fase/05-purchases`, abierta desde `main` (ya con las fases
+00-04, `fix-money-field` y `fix-quick-add-usability` mergeados, y este
+mismo plan de Fase 05 con D-029/D-030). Las tres preguntas que quedaban
+abiertas en "Fase 05 — Plan" (2026-09-17), puntos (d), (e) y la de
+`price_history`, ya están resueltas. Registradas como **D-031**,
+**D-032** y **D-033** en `DECISIONES.md`, con el detalle completo —
+acá dejo el resumen de cada una y lo que cambia en el plan original.
+No reescribo las secciones (a)/(b)/(c) de arriba, que no cambiaron.
+
+### (d) — Aviso de margen: dos niveles, no uno (D-031)
+
+Mi propuesta original (un solo aviso con `profit <= 0`) avisaba tarde:
+una pieza que pasa de Q60 a Q3 de ganancia sigue en `profit > 0`. El
+humano lo corrigió con dos avisos de peso distinto:
+
+- **ADVERTENCIA:** `marginOnSale(nuevoCosto, precioActual) < min_margin_bp`.
+  `min_margin_bp` es una clave nueva de `app_setting`, default `2500`
+  (25.00%) — con `default_markup_bp = 10000` el margen normal es 50%,
+  así que `2500` es "está ganando la mitad de lo normal".
+- **ALERTA** (más grave, más fuerte visualmente): `profit(nuevoCosto,
+  precioActual).cents <= 0` — la condición original, que no se
+  descarta, se degrada a la mitad de una escala de dos.
+
+Ninguno de los dos cambia `sale_price_cents`. Implementación: leer
+`min_margin_bp` desde `AppSettingRepository` (mismo patrón que
+`default_markup_bp`/`price_rounding_step_cents`) y comparar en el
+ViewModel/caso de uso de compras — no hace falta ninguna función nueva
+en `PricingCalculator`, `marginOnSale`/`profit` ya existen desde
+Fase 02.
+
+### (e) — Compra retroactiva: A y C juntas, no alternativas (D-032)
+
+Mi error de encuadre: traté A (qué hace el cálculo) y C (qué ve la
+usuaria) como si compitieran. El humano señaló que responden preguntas
+distintas y van las dos:
+
+- **Cálculo = Propuesta A**, y esto ya estaba resuelto por D-002, no
+  es una decisión nueva: `purchased_at` es informativo, el recálculo
+  de costo/stock siempre usa el `stock_qty` real de hoy. Ninguna venta
+  ya hecha cambia — sus snapshots son inmutables sin importar la fecha
+  de una compra posterior.
+- **Interfaz = Propuesta C**: si `purchased_at` es anterior a la
+  última venta no `CANCELLED` de ese producto, aviso informativo sin
+  bloquear ("el costo nuevo aplica desde ahora, no corrige ventas ya
+  hechas").
+- Propuesta B (bloquear) sigue descartada.
+
+**Dependencia técnica que esto introduce, ya resuelta en D-032:**
+la consulta "¿hay una venta después de esta fecha?" necesita tocar la
+tabla `sale`, que no tiene DAO hasta Fase 06. Agrego
+`data/local/dao/SaleDao.kt` con **un solo método**
+(`getLastSaleDate(productId): Long?`) — no un CRUD de ventas completo.
+Fase 06 extiende este mismo archivo en vez de crear uno competidor.
+Como no existe ningún camino en la app para insertar en `sale` todavía,
+esta consulta siempre devuelve "sin ventas" durante toda la Fase 05 —
+la lógica es real y correcta, simplemente no se puede ejercitar todavía
+con datos reales. Se prueba igual con un test que inserta una fila de
+`sale` directo por el DAO nuevo (sin pasar por ninguna pantalla) y
+confirma que el aviso se dispara.
+
+### `price_history`: las dos columnas ahora, primera migración real (D-033)
+
+Mi propuesta original difería esto a Fase 09. El humano decidió que no
+se puede diferir: `cycle_start` depende de si `stock_qty` era `0` en
+el momento exacto de la compra, y el esquema no guarda historial de
+`stock_qty` en ningún lado — si no se captura ahora, se pierde para
+siempre en cada compra intermedia hasta Fase 09.
+
+Aplicado a `ESQUEMA.md` (versión 2): `price_history` suma
+`purchase_id: Long?` (FK → `purchase.id`, índice) y
+`cycle_start: Boolean` (default `false`); `app_setting` suma
+`min_margin_bp` (D-031) en la misma migración — un solo salto de
+versión para las dos cosas.
+
+Esto es la **primera migración real del proyecto** (`MIGRATION_1_2`).
+Se trata con el cuidado que pediste, como el patrón de referencia para
+todo cambio de esquema futuro con datos reales:
+
+- Recrea `price_history` completa (tabla nueva → copiar filas → borrar
+  vieja → renombrar → recrear índices) en vez de `ALTER TABLE ADD
+  COLUMN`, porque la columna nueva lleva `FOREIGN KEY` y SQLite no
+  agrega esa restricción de forma confiable con `ALTER TABLE`.
+- Filas existentes migran con `purchase_id = NULL`, `cycle_start = 0`
+  (ninguna fila vieja pudo venir de una compra, porque `purchase` no
+  tenía DAO hasta ahora) y se inserta `('min_margin_bp', '2500')` en
+  `app_setting` para bases que migran desde v1.
+- Dependencia nueva: `androidx.room:room-testing` (mismo
+  `version.ref` de Room ya pineado) para `MigrationTestHelper`.
+- Test con `MigrationTestHelper`: crea una base v1 con datos reales,
+  corre `MIGRATION_1_2`, valida que las filas sobreviven con los
+  valores por defecto correctos y que el esquema resultante coincide
+  con `2.json`.
+- **Verificación manual además del test** (pedida explícitamente,
+  porque un emulador limpio nunca ejecuta una migración y un test
+  sobre una base sintética vacía no prueba nada del camino real):
+  instalar el APK de `main` (versión 1, antes de esta rama) en el
+  emulador, cargar una pieza real desde la app, instalar encima el
+  APK nuevo (versión 2) sin desinstalar, y confirmar que la pieza
+  sigue ahí. Documentado más abajo, en el cierre de esta fase, con el
+  resultado real de esa instalación — no solo "el test pasó".
+
+### Qué NO cambia respecto al plan original
+
+La fórmula del promedio ponderado, el redondeo (`ceilDiv`), el
+prorrateo de transporte, la atomicidad de la transacción y los
+archivos permitidos ya resueltos en (a)/(b)/(c) siguen exactamente
+igual — ninguna de las tres respuestas los toca. No hay ningún cambio
+estructural sobre el plan del 17/09: las tres respuestas son
+resoluciones de puntos que ya estaban explícitamente marcados como
+abiertos, no un rediseño.
+
+**Empiezo el código de Fase 05 con este plan**, como autorizaste.
+
+---
+
+## Fase 05 — Cierre
+
+**Rama:** `fase/05-purchases`, abierta desde `main` (fases 00-04,
+`fix-money-field`, `fix-quick-add-usability`, y este plan con
+D-029/D-030/D-031/D-032/D-033 ya mergeados). Un solo commit, sin tag —
+como se pidió.
+
+### Qué se hizo
+
+**Esquema (versión 2, D-033):** `price_history` suma `purchase_id`
+(FK → `purchase.id`, `ON DELETE SET NULL`, índice) y `cycle_start`
+(`Boolean`); `app_setting` suma `min_margin_bp` (`2500`, D-031).
+`MIGRATION_1_2` en `AppDatabase.kt` recrea `price_history` completa
+(tabla nueva → copiar filas → borrar vieja → renombrar → recrear
+índices) e inserta la fila de `min_margin_bp` para bases que migran
+desde v1. `app/schemas/.../2.json` commiteado, `1.json` sin tocar
+(verificado con `git diff --stat`, sin cambios).
+
+**Dinero puro (`PricingCalculator.kt`):**
+- `allocateExtraCost(lines, extraCents)`: prorrateo proporcional al
+  valor de cada línea, residuo a la de mayor valor.
+- `weightedAverageCost(currentStockQty, currentCost, purchaseQty,
+  lineTotalCost)`: la fórmula híbrida de D-029, `ceilDiv` interno,
+  redondeo hacia arriba.
+
+**Datos (`data/`):**
+- `PurchaseDao`, `PurchaseItemDao` (nuevos, insert simple).
+- `SaleDao` (nuevo, D-032): **un solo método**,
+  `getLastSaleDate(productId)` — no un CRUD de ventas, eso es de
+  Fase 06.
+- `PurchaseRepository.register()`: una sola transacción
+  (`db.withTransaction`) que inserta `purchase`/`purchase_item`(s),
+  recalcula `cost_cents`/`stock_qty` por línea, inserta
+  `price_history` con `purchase_id`/`cycle_start`, evalúa los dos
+  avisos de D-031 por línea, y evalúa el aviso de D-032 contra
+  `SaleDao`.
+- `AppSettingRepository.getMinMarginBp()`.
+
+**Dominio:** `RegisterPurchaseUseCase` (paso directo al repositorio,
+mismo patrón que `AddProductUseCase`).
+
+**UI (`ui/purchase/`):** `RegisterPurchaseScreen` (con
+`ProductPickerDropdown`, líneas dinámicas, transporte opcional,
+selector de fecha con `DatePicker` de Material3),
+`RegisterPurchaseViewModel`, `RegisterPurchaseUiState`,
+`RegisterPurchaseRoute`. Reutiliza `MoneyTextField`/`parseMoneyToCents`
+de D-030 sin cambios — mismo campo de dinero que ya existía.
+
+**Navegación:** destino `RegisterPurchase` nuevo en `JoyeriaNavHost`;
+punto de entrada desde `HomeScreen` como una tercera acción, más chica
+(`TextButton`), sin competir con las dos "grandes y obvias" de
+CLAUDE.md sección 6 — ver nota ⚠️ en el propio archivo.
+
+### Archivos tocados fuera de lo previsto originalmente en `FASES.md`
+
+Todos ya corregidos en "Archivos permitidos" de Fase 05 en este mismo
+ciclo (no son sorpresas de último momento, están anotados ahí con su
+razón): `ui/navigation/**`, `app/src/androidTest/**` (D-034),
+`app/schemas/**`, `gradle/libs.versions.toml`, `app/build.gradle.kts`.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | Build y tests pasan | `./gradlew testDebugUnitTest assembleDebug` | ✅ 93 tests, 0 fallos |
+| 2 | Prorrateo: suma exacta, con residuo | `PricingCalculatorTest.allocateExtraCost_*` (4 tests, incluye el caso de residuo) | ✅ |
+| 3 | Promedio ponderado: ejemplo D-029 + caso no exacto | `PricingCalculatorTest.weightedAverageCost_*` (4 tests) | ✅ |
+| 4 | `stock = 0`: reemplazo directo + `cycle_start = true` | `PricingCalculatorTest.weightedAverageCost_stockZero_*` (pura) y `PurchaseRepositoryTest.register_stockZero_*` (transacción real) | ✅ |
+| 5 | `price_history` con costo nuevo, `purchase_id`, `cycle_start` | `PurchaseRepositoryTest.register_insertsPriceHistoryRow_*` | ✅ |
+| 6 | Atomicidad | `PurchaseRepositoryTest.register_isAtomic_ifOneLineFailsNothingIsSaved` (segunda línea con producto inexistente, confirma que la primera tampoco quedó aplicada) | ✅ |
+| 7 | Los dos avisos de D-031, por separado | `PurchaseRepositoryTest.register_marginBelowFloor_*`, `register_zeroOrNegativeProfit_*`, `register_healthyMargin_*` | ✅ |
+| 8 | `MIGRATION_1_2` con `MigrationTestHelper` + verificación manual real | `AppDatabaseMigrationTest` (androidTest, D-034), 2/2 en el emulador — ver sección de abajo para la instalación real | ✅ |
+| 9 | `2.json` commiteado, `1.json` intacto | `git diff --stat app/schemas/.../1.json` → sin cambios | ✅ |
+
+### Tests agregados
+
+- `PricingCalculatorTest`: +8 (`allocateExtraCost` ×4,
+  `weightedAverageCost` ×4). Total del archivo: 33.
+- `PurchaseRepositoryTest` (nuevo, Robolectric): 10 — promedio
+  ponderado real, `stock=0`, inserción de `price_history`,
+  atomicidad, los tres casos de D-031 (ADVERTENCIA/ALERTA/sano), y
+  los tres casos de D-032 (retroactiva/no retroactiva/venta
+  cancelada no cuenta).
+- `AppDatabaseMigrationTest` (nuevo, `androidTest`, D-034): 2 — la
+  fila de `price_history` sobrevive con los defaults correctos, y
+  `min_margin_bp` se siembra para bases que migran.
+- `SeedDataTest`: actualizado (no nuevo) para las 7 claves de
+  `app_setting` en vez de 6.
+
+### Verificación manual de la migración (D-033, pedida explícitamente antes del commit)
+
+**No alcanza con el test verde** — se hizo la instalación real:
+
+1. `git worktree add` de `main` en un directorio aparte, `./gradlew
+   assembleDebug` ahí → APK v1 real (schema versión 1, sin las
+   columnas nuevas).
+2. Instalado ese APK en el emulador, **fresco** (sin datos previos).
+   Cargada una pieza real por el flujo de "Agregar pieza": foto,
+   costo, precio, categoría → guardada como `XP-000001`
+   (`app/build/screenshots/fase05-migration-0{1-6}*.png`).
+3. `adb install -r` del APK **nuevo** (esta rama, schema versión 2)
+   **encima**, sin desinstalar — `Success`, sin que Android rechace
+   el upgrade.
+4. Abierta la app nueva: sin crash (`adb logcat -d | grep -i FATAL`
+   → nada), `Inventario` muestra `XP-000001` con su foto, stock,
+   precio y ganancia intactos (`fase05-migration-08-*.png`), y
+   "Registrar compra" ya visible (la pantalla nueva de esta fase).
+5. Base real extraída con `adb exec-out run-as ... cat databases/`
+   (`app/build/logs/db-dumps/fase05-migration/post-migration-check.txt`):
+   `product` con los mismos valores guardados en el paso 2;
+   `price_history` con las columnas nuevas en el esquema
+   (`PRAGMA table_info`); `app_setting` con `min_margin_bp = 2500`
+   sembrado por la migración (no por un install fresco: este mismo
+   dispositivo venía de v1) y `next_product_uid_seq = 2` (siguió
+   contando desde donde iba, no se reinició).
+
+**Nota honesta:** el producto guardado en v1 nunca tuvo una edición de
+precio, así que `price_history` no tenía ninguna fila que migrar en
+esta prueba puntual — el caso de "una fila de `price_history` real
+sobrevive con los valores nuevos" está cubierto por
+`AppDatabaseMigrationTest` (que sí inserta una fila antes de migrar,
+a propósito), no por esta instalación manual. Lo que esta instalación
+manual prueba, que el test automatizado no puede, es que **la app
+completa arranca y funciona** después de un upgrade real sobre datos
+reales, sin ningún camino oculto que solo se activa con SQLite real
+de un dispositivo.
+
+### Verificación manual de la pantalla de compra (no exigida como criterio numerado, hecha igual)
+
+Con la app ya migrada, se registró una compra real de `XP-000001`
+(cantidad 2, costo unitario Q9,500.00): `product.cost_cents` pasó a
+783334 (promedio ponderado exacto: `(1×450000 + 2×950000)/3` redondeado
+hacia arriba), `stock_qty` a 3, se insertaron `purchase`/`purchase_item`
+reales, y `price_history` con `purchase_id`/`cycle_start = 0` — la
+ADVERTENCIA de D-031 apareció con el texto y el costo nuevo correctos
+(`fase05-purchase-02-warning-dialog.png`). Una segunda compra (costo
+unitario Q50,000.00) disparó la ALERTA, visualmente más fuerte (texto
+rojo, `titleMedium`) que la ADVERTENCIA anterior
+(`fase05-purchase-03-alerta-dialog.png`) — confirma D-031 punto por
+punto: dos niveles, con peso visual distinto, ninguno cambia
+`sale_price_cents`. Verificado también contra la base real
+(`post-purchase-check.txt`): `purchase`, `purchase_item` y
+`price_history` con los valores exactos esperados. Sin crashes en
+`logcat` en toda la sesión.
+
+No se pudo ejercitar el aviso de D-032 (fecha retroactiva) de forma
+manual porque **no hay ningún camino en la app para crear una venta
+todavía** (Fase 06) — exactamente la limitación que ya se anotó en
+D-032. Ese aviso está cubierto solo por `PurchaseRepositoryTest`
+(inserta la fila de `sale`/`sale_item` directo por SQL, sin pantalla).
+
+### Suposiciones que tomé
+
+- El punto de entrada a "Registrar compra" desde `HomeScreen` como un
+  tercer botón más chico (`TextButton`), no uno de los dos grandes —
+  ver la nota ⚠️ en el propio archivo. No pedido explícitamente, pero
+  necesario para que la pantalla sea alcanzable sin tocar
+  `ui/product/list/**` (fuera de "Archivos permitidos").
+- El selector de fecha usa `DatePicker` de Material3 (ya cubierto por
+  `compose-bom`, sin dependencia nueva) en vez de una librería de
+  terceros — alcanza para lo que pide D-032 y no agrega nada al stack.
+- Los avisos (D-031/D-032) se muestran en un solo diálogo después de
+  guardar, agrupados por producto — no se pidió un diseño visual
+  específico más allá de "la ALERTA se ve más fuerte que la
+  ADVERTENCIA", que sí se cumple (color y tipografía distintos,
+  verificado con captura).
+
+### Lo que NO hice
+
+- No implementé nada de Fase 06 (ventas) — `SaleDao` tiene
+  exactamente el método que D-032 necesita, nada más.
+- No agregué un listado de compras pasadas ni una pantalla de detalle
+  de compra — `FASES.md` solo pide "registro de compra", no verlas
+  después; lo dejo fuera para no inventar alcance.
+- No implementé el reporte de "ganancia por ciclo de compra" que
+  D-033 habilita (`purchase_id`/`cycle_start` ya están, listos para
+  cuando llegue Fase 09) — eso es explícitamente trabajo futuro.
+
+### Deuda técnica que dejé
+
+- Ninguna deliberada dentro del alcance de esta fase.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno. Fase 05 queda lista para revisión, tag y merge.
+
+### Revisión de código post-cierre (2026-09-20, mismo commit vía amend)
+
+El humano encontró dos problemas reales en `weightedAverageCost` que
+no habían salido en la implementación original:
+
+1. **Bug real, no solo un estilo distinto:** con `currentStockQty +
+   purchaseQty <= 0` la función devolvía `Money.ZERO` en silencio —
+   exactamente el anti-patrón que D-015 prohíbe para
+   `marginOnSale`/`markupOnCost`, pero acá peor porque el resultado se
+   **persiste** en `product.cost_cents` (un costo de Q0.00 es
+   creíble, nadie lo cuestiona mirando la pantalla). Corregido: ahora
+   usa `require()` y falla con un mensaje claro — un crash en
+   desarrollo es preferible a un costo cero guardado en producción.
+   Mismo criterio en el `ceilDiv` privado. Test nuevo:
+   `weightedAverageCost_totalQtyZeroOrLess_throwsInsteadOfSilentlyReturningZero`.
+2. **Consecuencia real del redondeo hacia arriba, no documentada:** el
+   centavo de más que puede sumar `ceilDiv` se multiplica por **todo**
+   el stock que queda, no solo por lo comprado (con 15 unidades, un
+   centavo de redondeo son 15 centavos de costo total inflado), y el
+   sesgo no se autocorrige — se mantiene la decisión (el sesgo va al
+   lado conservador y son centavos por año) pero ahora queda escrita
+   como limitación conocida en **D-029** (`DECISIONES.md`), con el
+   ejemplo numérico de las 15 unidades y la nota de que
+   `valorInventario` (`ESQUEMA.md`) queda por la misma razón levemente
+   sobreestimado. Medido, no solo descrito: test nuevo
+   `weightedAverageCost_repeatedPurchases_accumulateABoundedRoundingBias_neverUnderstatingCost`,
+   que encadena tres compras sobre el mismo producto y confirma que el
+   sesgo queda en exactamente 13 centavos tras la segunda (división no
+   exacta) y no crece con la tercera (que sí divide exacto) — un
+   número calculado a mano y verificado contra el resultado real de
+   `PricingCalculator`, no un rango genérico.
+
+`./gradlew testDebugUnitTest` tras el fix: **95 tests, 0 fallos**
+(93 + 2 nuevos). Nada del resto de la fase cambió — ningún test
+existente necesitó tocarse, porque ningún camino real de la app llega
+nunca a `currentStockQty + purchaseQty <= 0` (`purchaseQty` siempre
+`>= 1` desde la pantalla de compra, `currentStockQty` nunca negativo).

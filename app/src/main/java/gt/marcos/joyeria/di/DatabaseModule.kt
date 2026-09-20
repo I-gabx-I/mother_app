@@ -12,6 +12,9 @@ import gt.marcos.joyeria.data.local.dao.AppSettingDao
 import gt.marcos.joyeria.data.local.dao.CategoryDao
 import gt.marcos.joyeria.data.local.dao.PriceHistoryDao
 import gt.marcos.joyeria.data.local.dao.ProductDao
+import gt.marcos.joyeria.data.local.dao.PurchaseDao
+import gt.marcos.joyeria.data.local.dao.PurchaseItemDao
+import gt.marcos.joyeria.data.local.dao.SaleDao
 import javax.inject.Singleton
 
 @Module
@@ -23,6 +26,7 @@ object DatabaseModule {
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.DATABASE_NAME)
             .addCallback(AppDatabase.SeedCallback())
+            .addMigrations(AppDatabase.MIGRATION_1_2)
             .build()
 
     @Provides
@@ -36,4 +40,13 @@ object DatabaseModule {
 
     @Provides
     fun providePriceHistoryDao(database: AppDatabase): PriceHistoryDao = database.priceHistoryDao()
+
+    @Provides
+    fun providePurchaseDao(database: AppDatabase): PurchaseDao = database.purchaseDao()
+
+    @Provides
+    fun providePurchaseItemDao(database: AppDatabase): PurchaseItemDao = database.purchaseItemDao()
+
+    @Provides
+    fun provideSaleDao(database: AppDatabase): SaleDao = database.saleDao()
 }

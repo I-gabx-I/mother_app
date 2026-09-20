@@ -29,4 +29,12 @@ class AppSettingRepository @Inject constructor(
         }.toLong()
         return Money(cents)
     }
+
+    /** Piso de margen sobre venta para la ADVERTENCIA de compras (D-031). */
+    suspend fun getMinMarginBp(): Int {
+        val raw = appSettingDao.getValue(AppSettingKeys.MIN_MARGIN_BP)
+        return checkNotNull(raw) {
+            "app_setting.${AppSettingKeys.MIN_MARGIN_BP} no existe; ¿se sembró/migró la base de datos?"
+        }.toInt()
+    }
 }

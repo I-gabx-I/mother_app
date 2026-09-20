@@ -40,10 +40,41 @@ android {
             isIncludeAndroidResources = true
         }
     }
+    // MigrationTestHelper (D-033) necesita el schema "de origen"
+    // (app/schemas/.../1.json) como asset legible desde el test.
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDirs("$projectDir/schemas")
+        }
+    }
 }
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// room-testing-android:2.8.5 declara kotlinx-serialization-json:1.8.1 (que
+// pide kotlinx-serialization-core:1.8.1) para leer app/schemas/*.json en
+// MigrationTestHelper -- pero el propio metadata de módulo de Room 2.8.5
+// (room-runtime) publica una restricción `strictly 1.7.3` sobre
+// kotlinx-serialization-core que pisa ese pedido y deja una versión que no
+// tiene el método que room-testing necesita en tiempo de ejecución
+// (AbstractMethodError: GeneratedSerializer.typeParametersSerializers()).
+// Es una inconsistencia real dentro del propio Room 2.8.5, verificada
+// leyendo el árbol de dependencias resuelto (`:app:dependencies
+// --configuration debugAndroidTestRuntimeClasspath`), no una suposición.
+// Se fuerza acá, solo en las configuraciones de `androidTest` (nunca se
+// empaqueta en la app en sí), a la versión que room-testing-android ya
+// pide en su propio POM -- D-034.
+configurations.matching { it.name.contains("AndroidTest", ignoreCase = false) }.configureEach {
+    resolutionStrategy {
+        force(
+            "org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.1",
+            "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.8.1",
+            "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1",
+            "org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.8.1",
+        )
+    }
 }
 
 // Robolectric (usado solo en tests de data/, D-012) hace reflexión profunda
@@ -96,6 +127,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.room.testing)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.truth)
     testImplementation(libs.turbine)
@@ -104,6 +136,7 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.truth)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

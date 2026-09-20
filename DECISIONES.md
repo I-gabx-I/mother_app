@@ -1206,6 +1206,55 @@ ciclo de compra" o hace falta agregarle columnas (propuesta de esquema,
 sin aplicar, a la espera de aprobación — `ESQUEMA.md` prohíbe
 inventar columnas sin ese paso).
 
+**Adenda — limitación conocida del redondeo hacia arriba, encontrada en
+revisión de código tras el primer cierre de Fase 05 (no cambia la
+decisión, la documenta):** `ceilDiv` redondea el **costo por unidad**
+hacia arriba cuando la división del promedio no es exacta, pero ese
+costo por unidad se multiplica después por **todo** el `stock_qty` que
+queda tras la compra, no solo por las unidades recién compradas. Con
+15 unidades en stock, redondear el costo unitario un centavo hacia
+arriba infla el "costo total" implícito (`cost_cents × stock_qty`) en
+**15 centavos**, no en uno. El sesgo tampoco se autocorrige: como
+`ceilDiv` siempre redondea en la misma dirección, una compra que no
+divide exacto puede agrandarlo, ninguna compra futura lo compensa, y
+el costo ya "inflado" pasa a ser el `currentCost` de la compra
+siguiente — el único evento que lo resetea a cero es que `stock_qty`
+vuelva a `0` (reemplazo directo, ver más arriba). Medido con un test
+que encadena varias compras sobre el mismo producto y compara el
+"costo total implícito" contra el dinero realmente gastado
+(`PricingCalculatorTest.weightedAverageCost_repeatedPurchases_accumulateABoundedRoundingBias_neverUnderstatingCost`):
+con los números de ese test, el sesgo queda en exactamente 13 centavos
+tras la segunda compra, y no crece con una tercera compra que sí
+divide exacto — un valor medido y conocido, no una sorpresa futura.
+
+**Se mantiene la decisión del redondeo hacia arriba** porque el sesgo
+va siempre hacia el lado conservador (nunca hace que se muestre más
+ganancia de la real, CLAUDE.md 3.4) y en la práctica son centavos por
+año, no un problema de negocio real. Pero por la misma razón,
+**`valorInventario`** (`ESQUEMA.md`, "Cálculos derivados") queda
+levemente sobreestimado — no es un número exacto al centavo, y vale la
+pena que quien lea un reporte que use ese cálculo (Fase 09, futura) lo
+sepa de antemano.
+
+**Adenda — `weightedAverageCost` deja de devolver `Money.ZERO` cuando
+no hay ninguna unidad sobre la que promediar (`currentStockQty +
+purchaseQty <= 0`), encontrada en la misma revisión:** ese `0`
+silencioso era exactamente el anti-patrón que D-015 prohíbe para
+`marginOnSale`/`markupOnCost` — pero acá era peor, porque el resultado
+se **persiste** en `product.cost_cents`. Un costo de Q0.00 es un valor
+creíble que nadie va a cuestionar mirando la pantalla, y a partir de
+ahí `markupOnCost` empieza a devolver `null` (D-015: costo cero), el
+`valorInventario` queda mal, y la ganancia se calcula sobre un costo
+inventado sin que nada lo señale. Como este caso no puede ocurrir con
+datos reales (`purchaseQty` siempre es `>= 1` desde la pantalla de
+compra, `currentStockQty` nunca es negativo), la función ahora usa
+`require()` y falla con una excepción y un mensaje claro en vez de
+devolver un valor — un crash en desarrollo, si alguna vez se llama mal
+a esta función, es preferible a un costo cero guardado en producción.
+Mismo criterio aplicado al `ceilDiv` privado interno (denominador
+`<= 0`). Test:
+`PricingCalculatorTest.weightedAverageCost_totalQtyZeroOrLess_throwsInsteadOfSilentlyReturningZero`.
+
 ---
 
 ## D-030 — El campo de costo/precio vuelve a ser texto decimal plano, con filtro de entrada (reemplaza al buffer de dígitos de Fase 03)
@@ -1330,6 +1379,323 @@ texto nunca se vuelve a parsear.
   compras es más vieja y de más peso, conserva D-029). Cuando se
   integren las dos ramas, `DECISIONES.md` va a tener un D-029 y un
   D-030 consecutivos, sin hueco ni duplicado.
+
+---
+
+## D-031 — Aviso de margen bajo: dos niveles distintos (ADVERTENCIA y ALERTA), no un solo umbral de "ganancia cero" (reemplaza la propuesta del punto (d) de Fase 05)
+
+**Contexto:** el entregable original de Fase 05 (`FASES.md`) y la
+propuesta del punto (d) en "Fase 05 — Plan" (`ESTADO.md`, 2026-09-17)
+proponían un único aviso: mostrar algo solo cuando
+`profit(nuevoCosto, precioActual) <= 0`. El humano lo rechazó con un
+ejemplo concreto: una pieza que pasaba de dejar Q60 de ganancia a dejar
+Q3 sigue siendo positiva (`profit > 0`), así que ese único umbral nunca
+se dispara — y ella estaría vendiendo casi gratis sin que la app le
+diga nada, hasta que la ganancia ya cruzó a cero. El aviso llegaba
+sistemáticamente tarde.
+
+**Decisión:** dos avisos distintos, con **peso visual distinto**, no
+una sola condición:
+
+1. **ADVERTENCIA** — el margen sobre venta cayó por debajo de un piso
+   configurable. Clave nueva en `app_setting`: **`min_margin_bp`**,
+   default `2500` (25.00%, puntos básicos como toda la app — D-013).
+   Se dispara cuando `marginOnSale(nuevoCosto, precioActual) < min_margin_bp`
+   (usando `marginOnSale` de `PricingCalculator`, D-013/D-015 — su
+   resultado `null` cuando `precioActual = 0` no dispara ninguna
+   advertencia, porque no hay margen que evaluar todavía).
+2. **ALERTA** — la ganancia unitaria quedó en cero o negativa al
+   precio actual (`profit(nuevoCosto, precioActual).cents <= 0`, la
+   condición original, que no se descarta — se degrada a la mitad de
+   una escala de dos, no se reemplaza). Más grave que la ADVERTENCIA;
+   tiene que verse visualmente más fuerte (color/ícono/énfasis
+   distinto, a definir en la pantalla de Fase 05, no en esta entrada).
+
+**Por qué `min_margin_bp = 2500` y no otro número:** con
+`default_markup_bp = 10000` (D-014: recargo del 100% sobre costo), el
+margen sobre venta de una pieza recién cargada es del 50%
+(`marginOnSale` de `suggestedPrice(costo, 10000, paso)` da `5000`
+puntos básicos exactos para el ejemplo canónico costo→sugerido). Un
+piso de `2500` (25.00%) significa literalmente "está ganando la mitad
+de lo normal" — un umbral con significado de negocio, no un número
+arbitrario. Al vivir en `app_setting`, se ajusta sin tocar código,
+igual que `default_markup_bp` o `price_rounding_step_cents`.
+
+**Por qué dos niveles y no uno solo con un umbral más alto:** subir el
+umbral único a, por ejemplo, `2500` en vez de `0` resuelve el aviso
+temprano pero pierde la distinción de gravedad — "estás ganando la
+mitad" y "estás perdiendo plata" son situaciones objetivamente
+distintas para ella, y CLAUDE.md sección 6 pide texto claro sobre qué
+va a pasar exactamente; un solo aviso genérico para las dos no lo
+cumple tan bien como dos avisos con su propio texto y su propio peso
+visual.
+
+**Ninguno de los dos avisos cambia `sale_price_cents`.** Son solo
+mensajes — decide ella si edita el precio, mismo principio que ya
+tenía la propuesta original y que ya está en el entregable de
+`FASES.md` ("decide ella, no el sistema").
+
+**Descartado:**
+- El umbral único de "ganancia cero o negativa" tal cual (propuesta
+  original, retirada): avisa demasiado tarde, como muestra el
+  contraejemplo de arriba.
+- Subir el umbral único a un solo número intermedio sin dos niveles:
+  pierde la distinción de gravedad entre "margen bajo" y "sin
+  ganancia".
+
+**Consecuencia:**
+- `app_setting` suma `min_margin_bp` (`2500`) — ver `ESQUEMA.md`,
+  agregada en la migración de versión 2 (D-033).
+- `FASES.md` Fase 05 actualiza su entregable y sus criterios de
+  aceptación para reflejar los dos avisos en vez de uno.
+- La comparación de dos niveles es aritmética pura sobre `Int` (puntos
+  básicos) y `Money` ya existentes (`marginOnSale`, `profit`) — no
+  hace falta ninguna función nueva en `PricingCalculator`, solo leer
+  `min_margin_bp` de `AppSettingRepository` y comparar en el
+  ViewModel/UseCase de compras.
+
+---
+
+## D-032 — Compra con fecha retroactiva: la Propuesta A (cálculo) y la Propuesta C (interfaz) no son alternativas, son las dos partes de la misma respuesta
+
+**Contexto:** "Fase 05 — Plan" (`ESTADO.md`, 2026-09-17) planteó tres
+propuestas (A: la fecha no participa del cálculo; B: bloquear si la
+fecha es anterior a la última venta; C: advertencia informativa, sin
+bloquear, mismo cálculo que A) como si fueran alternativas mutuamente
+excluyentes, e inclinó la recomendación hacia C sin resolver. El humano
+señaló el error de encuadre: A y C no compiten entre sí porque
+responden preguntas distintas — A es sobre **qué hace el cálculo**, C
+es sobre **qué ve la usuaria**. B (bloquear) sí es una alternativa real
+a "dejar pasar", y esa sigue descartada.
+
+**Decisión — las dos juntas:**
+
+1. **Cálculo (Propuesta A), y esto no es una decisión nueva, es la
+   aplicación directa de una regla ya cerrada (D-002):** `purchased_at`
+   es un dato informativo. El recálculo de `product.cost_cents`/
+   `stock_qty` siempre usa el `stock_qty` real en el momento de
+   **registrar** la compra (hoy), sin importar qué fecha se haya
+   elegido para `purchased_at`. Ninguna venta ya hecha cambia su
+   ganancia — sus snapshots de `sale_item` (D-002) son inmutables sin
+   importar la fecha de una compra posterior. Una compra con fecha
+   retroactiva no puede "corregir" el pasado porque el esquema ya lo
+   impide de raíz, con o sin esta decisión.
+2. **Interfaz (Propuesta C):** si `purchased_at` de la compra que se
+   está registrando es anterior a `MAX(sold_at)` de las ventas no
+   `CANCELLED` de ese producto, la pantalla muestra un aviso: el costo
+   nuevo aplica desde ahora, no corrige las ventas que ya se hicieron.
+   **Sin bloquear** — ella puede guardar igual.
+
+**Por qué no se contradicen:** el cálculo (1) ya es correcto y
+completo sin necesitar saber nada de fechas de venta — es una
+consecuencia directa de D-002, no algo que esta decisión invente. La
+interfaz (2) no cambia ese cálculo en absoluto: es pura comunicación,
+para que ella no asuma erróneamente que poner una fecha vieja
+"corrige" retroactivamente lo que ya vendió. Tratarlas como
+alternativas (mi error original) venía de no separar "qué pasa" de
+"qué se le explica que pasa" — son ortogonales, no dos caminos
+distintos para el mismo problema.
+
+**Descartado:**
+- **Propuesta B (bloquear el guardado):** sigue rechazada — fricción
+  para un caso de uso legítimo (anotar compras atrasadas es normal),
+  con riesgo de empujarla a mentir la fecha con tal de que la app la
+  deje guardar.
+
+**Consecuencia — dependencia técnica que esto introduce, fuera de lo
+que pidió el humano, y que dejo explícita:** para saber si existe una
+venta posterior a `purchased_at` para ese producto, hace falta
+consultar la tabla `sale` (`MAX(sold_at) WHERE product_id = ? AND
+status != 'CANCELLED'`), y **`sale` no tiene DAO todavía** — su DAO es
+trabajo asignado a la Fase 06 (`FASES.md`). Como no existe ningún
+camino en la app para insertar una fila en `sale` hasta que exista la
+Fase 06, esta consulta **siempre** va a devolver "sin ventas" durante
+toda la Fase 05 — el aviso queda con la lógica real y correcta, pero
+no se puede disparar todavía, no por un `TODO()` ni un stub (CLAUDE.md
+sección 5 lo prohíbe), sino porque el dato que dispara la condición no
+existe en ningún lugar de la app hasta Fase 06.
+
+Para resolver esto sin adelantar trabajo de Fase 06 (CLAUDE.md sección
+9: "prohibido adelantar trabajo de fases futuras"), Fase 05 agrega
+`data/local/dao/SaleDao.kt` con **un solo método**, el que hace falta
+para esta consulta (`getLastSaleDate(productId): Long?`) — no un CRUD
+completo de ventas. Fase 06, al implementar el registro de ventas real,
+**extiende este mismo archivo** con `insert`/`cancel`/etc. en vez de
+crear un `SaleDao` competidor. Es la misma clase de excepción acotada
+que D-021 documentó para `CategoryRepository` en Fase 03: tocar lo
+mínimo indispensable de una tabla que ya existe (`sale` existe desde
+la v1, D-011), sin construir la funcionalidad completa que le
+corresponde a otra fase.
+
+---
+
+## D-033 — Las dos columnas de `price_history` se agregan ahora, en Fase 05, no se difieren a Fase 09 — primera migración real del proyecto (v1 → v2)
+
+**Contexto:** "Fase 05 — Plan" (`ESTADO.md`, 2026-09-17) dejó
+propuestas, sin aplicar, dos columnas nuevas para `price_history`
+(`purchase_id`, `cycle_start`) necesarias para el futuro reporte de
+"ganancia por ciclo de compra" (Fase 09), a la espera de aprobación
+explícita — `ESQUEMA.md` prohíbe agregar columnas sin ese paso. La
+propuesta original sugería que podía esperar hasta que Fase 09
+existiera de verdad.
+
+**Decisión:** las dos columnas se agregan **ahora**, en Fase 05, no se
+difieren. Aplicado a `ESQUEMA.md` (versión de base de datos 2).
+
+**Por qué no se puede diferir — el motivo decisivo es `cycle_start`:**
+`cycle_start` depende de un hecho que solo se conoce **en el momento
+exacto de procesar una compra**: si `stock_qty` era `0` justo antes de
+aplicarla. El esquema no guarda un historial de `stock_qty` en ningún
+lado — `product.stock_qty` es un valor actual, no versionado. Si esta
+columna no se llena en el momento en que la compra se procesa, ese
+dato **no se puede reconstruir después**: no hay forma de mirar
+`purchase`/`purchase_item`/`sale_item` en Fase 09 y volver a calcular
+con certeza en qué punto exacto el stock había pasado por cero, porque
+haría falta re-simular cronológicamente todo el historial de
+movimientos de stock desde el principio — mucho más frágil y difícil
+de testear que guardar el hecho una sola vez, y descartado como método
+por la misma razón que
+descartó el reemplazo de `product_id` en `sale_item` (D-002: no se
+reconstruye lo que no se guardó cuando se supo). Diferir esto a Fase 09
+significa perder `cycle_start` para **cada compra que se registre
+entre Fase 05 y Fase 09** — no es una columna que se pueda rellenar
+retroactivamente cuando llegue el momento.
+
+**Por qué ahora es el mejor momento, no una excepción a D-011:** D-011
+estableció crear todas las tablas en la v1 porque no había instalaciones
+reales todavía. Esa misma lógica, en sentido inverso, es la razón para
+migrar ahora: la usuaria todavía no tiene inventario real cargado
+(ninguna instalación real existe hasta después de la Fase 06), así que
+esta es la migración con el costo más bajo posible que el proyecto va
+a tener nunca — y es la primera vez que el esquema cambia después de
+la v1, así que establece el patrón (migración real + test de migración
+real + `schemas/2.json` commiteado) que se va a repetir cada vez que
+haga falta un cambio de esquema con datos reales adentro.
+
+**Descartado:**
+- Diferir a Fase 09 (propuesta original): pierde `cycle_start` para
+  todas las compras intermedias, de forma irrecuperable.
+- Reconstruir `cycle_start` después, mirando el historial completo:
+  descartado por las mismas razones que D-002 prohíbe recalcular
+  ganancias históricas — es un dato que hay que capturar cuando se
+  conoce, no inferir después.
+
+**Consecuencia:**
+- `ESQUEMA.md`: versión de base de datos 2, `price_history` con
+  `purchase_id: Long?` (FK → `purchase.id`, `ON DELETE SET NULL`,
+  índice) y `cycle_start: Boolean` (default `false`); `app_setting`
+  suma `min_margin_bp` (D-031) en la misma migración, porque las dos
+  agregan a la versión 2 al mismo tiempo — un solo salto de versión,
+  no dos.
+- **Primera `Migration` real del proyecto** (`MIGRATION_1_2`,
+  `data/local/AppDatabase.kt`): recrea `price_history` completa (tabla
+  nueva con el esquema final, copiar filas existentes con
+  `purchase_id = NULL, cycle_start = 0`, borrar la vieja, renombrar,
+  recrear índices) en vez de `ALTER TABLE ADD COLUMN` para la columna
+  con FK — ver `ESQUEMA.md` para el razonamiento de por qué. Además
+  inserta la fila `('min_margin_bp', '2500')` en `app_setting` para
+  bases que migran desde v1.
+- **Dependencia nueva:** `androidx.room:room-testing`, mismo
+  `version.ref` que ya está pineado para el resto de Room
+  (`libs.versions.toml`) — hace falta `MigrationTestHelper` para
+  testear la migración de verdad (crear una base v1, insertar datos,
+  correr `MIGRATION_1_2`, validar filas y esquema resultante). No es
+  una librería nueva de un grupo distinto, es el mismo tren de
+  versión de Room ya aprobado — no necesita su propia justificación
+  extensa, mismo criterio que D-019.
+- **Verificación exigida, no solo el test unitario:** instalar la
+  versión anterior de la app en el emulador, cargar una pieza real,
+  instalar la versión nueva **encima** (sin desinstalar) y confirmar
+  que la migración corrió y los datos viejos siguen ahí con las
+  columnas nuevas en sus valores por defecto. Un emulador limpio o un
+  `MigrationTestHelper` sobre una base sintética vacía no ejercita el
+  camino real que corre en el teléfono de un upgrade — se documenta en
+  `ESTADO.md` con el resultado real de esa instalación, no solo el
+  test en verde.
+
+---
+
+## D-034 — El test de `MIGRATION_1_2` va en `androidTest`, no en `app/src/test` (Robolectric), y fuerza `kotlinx-serialization` 1.8.1 solo ahí
+
+**Contexto:** al escribir el test de migración con `MigrationTestHelper`
+(D-033) bajo Robolectric (`app/src/test`, el lugar donde vive el resto
+de los tests de `data/`, D-012), aparecieron dos fallas reales,
+verificadas leyendo el error completo antes de tocar nada (CLAUDE.md
+§2.1), no adivinadas:
+
+1. `IllegalArgumentException: This driver is configured to open a
+   database named 'X' but 'Y' was requested` — confirmado extrayendo y
+   leyendo las clases de `room-testing-2.8.5.aar`
+   (`SupportSQLiteMigrationTestHelper`/`SupportSQLiteDriver`): un
+   choque real entre el driver SQLite nuevo de Room 2.8.x y cómo
+   Robolectric resuelve la ruta del archivo de base de datos, no algo
+   arreglable desde el código de esta app.
+2. Corriendo la misma prueba en `androidTest` (SQLite real, sin
+   Robolectric) esa falla desaparece, pero aparece otra:
+   `AbstractMethodError` en
+   `kotlinx.serialization.internal.GeneratedSerializer
+   .typeParametersSerializers()`. Diagnosticado con `:app:dependencies
+   --configuration debugAndroidTestRuntimeClasspath` (mismo método que
+   D-025: leer el árbol real, no adivinar): `room-testing-android:2.8.5`
+   declara en su propio POM `kotlinx-serialization-json:1.8.1` (que
+   pide `kotlinx-serialization-core:1.8.1`, la versión que sí tiene ese
+   método) para poder leer `app/schemas/*.json`, pero el metadata de
+   módulo del propio Room 2.8.5 (`room-runtime`) publica una
+   restricción `{strictly 1.7.3}` sobre `kotlinx-serialization-core`
+   que le gana a ese pedido y deja una versión más vieja sin el método
+   — una inconsistencia real **dentro del mismo Room 2.8.5**, entre
+   dos de sus propios artefactos.
+
+**Decisión:**
+- El test de `MIGRATION_1_2` vive en
+  `app/src/androidTest/java/gt/marcos/joyeria/data/local/AppDatabaseMigrationTest.kt`,
+  no en `app/src/test`. Corre sobre SQLite real del emulador/dispositivo
+  (`connectedAndroidTest`), lo cual además es una prueba más fiel que
+  una simulación de Robolectric para justo este caso (migraciones de
+  esquema real).
+- `app/build.gradle.kts` fuerza `kotlinx-serialization-core`,
+  `-core-jvm`, `-json` y `-json-jvm` a `1.8.1` **únicamente** en las
+  configuraciones de `androidTest` — la versión exacta que
+  `room-testing-android` ya declara necesitar en su propio POM, no un
+  número inventado. No toca ninguna configuración de la app en sí
+  (`implementation`/`debugImplementation`), así que nunca se empaqueta
+  en el APK real.
+- `app/schemas/**` se agrega como asset del sourceSet `androidTest`
+  (`android.sourceSets.androidTest.assets.srcDirs`, el mecanismo
+  estándar y documentado para `MigrationTestHelper` en tests
+  instrumentados) — no del sourceSet `test`, que es el que se había
+  probado primero y no aplica acá.
+
+**Por qué no es una excepción a "Robolectric solo para tests de
+DAO/Room" (D-012):** D-012 dice que `domain/` nunca usa Robolectric;
+no dice que **todo** test de `data/` tenga que ser Robolectric a la
+fuerza cuando Robolectric mismo tiene un defecto real para ese caso
+puntual. La Fase 01 ya sentó el precedente de tener las dos versiones
+de un mismo test (`ProductUidGeneratorTest` en Robolectric +
+`ProductUidGeneratorInstrumentedTest` en `androidTest`, corrida una vez
+en el emulador) cuando valía la pena confirmar sobre SQLite real. Acá
+es el mismo patrón, con la diferencia de que la versión Robolectric
+directamente no puede correr, no que sea redundante tenerla.
+
+**Descartado:**
+- Insistir con Robolectric intentando otros workarounds (versión
+  distinta de `room-testing`, factory alternativa): se hubiera
+  necesitado bajar la versión de Room del proyecto entero para
+  encontrar una combinación sin el bug, lo que CLAUDE.md §2.1 prohíbe
+  explícitamente sin pausar a preguntar — desproporcionado para
+  arreglar un solo test cuando la alternativa (`androidTest`) ya
+  funciona y es igual de válida o mejor.
+- Forzar `kotlinx-serialization` en **todas** las configuraciones
+  (incluida la app real): innecesario — nada del código de producción
+  usa `kotlinx-serialization` directo, solo `room-testing` en tests: el
+  forzado se acota a donde hace falta.
+
+**Consecuencia:** `FASES.md` Fase 05 queda con `app/src/androidTest/**`
+agregado a "Archivos permitidos" (corrección de alcance, la lista
+original solo tenía `app/src/test/java/**/data/**`) y el criterio 8
+menciona `androidTest`, no `app/src/test`, para este test puntual. El
+resto de los tests de Fase 05 (`PricingCalculatorTest`,
+`PurchaseRepositoryTest`) siguen en `app/src/test` sin ningún cambio.
 
 ---
 

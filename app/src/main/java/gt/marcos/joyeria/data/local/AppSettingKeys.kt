@@ -12,4 +12,8 @@ object AppSettingKeys {
     const val STALE_STOCK_DAYS = "stale_stock_days"
     const val NEXT_PRODUCT_UID_SEQ = "next_product_uid_seq"
     const val OWNER_NAME = "owner_name"
+
+    // Agregada en versión 2 (Fase 05, D-031): piso de margen sobre venta,
+    // en puntos básicos. Ver MIGRATION_1_2 en AppDatabase.kt.
+    const val MIN_MARGIN_BP = "min_margin_bp"
 }

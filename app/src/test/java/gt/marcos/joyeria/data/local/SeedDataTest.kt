@@ -37,15 +37,17 @@ class SeedDataTest {
         assertThat(names).containsExactly("Anillos", "Cadenas", "Aretes", "Pulseras", "Juegos")
     }
 
-    // Compara la semilla completa contra las seis claves de ESQUEMA.md en una
+    // Compara la semilla completa contra las claves de ESQUEMA.md en una
     // sola aserción (containsExactly), no clave por clave: si mañana alguien
     // agrega una clave a ESQUEMA.md y olvida sembrarla (o al revés, siembra
     // una de más que no está documentada), este test falla solo — una lista
     // de asserts sueltos, uno por clave ya conocida, no detecta ni una clave
     // faltante ni una de más, solo un valor distinto en una clave que ya se
-    // estaba revisando.
+    // estaba revisando. Siete claves desde la versión 2 (Fase 05, D-033):
+    // una instalación nueva siembra `min_margin_bp` directo (no pasa por
+    // MIGRATION_1_2, que es solo para quien ya tenía una base en v1).
     @Test
-    fun first_open_seeds_exactly_the_six_esquema_keys_with_their_values() = runTest {
+    fun first_open_seeds_exactly_the_seven_esquema_keys_with_their_values() = runTest {
         val seeded = db.appSettingDao().getAll()
 
         assertThat(seeded).containsExactly(
@@ -55,6 +57,7 @@ class SeedDataTest {
             AppSettingEntity(AppSettingKeys.STALE_STOCK_DAYS, "90"),
             AppSettingEntity(AppSettingKeys.NEXT_PRODUCT_UID_SEQ, "1"),
             AppSettingEntity(AppSettingKeys.OWNER_NAME, ""),
+            AppSettingEntity(AppSettingKeys.MIN_MARGIN_BP, "2500"),
         )
     }
 }

@@ -50,4 +50,31 @@
     <string name="product_edit_archive_confirm_confirm">Sí, archivar</string>
     <string name="product_edit_archive_confirm_cancel">Cancelar</string>
     <string name="product_edit_archived_confirmation">Pieza archivada</string>
+
+    <!-- Fase 04: entrada temporal a Fase 05 desde el inicio provisorio (D-024) -->
+    <string name="home_register_purchase">Registrar compra</string>
+
+    <!-- Fase 05: registrar compra a mayorista -->
+    <string name="purchase_title">Registrar compra</string>
+    <string name="purchase_supplier_label">Proveedor (opcional)</string>
+    <string name="purchase_date_label">Fecha de la compra</string>
+    <string name="purchase_date_change">Cambiar fecha</string>
+    <string name="purchase_date_confirm">Aceptar</string>
+    <string name="purchase_date_cancel">Cancelar</string>
+    <string name="purchase_line_title">Pieza %1$d</string>
+    <string name="purchase_line_product_label">Pieza</string>
+    <string name="purchase_line_product_placeholder">Elegí una pieza</string>
+    <string name="purchase_line_qty_label">Cantidad</string>
+    <string name="purchase_line_unit_cost_label">Costo unitario</string>
+    <string name="purchase_line_remove">Quitar esta línea</string>
+    <string name="purchase_add_line">Agregar otra pieza</string>
+    <string name="purchase_extra_cost_label">Transporte (opcional)</string>
+    <string name="purchase_save_button">Guardar compra</string>
+    <string name="purchase_no_products">Todavía no tenés piezas cargadas. Agregá una pieza antes de registrar una compra.</string>
+    <string name="purchase_saved_confirmation">Compra guardada</string>
+    <string name="purchase_warnings_title">Revisá estos precios</string>
+    <string name="purchase_warning_margin">%1$s: el margen quedó por debajo de lo normal (nuevo costo: %2$s). Puede que quieras subir el precio de venta.</string>
+    <string name="purchase_warning_profit">%1$s: ya no deja ganancia al precio de venta actual (nuevo costo: %2$s). Revisá el precio.</string>
+    <string name="purchase_warning_retroactive">Anotaste una fecha anterior a una venta que ya hiciste. El costo nuevo aplica desde hoy — no cambia la ganancia de lo que ya vendiste.</string>
+    <string name="purchase_warnings_dismiss">Entendido</string>
 </resources>

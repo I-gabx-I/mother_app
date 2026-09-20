@@ -10,6 +10,7 @@ import androidx.navigation.navArgument
 import gt.marcos.joyeria.ui.product.add.AddProductRoute
 import gt.marcos.joyeria.ui.product.edit.ProductEditRoute
 import gt.marcos.joyeria.ui.product.list.ProductListRoute
+import gt.marcos.joyeria.ui.purchase.RegisterPurchaseRoute
 
 /**
  * Único `NavHost` de la app (Fase 04, D-023). Cada pantalla nueva de
@@ -22,7 +23,11 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
             HomeRoute(
                 onAddProductClick = { navController.navigate(JoyeriaDestination.AddProduct.route) },
                 onInventoryClick = { navController.navigate(JoyeriaDestination.ProductList.route) },
+                onRegisterPurchaseClick = { navController.navigate(JoyeriaDestination.RegisterPurchase.route) },
             )
+        }
+        composable(JoyeriaDestination.RegisterPurchase.route) {
+            RegisterPurchaseRoute(onBackClick = { navController.popBackStack() })
         }
         composable(JoyeriaDestination.AddProduct.route) {
             AddProductRoute()

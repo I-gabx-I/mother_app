@@ -263,11 +263,25 @@ se muestre más ganancia de la real, un centavo de menos sí podría.
 la fórmula de arriba es aritmética pura de dinero, mismo tipo de
 función que `profit`/`suggestedPrice` — no le corresponde a
 `usecase/*Purchase*.kt`, que es orquestación, no cálculo puro),
-`app/src/main/java/**/data/**`, `app/src/test/java/**/domain/**`,
-`app/src/test/java/**/data/**` (los dos últimos faltaban en la lista
-original — sin ellos no hay dónde escribir los tests que esta misma
-fase exige con `[TESTS OBLIGATORIOS]`; corrección de alcance, no una
-decisión de diseño), `strings.xml`
+`app/src/main/java/**/data/**` (incluye `data/local/AppDatabase.kt`
+para `MIGRATION_1_2`, y `data/local/dao/SaleDao.kt` con el único
+método que necesita D-032 — ver esa decisión sobre por qué esto no
+adelanta el resto de Fase 06), `app/src/main/java/**/ui/navigation/**`
+(faltaba en la lista original: hace falta un destino nuevo en el
+`NavHost` y un punto de entrada real desde `HomeScreen` para poder
+llegar a la pantalla de compra — corrección de alcance, no una
+decisión de diseño, mismo criterio que los dos ítems de test de abajo),
+`app/schemas/**` (nuevo: `2.json`, primera migración real — D-033),
+`app/src/test/java/**/domain/**`, `app/src/test/java/**/data/**` (los
+dos últimos faltaban en la lista original — sin ellos no hay dónde
+escribir los tests que esta misma fase exige con
+`[TESTS OBLIGATORIOS]`; corrección de alcance, no una decisión de
+diseño), `app/src/androidTest/java/**/data/**` (nuevo: el test de
+`MIGRATION_1_2` no puede correr bajo Robolectric — D-034 — así que vive
+acá, no en `app/src/test`), `gradle/libs.versions.toml`,
+`app/build.gradle.kts` (nuevo: `androidx.room:room-testing` para
+`MigrationTestHelper`, D-033; fuerza de versión de
+`kotlinx-serialization` acotada a `androidTest`, D-034), `strings.xml`
 
 **Entregable:**
 - Registro de compra con líneas, y prorrateo opcional de transporte
@@ -275,13 +289,23 @@ decisión de diseño), `strings.xml`
 - Al confirmar una compra, en una sola transacción: inserta `purchase` +
   `purchase_item`(s), recalcula `product.cost_cents` con la fórmula de
   arriba, suma `qty` a `product.stock_qty`, e inserta una fila en
-  `price_history` (mismo mecanismo que la edición manual de Fase 04;
-  la tabla ya existe desde la v1, no hace falta ninguna migración).
+  `price_history` con `purchase_id` (la compra recién insertada) y
+  `cycle_start = true` únicamente si `stock_qty` era `0` antes de esta
+  compra (D-033; mismo mecanismo de `price_history` que la edición
+  manual de Fase 04, con las dos columnas nuevas de la versión 2).
 - Una compra **nunca** cambia `product.sale_price_cents` de forma
-  automática. Si el costo nuevo deja la ganancia unitaria al precio de
-  venta **actual** en cero o negativa (`profit(nuevoCosto, precioActual)
-  <= 0`), la pantalla muestra un aviso sugiriendo revisar el precio —
-  decide ella, no el sistema.
+  automática — decide ella, no el sistema. Dos avisos distintos, no
+  uno (D-031), evaluados sobre `profit`/`marginOnSale` sobre el precio
+  de venta **actual**:
+  - **ADVERTENCIA:** `marginOnSale(nuevoCosto, precioActual) < min_margin_bp`
+    (clave nueva de `app_setting`, default `2500`).
+  - **ALERTA** (más grave, se ve más fuerte que la ADVERTENCIA):
+    `profit(nuevoCosto, precioActual).cents <= 0`.
+- Si `purchased_at` de la compra es anterior a la última venta no
+  `CANCELLED` de ese producto, aviso informativo sin bloquear: el
+  costo nuevo aplica desde ahora, no corrige ventas ya hechas (D-032).
+  El cálculo de costo/stock nunca depende de `purchased_at` — siempre
+  usa el `stock_qty` real del momento de registrar la compra.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
@@ -295,24 +319,33 @@ decisión de diseño), `strings.xml`
    valores concretos).
 4. **[TESTS OBLIGATORIOS]** Test dedicado que confirme que una compra
    con `stock_qty = 0` deja `cost_cents` en el costo real de la compra
-   nueva, no en un promedio con el valor viejo (D-029).
+   nueva, no en un promedio con el valor viejo (D-029), y que la fila
+   de `price_history` resultante tiene `cycle_start = true`.
 5. Test de que registrar una compra inserta una fila en `price_history`
-   con el `cost_cents` nuevo.
+   con el `cost_cents` nuevo, `purchase_id` apuntando a la compra, y
+   `cycle_start = false` cuando había stock antes de la compra.
 6. Test de que la compra, el recálculo de costo/stock y la fila de
    `price_history` se escriben atómicamente (si algo falla a mitad de
    camino, no queda una compra huérfana ni un costo a medio actualizar)
    — mismo patrón de `db.withTransaction` que `ProductUidGenerator`
    (Fase 01).
-
-**Puntos sin resolver todavía — ver `ESTADO.md`, "Fase 05 — Plan"
-(2026-09-17), no se deciden en este documento:**
-- Qué hacer cuando una compra se registra con fecha retroactiva
-  (`purchased_at`) anterior a ventas ya existentes de ese producto —
-  propuesta con opciones, sin decidir.
-- Si `price_history` alcanza tal cual para reconstruir reportes de
-  "ganancia por ciclo de compra" (Fase 09, futura) o hace falta
-  agregarle columnas — propuesta de cambio a `ESQUEMA.md`, sin aplicar,
-  a la espera de aprobación explícita.
+7. **[TESTS OBLIGATORIOS]** Test de las dos condiciones de aviso
+   (D-031) por separado: margen por debajo de `min_margin_bp` dispara
+   ADVERTENCIA sin disparar ALERTA; ganancia cero o negativa dispara
+   ALERTA; margen sano no dispara ninguna.
+8. **[TESTS OBLIGATORIOS]** `MIGRATION_1_2` tiene test con
+   `MigrationTestHelper`, en `app/src/androidTest` (D-034: Robolectric
+   tiene un defecto real contra Room 2.8.5 para este caso puntual,
+   verificado, no adivinado): crea una base v1 con una fila de
+   `price_history` real, corre la migración, y confirma que la fila
+   sobrevive con `purchase_id = NULL` y `cycle_start = false`, que
+   `app_setting` tiene `min_margin_bp = 2500`. Además, verificación
+   manual documentada en `ESTADO.md`: instalar la versión anterior en
+   el emulador, cargar una pieza real, instalar la versión nueva
+   encima (sin desinstalar) y confirmar que los datos sobreviven — un
+   emulador limpio no ejercita nunca el camino de migración real.
+9. `app/schemas/gt.marcos.joyeria.data.local.AppDatabase/2.json`
+   commiteado, sin tocar `1.json`.
 
 **Commit:** `fase-05: bulk purchases` → tag `fase-05-ok`
 
