@@ -359,3 +359,11 @@ se vuelve imposible y el proyecto se cae.
 No adivinés. Escribí la duda en `ESTADO.md` bajo `## Bloqueos` y detené la fase.
 Una fase detenida con una pregunta clara vale más que una fase terminada con una
 suposición equivocada enterrada en el código.
+
+**El silencio nunca es aprobación.** Si dejás un bloqueo escrito y no recibís
+respuesta a ese bloqueo puntual, no avanzás asumiendo que "no decir nada" es un
+sí — volvés a preguntar y esperás. Un bloqueo que asumiste aprobado porque no
+hubo respuesta es indistinguible, para quien audite después, de un bloqueo que
+nunca se leyó. Esto aplica bloqueo por bloqueo: si de varios que dejaste
+planteados el humano responde algunos y otros no, los respondidos se
+resuelven con esa respuesta y los demás siguen deteniendo la fase igual.

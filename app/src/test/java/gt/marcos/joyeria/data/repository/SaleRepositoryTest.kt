@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import gt.marcos.joyeria.data.local.AppDatabase
+import gt.marcos.joyeria.data.local.entity.CustomerEntity
 import gt.marcos.joyeria.data.local.entity.ProductEntity
 import gt.marcos.joyeria.domain.model.Money
 import kotlinx.coroutines.flow.first
@@ -36,6 +37,8 @@ class SaleRepositoryTest {
             saleDao = db.saleDao(),
             saleItemDao = db.saleItemDao(),
             productDao = db.productDao(),
+            customerDao = db.customerDao(),
+            paymentDao = db.paymentDao(),
         )
     }
 
@@ -233,6 +236,250 @@ class SaleRepositoryTest {
         assertThat(summaries).isEmpty()
     }
 
+    // --- Fase 07: venta a crédito nace PENDING, con o sin abono inicial ---
+
+    @Test
+    fun register_creditSale_startsAsPendingWithCustomer() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.type).isEqualTo("CREDIT")
+        assertThat(sale.status).isEqualTo("PENDING")
+        assertThat(sale.customerId).isEqualTo(customerId)
+    }
+
+    @Test
+    fun register_creditSale_withoutInitialPayment_hasNoPaymentRows() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        assertThat(db.paymentDao().sumForSale(result.saleId)).isEqualTo(0L)
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PENDING")
+    }
+
+    @Test
+    fun register_creditSale_initialPaymentCoversTotal_marksPaidImmediately() = runTest {
+        // El abono inicial pasa por el mismo camino que cualquier otro
+        // abono (registerPaymentInternal) -- si cubre el total exacto, la
+        // venta queda PAID sin ningún `if` especial para "es el primero".
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = Money(8000)))
+
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PAID")
+        assertThat(db.paymentDao().sumForSale(result.saleId)).isEqualTo(8000L)
+    }
+
+    @Test
+    fun register_creditSale_partialInitialPayment_staysPending() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = Money(3000)))
+
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PENDING")
+        assertThat(db.paymentDao().sumForSale(result.saleId)).isEqualTo(3000L)
+    }
+
+    @Test
+    fun register_creditSale_unknownCustomer_throwsInsteadOfOrphaningTheSale() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        var threw = false
+        try {
+            repository.register(creditSale(productId, customerId = 999_999L, qty = 1, initialPayment = null))
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+        assertThat(threw).isTrue()
+
+        val product = checkNotNull(db.productDao().getById(productId))
+        assertThat(product.stockQty).isEqualTo(5)
+        assertThat(db.saleDao().observeBetween(0L, Long.MAX_VALUE).first()).isEmpty()
+    }
+
+    @Test
+    fun register_creditSale_archivedCustomer_throws() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        db.customerDao().archive(customerId)
+
+        var threw = false
+        try {
+            repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+        assertThat(threw).isTrue()
+    }
+
+    // --- Fase 07 criterios 3/4: registerPayment ---
+
+    @Test
+    fun registerPayment_exceedsBalance_throwsWithClearMessage() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        var message: String? = null
+        try {
+            repository.registerPayment(
+                RegisterPaymentInput(saleId = result.saleId, amount = Money(8001), paidAt = 1_000L, method = "CASH", notes = null),
+            )
+        } catch (e: IllegalArgumentException) {
+            message = e.message
+        }
+        assertThat(message).isNotNull()
+
+        // El abono rechazado no se guardó: el saldo sigue intacto.
+        assertThat(db.paymentDao().sumForSale(result.saleId)).isEqualTo(0L)
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PENDING")
+    }
+
+    @Test
+    fun registerPayment_zeroAmount_throws() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        var threw = false
+        try {
+            repository.registerPayment(
+                RegisterPaymentInput(saleId = result.saleId, amount = Money.ZERO, paidAt = 1_000L, method = "CASH", notes = null),
+            )
+        } catch (e: IllegalArgumentException) {
+            threw = true
+        }
+        assertThat(threw).isTrue()
+    }
+
+    @Test
+    fun registerPayment_exactBalance_marksPaid() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        val paymentResult = repository.registerPayment(
+            RegisterPaymentInput(saleId = result.saleId, amount = Money(8000), paidAt = 1_000L, method = "CASH", notes = null),
+        )
+
+        assertThat(paymentResult.saleNowPaid).isTrue()
+        assertThat(paymentResult.newBalance).isEqualTo(Money.ZERO)
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PAID")
+    }
+
+    @Test
+    fun registerPayment_oneCentShort_staysPending() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        val paymentResult = repository.registerPayment(
+            RegisterPaymentInput(saleId = result.saleId, amount = Money(7999), paidAt = 1_000L, method = "CASH", notes = null),
+        )
+
+        assertThat(paymentResult.saleNowPaid).isFalse()
+        assertThat(paymentResult.newBalance).isEqualTo(Money(1))
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PENDING")
+    }
+
+    @Test
+    fun registerPayment_onAlreadyPaidCashSale_throws() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val result = repository.register(sale(productId, qty = 1))
+
+        var threw = false
+        try {
+            repository.registerPayment(
+                RegisterPaymentInput(saleId = result.saleId, amount = Money(1000), paidAt = 1_000L, method = "CASH", notes = null),
+            )
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+        assertThat(threw).isTrue()
+    }
+
+    @Test
+    fun registerPayment_twoPartialPayments_accumulateTowardsBalance() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+
+        repository.registerPayment(
+            RegisterPaymentInput(saleId = result.saleId, amount = Money(3000), paidAt = 1_000L, method = "CASH", notes = null),
+        )
+        val second = repository.registerPayment(
+            RegisterPaymentInput(saleId = result.saleId, amount = Money(5000), paidAt = 2_000L, method = "TRANSFER", notes = null),
+        )
+
+        assertThat(second.saleNowPaid).isTrue()
+        assertThat(db.paymentDao().sumForSale(result.saleId)).isEqualTo(8000L)
+    }
+
+    // --- Fase 07 D-043: no se anula una venta con abonos ya registrados ---
+
+    @Test
+    fun cancel_saleWithPayments_throws() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        val result = repository.register(creditSale(productId, customerId, qty = 1, initialPayment = Money(3000)))
+
+        var threw = false
+        try {
+            repository.cancel(result.saleId, cancelledAt = 2_000L, cancelReason = null)
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+        assertThat(threw).isTrue()
+
+        // No se tocó nada: ni el stock, ni el status.
+        val product = checkNotNull(db.productDao().getById(productId))
+        assertThat(product.stockQty).isEqualTo(4)
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.status).isEqualTo("PENDING")
+    }
+
+    // --- Fase 07: "¿Quién me debe?" (D-038) ---
+
+    @Test
+    fun observeCustomerDebts_everyRowHasPositiveBalance() = runTest {
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null))
+        // Esta segunda venta queda PAID de inmediato -- no debería aparecer.
+        repository.register(creditSale(productId, customerId, qty = 1, initialPayment = Money(8000)))
+
+        val debts = repository.observeCustomerDebts().first()
+
+        assertThat(debts).hasSize(1)
+        assertThat(debts.all { it.totalBalance > Money.ZERO }).isTrue()
+    }
+
+    @Test
+    fun observeCustomerDebts_sortedByBalanceDescending() = runTest {
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val smallDebtor = insertCustomer("Debe poco")
+        val bigDebtor = insertCustomer("Debe mucho")
+        repository.register(creditSale(productId, smallDebtor, qty = 1, initialPayment = Money(7000)))
+        repository.register(creditSale(productId, bigDebtor, qty = 1, initialPayment = null))
+
+        val debts = repository.observeCustomerDebts().first()
+
+        assertThat(debts.map { it.customerName }).containsExactly("Debe mucho", "Debe poco").inOrder()
+    }
+
     private suspend fun insertProduct(stockQty: Int, costCents: Long, salePriceCents: Long): Long =
         db.productDao().insert(
             ProductEntity(
@@ -256,4 +503,16 @@ class SaleRepositoryTest {
         notes = null,
         lines = listOf(SaleLineInput(productId, qty)),
     )
+
+    private suspend fun insertCustomer(name: String): Long =
+        db.customerDao().insert(CustomerEntity(name = name, phone = null, notes = null, createdAt = 0L))
+
+    private fun creditSale(productId: Long, customerId: Long, qty: Int, initialPayment: Money?, soldAt: Long = 1_000L) =
+        RegisterSaleInput(
+            soldAt = soldAt,
+            discount = Money.ZERO,
+            notes = null,
+            lines = listOf(SaleLineInput(productId, qty)),
+            credit = CreditSaleDetails(customerId = customerId, initialPayment = initialPayment),
+        )
 }

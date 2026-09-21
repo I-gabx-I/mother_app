@@ -1,10 +1,14 @@
 package gt.marcos.joyeria.ui.sale
 
+import gt.marcos.joyeria.data.repository.Customer
 import gt.marcos.joyeria.data.repository.ProductSummary
 import gt.marcos.joyeria.data.repository.RegisterSaleResult
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.pricing.PricingCalculator
 import gt.marcos.joyeria.ui.format.parseMoneyToCents
+
+/** Contado o crédito (D-042) -- selector arriba de "Vender", contado preseleccionado siempre. */
+enum class SaleTypeChoice { CASH, CREDIT }
 
 /**
  * Una línea del carrito. `unitPrice`/`unitCost`/`availableStock` son una
@@ -44,7 +48,12 @@ data class RegisterSaleUiState(
     val isSaving: Boolean = false,
     val pendingLossConfirmation: Boolean = false,
     val result: RegisterSaleResult? = null,
+    val saleType: SaleTypeChoice = SaleTypeChoice.CASH,
+    val customers: List<Customer> = emptyList(),
+    val selectedCustomerId: Long? = null,
+    val initialPaymentText: String = "",
 ) {
+    val isCredit: Boolean get() = saleType == SaleTypeChoice.CREDIT
     /** Solo piezas con stock: vender algo agotado no tiene sentido (punto 3 del plan). */
     val availableProducts: List<ProductSummary>
         get() = products.filter { it.stockQty > 0 }.let { active ->
@@ -75,9 +84,22 @@ data class RegisterSaleUiState(
             return PricingCalculator.saleProfit(subtotal, discount, totalCost)
         }
 
+    /** Lo que ella cobraría de esta venta si fuera al contado (total menos descuento) -- el tope del abono inicial. */
+    val net: Money get() = subtotal - (discount ?: Money.ZERO)
+
+    // Punto 5 del pedido de Fase 07: vacío = sin abono inicial, nunca exige un monto.
+    // Mismo tratamiento que el descuento (D-030): `null` mientras el texto esté
+    // incompleto, sin filtrar al tipear -- el tope (net) es un número que cambia
+    // con el carrito, ella no lo puede anticipar (mismo criterio que discountExceedsSubtotal).
+    val initialPayment: Money?
+        get() = if (initialPaymentText.isBlank()) Money.ZERO else parseMoneyToCents(initialPaymentText)?.let(::Money)
+
+    val initialPaymentExceedsNet: Boolean get() = (initialPayment ?: Money.ZERO) > net
+
     val canSave: Boolean
         get() = !isSaving &&
             lines.isNotEmpty() &&
             lines.all { it.isValid } &&
-            profit != null
+            profit != null &&
+            (!isCredit || (selectedCustomerId != null && initialPayment != null && !initialPaymentExceedsNet))
 }

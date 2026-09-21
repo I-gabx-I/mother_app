@@ -411,7 +411,7 @@ Robolectric, mismo criterio que `MoneyInputTest` en
 Las tablas `customer` y `payment` ya existen desde la Fase 01 (D-011); esta
 fase agrega su DAO, repositorio y pantallas.
 
-**Archivos permitidos:** `app/src/main/java/**/ui/customer/**`, `app/src/main/java/**/ui/credit/**`, `app/src/main/java/**/domain/usecase/*Payment*.kt`, `app/src/main/java/**/data/**`, `strings.xml`
+**Archivos permitidos:** `app/src/main/java/**/ui/customer/**`, `app/src/main/java/**/ui/credit/**`, `app/src/main/java/**/ui/sale/**` (corrección de alcance: sin esto no hay pantalla real desde la que registrar una venta `CREDIT`, ni forma de distinguir una venta pendiente de una cobrada en "Ventas de hoy" — D-042 en `DECISIONES.md`), `app/src/main/java/**/domain/usecase/*Payment*.kt`, `app/src/main/java/**/domain/pricing/PricingCalculator.kt` (agregado: `saleBalance`, aritmética pura de dinero, mismo criterio que las adiciones de Fase 05/06 a este archivo), `app/src/main/java/**/data/**`, `app/src/main/java/**/ui/navigation/**` (agregado: destinos nuevos y botón "Clientes" en `HomeScreen`, mismo tipo de corrección que ya tuvieron Fase 05 y Fase 06), `app/src/test/java/**/domain/**`, `app/src/test/java/**/data/**`, `app/src/test/java/**/ui/**` (agregados: la lista original no tenía ningún directorio de test pese al `[TESTS OBLIGATORIOS]` de esta fase — mismo olvido que tuvieron Fase 05 y Fase 06), `strings.xml`
 
 **Entregable:**
 - CRUD de clientes (archivar, no borrar).
@@ -562,3 +562,11 @@ fase agrega su DAO, repositorio y pantallas.
 - Precios por mayoreo (si empieza a venderle a otras revendedoras).
 - Sincronización entre dos teléfonos.
 - Registro de gastos del negocio (bolsitas, cajitas, pulidor) para ganancia neta real.
+- **Devoluciones con reembolso de abonos.** Escenario concreto que hoy no tiene
+  solución (Fase 07, D-043): una clienta compra a crédito, abona una o más
+  veces, y después devuelve la pieza. Hoy no se puede anular esa venta (tiene
+  abonos), no existe manera de devolver o anular un abono ya registrado, y la
+  pieza queda fuera del stock aunque vuelva a la mano de la usuaria. Necesita
+  su propia decisión de diseño (¿se anula la venta y se "devuelve" cada abono
+  por separado? ¿se registra como una venta nueva en negativo? ¿algo más?)
+  antes de tocar código.

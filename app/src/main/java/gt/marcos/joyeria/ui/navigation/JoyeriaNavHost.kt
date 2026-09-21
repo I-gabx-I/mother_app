@@ -7,6 +7,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import gt.marcos.joyeria.ui.credit.AccountStatementRoute
+import gt.marcos.joyeria.ui.credit.CustomersRoute
 import gt.marcos.joyeria.ui.product.add.AddProductRoute
 import gt.marcos.joyeria.ui.product.edit.ProductEditRoute
 import gt.marcos.joyeria.ui.product.list.ProductListRoute
@@ -28,7 +30,22 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
                 onInventoryClick = { navController.navigate(JoyeriaDestination.ProductList.route) },
                 onRegisterPurchaseClick = { navController.navigate(JoyeriaDestination.RegisterPurchase.route) },
                 onTodaySalesClick = { navController.navigate(JoyeriaDestination.TodaySales.route) },
+                onCustomersClick = { navController.navigate(JoyeriaDestination.Customers.route) },
             )
+        }
+        composable(JoyeriaDestination.Customers.route) {
+            CustomersRoute(
+                onDebtClick = { customerId ->
+                    navController.navigate(JoyeriaDestination.AccountStatement.createRoute(customerId))
+                },
+                onBackClick = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = JoyeriaDestination.AccountStatement.route,
+            arguments = listOf(navArgument(JoyeriaDestination.AccountStatement.ARG_CUSTOMER_ID) { type = NavType.LongType }),
+        ) {
+            AccountStatementRoute(onBackClick = { navController.popBackStack() })
         }
         composable(JoyeriaDestination.RegisterSale.route) {
             RegisterSaleRoute(onBackClick = { navController.popBackStack() })

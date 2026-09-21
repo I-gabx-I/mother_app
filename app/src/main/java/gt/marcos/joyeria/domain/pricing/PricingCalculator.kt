@@ -37,6 +37,20 @@ object PricingCalculator {
         (total - discount) - totalCost
 
     /**
+     * `saldoDeVenta` de `ESQUEMA.md`: (total - descuento) - Σ abonos.
+     * Nunca divide, nunca es null. Se centraliza acá (Fase 07) por la misma
+     * razón que `saleProfit`: "¿Quién me debe?", el estado de cuenta y la
+     * validación de que un abono no exceda el saldo (`SaleRepository`) tienen
+     * que usar exactamente la misma cuenta, sin poder divergir.
+     *
+     * El saldo **nunca se persiste** (ESQUEMA.md, tabla `payment`: "un saldo
+     * guardado se desincroniza; uno calculado no puede mentir") -- esta
+     * función es la única fuente de esa aritmética en toda la app.
+     */
+    fun saleBalance(total: Money, discount: Money, paid: Money): Money =
+        (total - discount) - paid
+
+    /**
      * Margen sobre venta, en puntos básicos: gananciaUnitaria * 10000 / salePriceCents.
      * `null` cuando salePrice.cents == 0: no hay precio de venta con el cual
      * expresar un porcentaje (D-015). No es lo mismo que un margen real de 0%.

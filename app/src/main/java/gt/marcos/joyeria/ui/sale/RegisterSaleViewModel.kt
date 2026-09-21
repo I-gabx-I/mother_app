@@ -3,6 +3,9 @@ package gt.marcos.joyeria.ui.sale
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import gt.marcos.joyeria.data.repository.AddCustomerInput
+import gt.marcos.joyeria.data.repository.CreditSaleDetails
+import gt.marcos.joyeria.data.repository.CustomerRepository
 import gt.marcos.joyeria.data.repository.ProductRepository
 import gt.marcos.joyeria.data.repository.RegisterSaleInput
 import gt.marcos.joyeria.data.repository.SaleLineInput
@@ -21,6 +24,7 @@ import javax.inject.Inject
 class RegisterSaleViewModel @Inject constructor(
     private val registerSaleUseCase: RegisterSaleUseCase,
     private val productRepository: ProductRepository,
+    private val customerRepository: CustomerRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RegisterSaleUiState())
@@ -48,6 +52,32 @@ class RegisterSaleViewModel @Inject constructor(
                     state.copy(products = products, lines = refreshedLines)
                 }
             }
+        }
+        viewModelScope.launch {
+            customerRepository.observeActive().collectLatest { customers ->
+                _uiState.update { it.copy(customers = customers) }
+            }
+        }
+    }
+
+    fun onSaleTypeChanged(type: SaleTypeChoice) {
+        _uiState.update { it.copy(saleType = type) }
+    }
+
+    fun onCustomerSelected(customerId: Long) {
+        _uiState.update { it.copy(selectedCustomerId = customerId) }
+    }
+
+    fun onInitialPaymentChanged(raw: String) {
+        _uiState.update { it.copy(initialPaymentText = raw) }
+    }
+
+    /** D-040: alta rápida de clienta sin salir de "Vender", desde `CustomerPickerDropdown`. */
+    fun onNewCustomerConfirmed(name: String, phone: String?) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val id = customerRepository.add(AddCustomerInput(name = name, phone = phone, notes = null))
+            _uiState.update { it.copy(selectedCustomerId = id) }
         }
     }
 
@@ -133,6 +163,20 @@ class RegisterSaleViewModel @Inject constructor(
         }
         if (lines.size != state.lines.size) return
 
+        // D-042: `credit == null` es el camino de Fase 06 sin ningún cambio.
+        // Si es crédito, reconstruye igual desde cero (mismo criterio que
+        // las líneas): sin clienta o sin un abono inicial completo, se
+        // aborta sin guardar -- `canSave` ya no debería dejar llegar acá,
+        // pero el ViewModel no confía ciegamente en su propio estado previo.
+        val credit = if (state.isCredit) {
+            val customerId = state.selectedCustomerId ?: return
+            val initialPayment = state.initialPayment ?: return
+            if (state.initialPaymentExceedsNet) return
+            CreditSaleDetails(customerId = customerId, initialPayment = initialPayment)
+        } else {
+            null
+        }
+
         _uiState.update { it.copy(isSaving = true) }
         viewModelScope.launch {
             val result = registerSaleUseCase(
@@ -141,9 +185,10 @@ class RegisterSaleViewModel @Inject constructor(
                     discount = discount,
                     notes = null,
                     lines = lines,
+                    credit = credit,
                 ),
             )
-            _uiState.value = RegisterSaleUiState(products = state.products, result = result)
+            _uiState.value = RegisterSaleUiState(products = state.products, customers = state.customers, result = result)
         }
     }
 

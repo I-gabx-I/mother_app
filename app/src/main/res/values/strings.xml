@@ -118,4 +118,64 @@
     <string name="today_sales_cancel_reason_suggestion_return">Devolución</string>
     <string name="today_sales_cancel_reason_suggestion_mistake">Error al registrar</string>
     <string name="today_sales_cancel_reason_suggestion_other">Otra</string>
+    <string name="today_sales_cannot_cancel_has_payments">Esta venta ya tiene abonos registrados, así que no se puede anular. Si hay que devolver la pieza, por ahora anotalo aparte (por ejemplo, en tu cuaderno) — todavía no hay forma de devolver un abono desde la app.</string>
+
+    <!-- Fase 07: clientes, crédito y abonos -->
+    <string name="home_customers">Clientes</string>
+
+    <string name="sale_type_cash">Al contado</string>
+    <string name="sale_type_credit">A crédito</string>
+    <string name="sale_credit_customer_label">Clienta</string>
+    <string name="sale_credit_customer_placeholder">Elegí una clienta</string>
+    <string name="sale_credit_initial_payment_label">Abono inicial (opcional)</string>
+    <string name="sale_credit_initial_payment_exceeds">El abono inicial no puede ser mayor al total de la venta</string>
+    <string name="sale_credit_pending_badge">Crédito · Pendiente</string>
+
+    <string name="customer_quick_add_title">Nueva clienta</string>
+    <string name="customer_quick_add_menu_item">+ Nueva clienta</string>
+    <string name="customer_quick_add_confirm">Agregar</string>
+    <string name="customer_form_cancel">Cancelar</string>
+    <string name="customer_name_label">Nombre</string>
+    <string name="customer_phone_label">Teléfono (opcional)</string>
+    <string name="customer_notes_label">Notas (opcional)</string>
+
+    <string name="customers_title">Clientes</string>
+    <string name="customers_tab_who_owes_me">Quién me debe</string>
+    <string name="customers_tab_all">Todas las clientas</string>
+    <string name="customers_total_debt_label">Te deben en total: %1$s</string>
+    <string name="customers_who_owes_me_empty">Por ahora nadie te debe nada.</string>
+    <string name="customers_all_empty">Todavía no cargaste ninguna clienta.</string>
+    <string name="customers_debt_age_today">Debe desde hoy</string>
+    <string name="customers_add_button">Agregar clienta</string>
+    <string name="customers_add_title">Nueva clienta</string>
+    <string name="customers_edit_title">Editar clienta</string>
+    <string name="customers_edit_button">Editar</string>
+    <string name="customers_archive_button">Archivar</string>
+    <string name="customers_form_save">Guardar</string>
+    <string name="customers_archive_confirm_title">¿Archivar esta clienta?</string>
+    <string name="customers_archive_confirm_message">%1$s ya no va a aparecer en la lista. Podés recuperarla más adelante si hace falta.</string>
+    <string name="customers_archive_confirm_confirm">Sí, archivar</string>
+    <string name="customers_archive_blocked_message">Tiene %1$s pendientes en %2$d venta(s) — no se puede archivar hasta que termine de pagar o anules esas ventas.</string>
+
+    <string name="account_statement_title">Estado de cuenta</string>
+    <string name="account_statement_total_balance">Saldo total: %1$s</string>
+    <string name="account_statement_empty">Esta clienta no tiene ventas a crédito pendientes.</string>
+    <string name="account_statement_sale_total">Total de la venta: %1$s</string>
+    <string name="account_statement_sale_balance">Saldo: %1$s</string>
+    <string name="account_statement_no_payments">Todavía no hay abonos.</string>
+    <string name="account_statement_register_payment_button">Registrar abono</string>
+    <string name="account_statement_payment_dialog_title">Registrar abono</string>
+    <string name="account_statement_payment_dialog_balance">Saldo pendiente: %1$s</string>
+    <string name="account_statement_payment_amount_label">Monto del abono</string>
+    <string name="account_statement_payment_exceeds_balance">El abono no puede ser mayor al saldo pendiente</string>
+    <string name="account_statement_payment_confirm">Registrar</string>
+
+    <string name="payment_method_cash">Efectivo</string>
+    <string name="payment_method_transfer">Transferencia</string>
+    <string name="payment_method_other">Otro</string>
+
+    <plurals name="customers_debt_age_days">
+        <item quantity="one">Debe desde hace %1$d día</item>
+        <item quantity="other">Debe desde hace %1$d días</item>
+    </plurals>
 </resources>

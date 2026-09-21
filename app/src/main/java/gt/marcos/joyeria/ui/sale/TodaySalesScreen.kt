@@ -111,6 +111,13 @@ fun TodaySalesScreen(
             title = { Text(stringResource(R.string.today_sales_detail_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (detail.isPendingCredit) {
+                        Text(
+                            text = stringResource(R.string.sale_credit_pending_badge),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     detail.items.forEach { item ->
                         Text(
                             stringResource(
@@ -129,10 +136,23 @@ fun TodaySalesScreen(
                         stringResource(R.string.today_sales_profit_label, detail.profit.format()),
                         color = MaterialTheme.colorScheme.primary,
                     )
+                    // D-043: el botón de abajo queda visible pero
+                    // deshabilitado en vez de desaparecer -- un botón que se
+                    // esconde es indistinguible de un bug (mismo principio
+                    // que los topes de stock/saldo de Fase 06/07, nunca un
+                    // límite invisible). El motivo se ve siempre que el
+                    // botón esté deshabilitado por esto.
+                    if (detail.hasPayments) {
+                        Text(
+                            text = stringResource(R.string.today_sales_cannot_cancel_has_payments),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             },
             confirmButton = {
-                OutlinedButton(onClick = onCancelClick) {
+                OutlinedButton(onClick = onCancelClick, enabled = detail.canCancel) {
                     Text(stringResource(R.string.today_sales_cancel_button))
                 }
             },
@@ -199,7 +219,19 @@ private fun SaleRow(sale: SaleSummary, onClick: () -> Unit) {
                 .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(formatTime(sale.soldAt), style = MaterialTheme.typography.bodyLarge)
+            Column {
+                Text(formatTime(sale.soldAt), style = MaterialTheme.typography.bodyLarge)
+                // D-042: sin esto, una venta a crédito recién hecha se ve
+                // igual que una de contado ya cobrada -- ella podría creer
+                // que tiene un dinero que en realidad no cobró.
+                if (sale.isPendingCredit) {
+                    Text(
+                        text = stringResource(R.string.sale_credit_pending_badge),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             Column(horizontalAlignment = Alignment.End) {
                 Text(sale.net.format(), style = MaterialTheme.typography.bodyLarge)
                 Text(

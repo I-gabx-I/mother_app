@@ -519,4 +519,67 @@ class PricingCalculatorTest {
 
         assertThat(result).isEqualTo(Money(-2000))
     }
+
+    // --- saleBalance: saldoDeVenta de ESQUEMA.md, Fase 07. Nunca se
+    // persiste en ningún lado (criterio 2 de FASES.md) -- esta es la única
+    // función de toda la app que hace esta cuenta. Nunca divide, nunca es
+    // null. ---
+
+    @Test
+    fun saleBalance_noPayments_isTotalMinusDiscount() {
+        val result = PricingCalculator.saleBalance(
+            total = Money(10000),
+            discount = Money.ZERO,
+            paid = Money.ZERO,
+        )
+
+        assertThat(result).isEqualTo(Money(10000))
+    }
+
+    @Test
+    fun saleBalance_partialPayment_subtractsWhatWasPaid() {
+        val result = PricingCalculator.saleBalance(
+            total = Money(10000),
+            discount = Money.ZERO,
+            paid = Money(3000),
+        )
+
+        assertThat(result).isEqualTo(Money(7000))
+    }
+
+    @Test
+    fun saleBalance_paymentCoversTotal_isExactlyZero() {
+        // Criterio 4 de FASES.md Fase 07: cubrir el saldo exacto da Money.ZERO,
+        // no un negativo ni un centinela distinto -- esto es lo que
+        // SaleRepository compara para decidir el pase a PAID.
+        val result = PricingCalculator.saleBalance(
+            total = Money(10000),
+            discount = Money.ZERO,
+            paid = Money(10000),
+        )
+
+        assertThat(result).isEqualTo(Money.ZERO)
+    }
+
+    @Test
+    fun saleBalance_withDiscount_subtractsDiscountBeforePayments() {
+        val result = PricingCalculator.saleBalance(
+            total = Money(10000),
+            discount = Money(1000),
+            paid = Money(4000),
+        )
+
+        assertThat(result).isEqualTo(Money(5000))
+    }
+
+    @Test
+    fun saleBalance_discountAlreadyLeavesZero_noPaymentsNeeded() {
+        val result = PricingCalculator.saleBalance(
+            total = Money(10000),
+            discount = Money(10000),
+            paid = Money.ZERO,
+        )
+
+        assertThat(result).isEqualTo(Money.ZERO)
+    }
 }

@@ -28,6 +28,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,6 +45,7 @@ import coil3.compose.AsyncImage
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.ProductSummary
 import gt.marcos.joyeria.domain.model.Money
+import gt.marcos.joyeria.ui.customer.CustomerPickerDropdown
 import gt.marcos.joyeria.ui.format.MoneyTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
@@ -64,6 +68,10 @@ fun RegisterSaleScreen(
     onLossDialogDismissed: () -> Unit,
     onResultDismissed: () -> Unit,
     onBackClick: () -> Unit,
+    onSaleTypeChange: (SaleTypeChoice) -> Unit,
+    onCustomerSelected: (Long) -> Unit,
+    onNewCustomerConfirmed: (name: String, phone: String?) -> Unit,
+    onInitialPaymentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -87,6 +95,55 @@ fun RegisterSaleScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // D-042: selector arriba de todo, "Al contado" preseleccionado
+            // siempre -- el caso común no gana ningún toque de más, el
+            // crédito queda a un solo toque, nunca escondido.
+            item {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = state.saleType == SaleTypeChoice.CASH,
+                        onClick = { onSaleTypeChange(SaleTypeChoice.CASH) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) {
+                        Text(stringResource(R.string.sale_type_cash))
+                    }
+                    SegmentedButton(
+                        selected = state.saleType == SaleTypeChoice.CREDIT,
+                        onClick = { onSaleTypeChange(SaleTypeChoice.CREDIT) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) {
+                        Text(stringResource(R.string.sale_type_credit))
+                    }
+                }
+            }
+
+            if (state.isCredit) {
+                item {
+                    CustomerPickerDropdown(
+                        customers = state.customers,
+                        selectedCustomerId = state.selectedCustomerId,
+                        onCustomerSelected = onCustomerSelected,
+                        onNewCustomerConfirmed = onNewCustomerConfirmed,
+                    )
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        MoneyTextField(
+                            label = stringResource(R.string.sale_credit_initial_payment_label),
+                            value = state.initialPaymentText,
+                            onValueChange = onInitialPaymentChange,
+                        )
+                        if (state.initialPaymentExceedsNet) {
+                            Text(
+                                text = stringResource(R.string.sale_credit_initial_payment_exceeds),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 OutlinedTextField(
                     value = state.query,
@@ -320,6 +377,10 @@ private fun RegisterSaleScreenPreview() {
             onLossDialogDismissed = {},
             onResultDismissed = {},
             onBackClick = {},
+            onSaleTypeChange = {},
+            onCustomerSelected = {},
+            onNewCustomerConfirmed = { _, _ -> },
+            onInitialPaymentChange = {},
         )
     }
 }

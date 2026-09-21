@@ -7,12 +7,30 @@ import gt.marcos.joyeria.data.local.entity.SaleEntity
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * Una venta `PENDING` (crédito, sin cobrar del todo) junto con datos de
+ * su clienta y lo ya abonado -- fila cruda, sin el saldo calculado
+ * (eso lo hace `PricingCalculator.saleBalance`, nunca SQL, para que la
+ * resta que importa viva en un solo lugar tested -- D-041/Fase 07 plan).
+ */
+data class PendingSaleRow(
+    val saleId: Long,
+    val customerId: Long,
+    val customerName: String,
+    val customerPhone: String?,
+    val soldAt: Long,
+    val totalCents: Long,
+    val discountCents: Long,
+    val paidCents: Long,
+)
+
+/**
  * `getLastSaleDate` nació acotado a un solo método en Fase 05 (D-032):
  * en ese momento `sale`/`sale_item` no tenían DAO todavía. Fase 06
  * extiende esta misma interfaz con el resto (insertar, anular,
  * consultar), tal como D-032 ya anticipaba -- no un `SaleDao`
  * competidor, mismo criterio que D-021 usó para `CategoryRepository`
- * en Fase 03.
+ * en Fase 03. Fase 07 suma las consultas de ventas a crédito
+ * pendientes, mismo criterio otra vez.
  */
 @Dao
 interface SaleDao {
@@ -46,4 +64,39 @@ interface SaleDao {
         """,
     )
     fun observeBetween(startMillis: Long, endMillis: Long): Flow<List<SaleEntity>>
+
+    // Todas las ventas a crédito sin cobrar del todo, con la clienta y lo ya
+    // abonado -- "¿Quién me debe?" (D-038) agrupa esto por clienta en Kotlin,
+    // nunca en SQL (la resta del saldo vive una sola vez, en PricingCalculator).
+    @Query(
+        """
+        SELECT sale.id AS saleId, sale.customer_id AS customerId, customer.name AS customerName,
+               customer.phone AS customerPhone, sale.sold_at AS soldAt, sale.total_cents AS totalCents,
+               sale.discount_cents AS discountCents,
+               COALESCE((SELECT SUM(amount_cents) FROM payment WHERE payment.sale_id = sale.id), 0) AS paidCents
+        FROM sale
+        INNER JOIN customer ON customer.id = sale.customer_id
+        WHERE sale.status = 'PENDING'
+        ORDER BY sale.sold_at ASC
+        """,
+    )
+    fun observePendingCreditSales(): Flow<List<PendingSaleRow>>
+
+    // Mismo dato que arriba, para una sola clienta -- lo usa
+    // CustomerRepository.archive() (D-039) para decidir si bloquea el
+    // archivado, y AccountStatement (estado de cuenta) para listar sus
+    // ventas pendientes.
+    @Query(
+        """
+        SELECT sale.id AS saleId, sale.customer_id AS customerId, customer.name AS customerName,
+               customer.phone AS customerPhone, sale.sold_at AS soldAt, sale.total_cents AS totalCents,
+               sale.discount_cents AS discountCents,
+               COALESCE((SELECT SUM(amount_cents) FROM payment WHERE payment.sale_id = sale.id), 0) AS paidCents
+        FROM sale
+        INNER JOIN customer ON customer.id = sale.customer_id
+        WHERE sale.status = 'PENDING' AND sale.customer_id = :customerId
+        ORDER BY sale.sold_at ASC
+        """,
+    )
+    fun observePendingCreditSalesForCustomer(customerId: Long): Flow<List<PendingSaleRow>>
 }

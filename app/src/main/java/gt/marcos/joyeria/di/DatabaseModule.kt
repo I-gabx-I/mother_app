@@ -10,6 +10,8 @@ import dagger.hilt.components.SingletonComponent
 import gt.marcos.joyeria.data.local.AppDatabase
 import gt.marcos.joyeria.data.local.dao.AppSettingDao
 import gt.marcos.joyeria.data.local.dao.CategoryDao
+import gt.marcos.joyeria.data.local.dao.CustomerDao
+import gt.marcos.joyeria.data.local.dao.PaymentDao
 import gt.marcos.joyeria.data.local.dao.PriceHistoryDao
 import gt.marcos.joyeria.data.local.dao.ProductDao
 import gt.marcos.joyeria.data.local.dao.PurchaseDao
@@ -53,4 +55,10 @@ object DatabaseModule {
 
     @Provides
     fun provideSaleItemDao(database: AppDatabase): SaleItemDao = database.saleItemDao()
+
+    @Provides
+    fun provideCustomerDao(database: AppDatabase): CustomerDao = database.customerDao()
+
+    @Provides
+    fun providePaymentDao(database: AppDatabase): PaymentDao = database.paymentDao()
 }

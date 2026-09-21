@@ -27,6 +27,10 @@ fun RegisterSaleRoute(
         onLossDialogDismissed = viewModel::onLossDialogDismissed,
         onResultDismissed = viewModel::onResultDismissed,
         onBackClick = onBackClick,
+        onSaleTypeChange = viewModel::onSaleTypeChanged,
+        onCustomerSelected = viewModel::onCustomerSelected,
+        onNewCustomerConfirmed = viewModel::onNewCustomerConfirmed,
+        onInitialPaymentChange = viewModel::onInitialPaymentChanged,
         modifier = modifier,
     )
 }

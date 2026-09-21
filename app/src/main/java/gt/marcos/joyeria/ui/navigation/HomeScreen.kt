@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material3.Button
@@ -44,6 +45,7 @@ fun HomeScreen(
     onInventoryClick: () -> Unit,
     onRegisterPurchaseClick: () -> Unit,
     onTodaySalesClick: () -> Unit,
+    onCustomersClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier) { innerPadding ->
@@ -106,6 +108,15 @@ fun HomeScreen(
                 Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.home_register_purchase))
             }
+            TextButton(
+                onClick = onCustomersClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                Icon(Icons.Default.People, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(stringResource(R.string.home_customers))
+            }
         }
     }
 }
@@ -117,6 +128,7 @@ fun HomeRoute(
     onInventoryClick: () -> Unit,
     onRegisterPurchaseClick: () -> Unit,
     onTodaySalesClick: () -> Unit,
+    onCustomersClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     HomeScreen(
@@ -125,6 +137,7 @@ fun HomeRoute(
         onInventoryClick = onInventoryClick,
         onRegisterPurchaseClick = onRegisterPurchaseClick,
         onTodaySalesClick = onTodaySalesClick,
+        onCustomersClick = onCustomersClick,
         modifier = modifier,
     )
 }
@@ -139,6 +152,7 @@ private fun HomeScreenPreview() {
             onInventoryClick = {},
             onRegisterPurchaseClick = {},
             onTodaySalesClick = {},
+            onCustomersClick = {},
         )
     }
 }

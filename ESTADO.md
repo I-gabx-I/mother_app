@@ -17,33 +17,33 @@ Reglas:
 
 ## Estado actual
 
-**Actualizado 2026-09-20.**
+**Actualizado 2026-09-20 (apertura de Fase 07).**
 
-- **Fases 00-04: cerradas, tageadas y mergeadas a `main`** —
-  `fase-00-ok`, `fase-01-ok`, `fase-02-ok`, `fase-03-ok` (criterio 4
-  cumplido con medición real, ver "Fase 03 — Cierre" más abajo) y
-  `fase-04-ok`. `fix/quick-add-usability` (fix de usabilidad post
-  03/04: teclado tapando el campo de dinero, categoría obligatoria con
-  chips, campos visibles) también tageado (`fix-quick-add-usability`) y
-  mergeado a `main`.
-- **`fix/money-field-plain-decimal`: mergeado a `main`** (tag
-  `fix-money-field`, sin `-ok` — no es una fase numerada). Reemplaza el
-  buffer de dígitos de Fase 03 por un campo de texto decimal normal con
-  filtro de entrada (D-030), tras un error de captura silencioso en la
-  prueba con la usuaria real. Ver "Fix `money-field-plain-decimal` —
-  Cierre" más abajo.
-- **Fase 05 (Compras): código completo en `fase/05-purchases`, un
-  commit, lista para revisión/tag/merge.** Registro de compra con
-  líneas y prorrateo de transporte, costo por promedio ponderado
-  (D-029), dos avisos de margen (D-031), aviso de compra retroactiva
-  (D-032), y la primera migración real del proyecto (v1 → v2, D-033:
-  `purchase_id`/`cycle_start` en `price_history`, `min_margin_bp` en
-  `app_setting`). 93 tests unitarios + 2 instrumentados, todos en
-  verde; migración y pantalla de compra verificadas a mano en el
-  emulador con datos reales. Ver "Fase 05 — Cierre" más abajo.
-- **Versión de base de datos:** 2 (desde `fase/05-purchases`; `main`
-  sigue en 1 hasta que esta rama se mergee).
-- **Bloqueos abiertos:** ninguno.
+- **Fases 00-06: cerradas, tageadas (`fase-00-ok` … `fase-06-ok`) y
+  mergeadas a `main`.** MVP terminado (CLAUDE.md sección 1) — la
+  usuaria va a empezar a usar la app con datos reales estos días.
+  `fix-quick-add-usability`, `fix-money-field` y `fix-seed-markup-bp`
+  también mergeados. (Esta sección había quedado desactualizada
+  diciendo que Fase 05 todavía estaba sin tag; corregido acá al abrir
+  Fase 07 — el `git log`/`git tag` real ya tenía las dos fases
+  cerradas.)
+- **Versión de base de datos:** 2, en `main`.
+- **Fase 07 (Clientes, crédito y abonos): código completo en
+  `fase/07-credit`, un commit, lista para revisión/tag/merge.** CRUD
+  de clientas, venta a crédito con/sin abono inicial, registro de
+  abonos con `PAID` automático al saldo exacto, "¿Quién me debe?" y
+  estado de cuenta, insignia "Crédito · Pendiente" en "Ventas de
+  hoy". Sin migración (esquema sin cambios — ver "Fase 07 — Plan",
+  punto 1). 159 tests, 0 fallos; verificado a mano en el emulador con
+  capturas, incluida la captura de dinero con coma en dos campos
+  nuevos. Base real del emulador exportada a
+  `app/build/db-dumps/pre-fase-07-2026-09-20/` antes de empezar. Ver
+  "Fase 07 — Cierre" más abajo.
+- **Bloqueos abiertos:** ninguno. D-043 (bloquear anular una venta con
+  abonos ya registrados) quedó aprobada, con dos correcciones ya
+  aplicadas (botón visible-deshabilitado en vez de oculto, mensaje
+  con instrucción honesta) — ver "Fase 07 — Cierre", sección
+  "Correcciones post-cierre".
 
 ---
 
@@ -5503,3 +5503,931 @@ existentes de `cancel()` se actualizaron para pasar `cancelledAt`/
 probando el comportamiento viejo.
 
 ---
+
+## Fase 07 — Plan (antes de escribir código)
+
+**Fecha:** 2026-09-20. Rama `fase/07-credit`, abierta desde `main`
+(fases 00-06 cerradas, tageadas y mergeadas). Primer módulo post-MVP —
+la usuaria va a empezar a cargar datos reales estos días, así que esta
+es la primera fase donde "no perder datos" deja de ser una regla
+abstracta de `CLAUDE.md` y pasa a ser el riesgo concreto de esta rama.
+
+### 0. Respaldo de la base real antes de tocar nada
+
+Exportados los tres archivos reales del emulador (`joyeria.db`,
+`joyeria.db-shm`, `joyeria.db-wal` — los tres juntos, porque la base
+está en modo WAL: leer solo `.db` sin el `.db-wal` da datos
+desactualizados, mismo detalle ya anotado en Fase 06) a
+`app/build/db-dumps/pre-fase-07-2026-09-20/`.
+
+**Nota de la primera exportación, para que quede el motivo escrito:**
+el primer intento (`adb exec-out ... > archivo` corrido desde
+PowerShell) produjo un archivo de 127244 bytes que `sqlite3` rechazó
+con `file is not a database` — la redirección `>` de PowerShell
+reinterpreta el stream binario como texto y lo corrompe. Repetido desde
+Git Bash (`Bash`, no `PowerShell`), que no toca el binario, dio
+126976 bytes (múltiplo exacto de 4096, el tamaño de página de SQLite —
+consistente con un archivo real, no corrupto) y `sqlite3` lo abrió
+sin error. Verificado contra la base real del dispositivo, no contra
+una copia inventada: `PRAGMA user_version` → `2` (coincide con la
+versión que dejó Fase 05), `product` → 1 fila, `sale` → 2, `purchase`
+→ 2, `category` → 5, `app_setting` → 7 — números chicos pero reales,
+de las verificaciones manuales de Fases 05/06 que quedaron instaladas
+en el emulador. **Lección para cualquier export futuro de la base real
+desde este entorno: usar `Bash`, nunca `PowerShell`, para la
+redirección binaria de `adb exec-out`.**
+
+### 1. ¿Esta fase necesita una migración (v2 → v3)?
+
+**No.** `customer`, `sale` y `payment` ya están completas en
+`ESQUEMA.md` desde la versión 1 (D-011: las diez tablas se crean todas
+en Fase 01; D-011 ya preveía que Fases posteriores solo agregarían
+DAO/repositorio/UI, sin tocar columnas). Repasé columna por columna:
+
+- `customer`: `id`, `name`, `phone`, `notes`, `created_at`, `archived`
+  — alcanza para el CRUD completo de esta fase, nada le falta.
+- `sale`: ya tiene `customer_id`, `type` (`CASH`/`CREDIT`), `status`
+  (`PAID`/`PENDING`/`CANCELLED`), `discount_cents` — todo lo que una
+  venta a crédito necesita ya está, sin usar hasta ahora (Fase 06
+  siempre grababa `type = "CASH"`, `status = "PAID"`, `customer_id =
+  null` a mano).
+- `payment`: `sale_id`, `paid_at`, `amount_cents`, `method`, `notes` —
+  completa para registrar abonos.
+
+Ninguna tabla nueva, ninguna columna nueva → **la versión de la base
+sigue en 2**, `AppDatabase.kt` no gana ningún `MIGRATION_2_3`, y
+`app/schemas/` no gana ningún `3.json`. Por eso el respaldo del punto 0
+no es "la base antes de migrar" (no hay migración) — es la base real
+de referencia por si algo de esta fase se equivoca y hay que comparar
+contra el estado previo, como pediste. Si en una fase futura hiciera
+falta agregar una columna de verdad (ej. algo de Fase 08/09), ahí sí
+se prueba like Fase 05 lo hizo con `MIGRATION_1_2`: instalar la versión
+anterior, cargar datos, instalar la nueva encima — no una base vacía.
+
+### 2. Punto 1 del pedido — el saldo es siempre derivado
+
+**Dónde se calcula:** una función pura nueva en
+`domain/pricing/PricingCalculator.kt` (mismo archivo que ya centraliza
+`profit`/`marginOnSale`/`markupOnCost`/`saleProfit` — D-035 ya sentó el
+precedente de que toda aritmética de dinero que se repite en más de un
+lugar de la UI vive ahí, no repetida en el `ViewModel` ni en el
+repositorio):
+
+```kotlin
+fun saleBalance(total: Money, discount: Money, paid: Money): Money =
+    (total - discount) - paid
+```
+
+Es literalmente `saldoDeVenta` de `ESQUEMA.md`
+(`(total_cents - discount_cents) - Σ payment.amount_cents`), con la
+suma de abonos ya hecha por quien llama (mismo patrón que
+`saleProfit(total, discount, totalCost)` ya usa: la función no lee la
+base, solo resta `Money`).
+
+**Por qué no se persiste, con mis palabras:** un saldo guardado en una
+columna es un número que puede *mentir* — si algo falla a mitad de
+camino entre insertar un abono y actualizar esa columna (un crash, una
+excepción, una futura pantalla que inserte un `payment` por otro
+camino), la columna queda con un valor que ya no es la verdad, y nada
+en el esquema lo detecta ni lo corrige solo. Un saldo *calculado* en el
+momento de leer, en cambio, no puede desincronizarse nunca: siempre es
+"lo que dice la aritmética ahora mismo sobre las filas que existen
+ahora mismo" — no hay un segundo lugar donde ese número podría quedar
+viejo. Es el mismo argumento que ya usó `PurchaseRepository`/D-029 para
+`cost_cents` (ahí sí se persiste, pero se *recalcula* en cada compra,
+nunca se ajusta a mano) y el que ya usa `ESQUEMA.md` explícitamente
+para este campo puntual: "un saldo guardado se desincroniza; uno
+calculado no puede mentir."
+
+**Dónde se usa** (todos leen la misma función, nunca la repiten):
+- `SaleRepository.registerPayment()` — para validar que el abono no
+  supera el saldo (criterio 3), *antes* de insertar la fila de
+  `payment`.
+- `SaleRepository.registerPayment()` otra vez, *después* de insertar,
+  para decidir si el saldo llegó a `Money.ZERO` y hay que pasar la
+  venta a `PAID` (criterio 4).
+- La agregación de "¿Quién me debe?" (punto 3 de la arquitectura, más
+  abajo): el saldo de cada venta `PENDING` de cada clienta, sumado.
+- "Estado de cuenta" de una venta puntual: mismo cálculo, una sola
+  venta.
+
+Ningún lugar de `ui`/`data` vuelve a escribir `total - discount -
+pagado` por su cuenta — un solo punto de verdad para la fórmula,
+igual que `saleProfit`.
+
+**Test que lo prueba (criterio 2 de `FASES.md`):**
+`PricingCalculatorTest.saleBalance_*` — cero abonos (saldo = total),
+abono parcial, abono exacto (saldo = `Money.ZERO`), y el caso de borde
+de descuento igual al total con abonos en cero (saldo = `Money.ZERO`
+también, no negativo). "No existe columna persistida de saldo en el
+esquema" no es algo que un test automatizado pueda verificar solo con
+JUnit (sería probar una ausencia en `ESQUEMA.md`, no en código) — se
+cumple **por construcción** (no agrego ninguna columna de saldo a
+`sale` ni a ninguna tabla) y lo dejo confirmado por escrito acá y en el
+cierre de la fase, con el diff del esquema sin tocar como evidencia.
+
+### 3. Punto 2 del pedido — diseño de "¿Quién me debe?"
+
+**Lo que ve primero, en orden:**
+1. Un total arriba, mismo patrón visual que "Ventas de hoy"
+   (`today_sales_total_label`): *"Te deben en total: Qxxxx"* — la
+   suma de todos los saldos pendientes, para que sepa de un vistazo
+   cuánto dinero tiene afuera antes de leer ningún nombre.
+2. Debajo, la lista de clientas **con saldo pendiente > 0**, una fila
+   por clienta (no una fila por venta — si le debe por dos ventas
+   distintas, ve un solo número: lo que le debe *a ella*, no el
+   detalle contable, que vive en el estado de cuenta al tocar la fila).
+3. Cada fila: nombre (grande, `bodyLarge`+), saldo (`Money.format()`,
+   el dato que más importa, alineado a la derecha como ya hace
+   `SaleRow` de "Ventas de hoy"), y un texto chico con la antigüedad
+   de la deuda más vieja de esa clienta — ver el punto de "vieja vs.
+   reciente" abajo.
+
+**Orden:** por saldo, de mayor a menor. `FASES.md` dice "ordenada por
+monto" sin decir la dirección; elijo descendente porque es la
+pregunta que ella hace al abrir esta pantalla ("¿quién me debe más?"),
+no "¿quién me debe menos?" — la deuda más grande es la que más le
+conviene perseguir primero. Lo dejo explícito acá porque no está en
+`FASES.md` literal, es una interpretación mía.
+
+**Cómo distingue una deuda vieja de una reciente, de un vistazo:**
+texto chico bajo el nombre con la fecha relativa de la venta pendiente
+*más vieja* de esa clienta ("Debe desde hace 3 días" / "Debe desde
+hace 45 días"), con **dos niveles de color** — mismo patrón visual que
+ya estableció D-031 (ADVERTENCIA/ALERTA) para "dos niveles de
+gravedad, no uno": texto normal hasta 15 días, color de advertencia
+(`tertiary` o similar) de 15 a 30, color de error (mismo rojo que ya
+usa D-031/D-035 para la ALERTA) más de 30 días. **Umbrales fijos en
+`ui/credit/`, no una clave nueva de `app_setting`** — a propósito: una
+clave configurable (como `min_margin_bp`, `low_stock_threshold`)
+exigiría una migración para sembrarla en instalaciones ya existentes
+(mismo mecanismo que `MIGRATION_1_2` usó para `min_margin_bp`), y esta
+fase ya no necesita ninguna migración (punto 1) — no quiero
+introducir una por un umbral de color que no pidió nadie
+explícitamente. Si más adelante hace falta que sea configurable, se
+agrega en una decisión aparte, con su propia migración. Lo marco como
+suposición a confirmar, no como algo ya decidido de una fuente
+autorizada.
+
+**Qué pasa al tocar una fila:** abre el **estado de cuenta de esa
+clienta** — no de una venta puntual todavía, porque desde "¿Quién me
+debe?" lo natural es ver todo lo que le debe esa persona, no una venta
+aislada. Si tiene más de una venta `PENDING`, se listan todas (cada
+una con su propio total/abonos/saldo, criterio "estado de cuenta por
+venta" de `FASES.md` — la pantalla cumple ese criterio por venta,
+agrupadas bajo la clienta). Tocar una venta puntual abre/expande el
+detalle de abonos de esa venta y el botón "Registrar abono".
+
+**Propuesta que dejo explícita para que la corrijas si no es lo que
+querés — unificar "¿Quién me debe?" con el CRUD de clientas:**
+`FASES.md` pide dos cosas por separado ("CRUD de clientes" y "pantalla
+¿Quién me debe?"), pero las propongo como **una sola pantalla con dos
+pestañas** (`ui/credit/CustomersScreen.kt`, o el nombre que corresponda):
+la pestaña por defecto es "Quién me debe" (lo que se pidió que sea lo
+que más se abre); una segunda pestaña "Todas las clientas" es el CRUD
+completo (agregar, editar, archivar) para cuando necesita buscar a
+alguien sin deuda pendiente o corregir un teléfono. Un solo botón
+nuevo en `HomeScreen` ("Clientes", `TextButton` chico, mismo nivel que
+"Inventario"/"Ventas de hoy"/"Registrar compra" — CLAUDE.md sección 6
+no permite una tercera acción grande) en vez de dos, sin perder
+ninguna de las dos funciones. La alternativa más literal (dos
+pantallas, dos botones en Home) la descarto porque agregaría una
+quinta fila chica a una `Home` que ya tiene cuatro, y porque el CRUD de
+clientas (agregar/editar/archivar) es una tarea rara en comparación
+con revisar quién debe, que es diaria — no me parece que merezcan el
+mismo nivel de visibilidad en la navegación. Si preferís las dos
+pantallas separadas, lo cambio antes de escribir código.
+
+### 4. Punto 3 del pedido — captura de abonos
+
+**Abono (dinero):** `MoneyTextField` de `ui/format/`, tal cual, cero
+código nuevo — mismo componente que ya usan costo/precio (Fase 03),
+transporte (Fase 05) y descuento (Fase 06). Mismas garantías ya
+probadas: nunca reformatea lo que ella teclea, filtra carácter por
+carácter, campo vacío = incompleto sin bloquear nada más que a sí
+mismo. El límite superior (no puede exceder el saldo) sigue el mismo
+patrón que "descuento mayor al subtotal" de Fase 06 (D-030/punto 2 del
+plan de Fase 06): **no se filtra al tipear** (el tope es un número que
+cambia por venta, ella no lo puede anticipar mientras escribe), se
+deja escribir completo, y se muestra un texto claro al lado
+("El abono no puede ser mayor al saldo pendiente (Qxxxx)") con el
+botón de guardar deshabilitado mientras el texto exceda el saldo —
+calcado del tratamiento que ya tiene el descuento en `RegisterSaleUiState`.
+
+**Verificación planeada en el emulador, con capturas (mismo protocolo
+que Fases 03/05/06), antes de cerrar la fase:**
+- Escribir un abono con coma, letra por letra, confirmando que no se
+  pierde ningún carácter ni el separador (repetir el mismo test que ya
+  se hizo tres veces, porque cada campo nuevo es `remember`/estado
+  nuevo, no el mismo `Composable` reutilizado con memoria).
+- Escribir un abono mayor al saldo pendiente → aviso, botón de guardar
+  deshabilitado.
+- Registrar un abono válido y confirmar en la base real (`adb exec-out
+  run-as ... cat databases/joyeria.db{,-wal,-shm}`, siempre los tres
+  juntos por el WAL) que `payment.amount_cents` es exacto y que
+  `sale.status` cambia a `PAID` solo cuando corresponde.
+- El campo de "abono inicial" al registrar una venta a crédito (punto
+  5) recibe el mismo tratamiento y la misma verificación, no es un
+  campo distinto — reutiliza `MoneyTextField` otra vez.
+
+### 5. Punto 4 del pedido — datos de terceros
+
+- **Nada nuevo sale del teléfono.** Esta fase no agrega ninguna
+  dependencia de red, ningún backend, ningún SDK de terceros
+  (`CLAUDE.md` sección 2/D-005 ya lo prohíben en general; lo confirmo
+  específico para esta fase porque es la primera que guarda datos de
+  personas reales que no son la usuaria).
+- **Cero permisos nuevos de Android.** El teléfono de la clienta es un
+  campo de texto libre que ella tipea a mano — no se lee la agenda de
+  contactos del teléfono ni se pide ningún permiso (`CLAUDE.md` sección
+  9: "prohibido pedir permisos que no se usen en la fase actual"; el
+  permiso de contactos ni siquiera se usa en ninguna fase futura del
+  plan — Fase 08, WhatsApp, arma un link `wa.me` con el número que ya
+  está guardado acá, tampoco pide permiso de contactos ni de teléfono,
+  según su propio criterio 4).
+- **Archivado, nunca borrado (D-006), con una restricción nueva que
+  agrego:** archivar una clienta con saldo pendiente > 0 queda
+  **bloqueado**, con un mensaje claro ("Tiene Qxxxx pendientes en N
+  venta(s) — no se puede archivar hasta que termine de pagar o
+  anules esas ventas"). No está pedido explícito en `FASES.md`, lo
+  agrego porque archivar sin este bloqueo la haría desaparecer de
+  "¿Quién me debe?" (que, para no mostrar humo, solo lista clientas
+  activas) sin que la deuda real deje de existir — perdería
+  visibilidad de una deuda real, que es exactamente lo que este módulo
+  existe para evitar. Lo marco como propuesta a confirmar, no como
+  algo ya decidido.
+- **Nombre obligatorio, teléfono y notas opcionales** — mínimo
+  indispensable para que "¿Quién me debe?" tenga algo que mostrar;
+  el teléfono es opcional a propósito porque hace falta para Fase 08
+  pero no para esta (no quiero bloquear un alta rápida de clienta por
+  un dato que esta fase ni siquiera usa).
+- Nada de esto se exporta, comparte ni sincroniza — offline-first sin
+  excepciones (D-005), sigue intacto.
+
+### 6. Punto 5 del pedido — crédito sin abono inicial
+
+`RegisterSaleInput` (`data/repository/SaleModels.kt`) suma un campo
+opcional, con default que preserva el comportamiento de Fase 06 sin
+tocar ningún test existente:
+
+```kotlin
+data class RegisterSaleInput(
+    val soldAt: Long,
+    val discount: Money,
+    val notes: String?,
+    val lines: List<SaleLineInput>,
+    val credit: CreditSaleDetails? = null,   // null = CASH, sin cambios de Fase 06
+)
+
+data class CreditSaleDetails(
+    val customerId: Long,
+    val initialPayment: Money?,   // null o Money.ZERO = sin abono inicial (punto 5)
+)
+```
+
+`credit == null` es exactamente el camino de Fase 06, sin tocar una
+línea de su lógica. `credit != null` es lo nuevo: la venta nace
+`type = "CREDIT"`, `status = "PENDING"`, `customer_id =
+credit.customerId` — **siempre PENDING al insertarse**, tal como pide
+`FASES.md` ("nace PENDING, con o sin abono inicial"), sin importar si
+después, dentro de la misma transacción, un abono inicial la deja en
+saldo cero. La UI **no pide** ningún monto en el campo de abono
+inicial: vacío es un estado válido y es el default, `Button`
+"Confirmar venta" no lo exige (a diferencia del cliente, que si es
+`CREDIT` sí es obligatorio — no hay a quién cobrarle sin eso).
+
+Si `initialPayment` no es nulo ni cero, se registra usando **la misma
+función interna** que valida/actualiza el estado de un abono cualquiera
+(ver arquitectura, punto de `registerPayment`) — no una copia de esa
+lógica: si el abono inicial cubre el total exacto, la venta pasa a
+`PAID` en el mismo instante por el mismo camino que cualquier abono
+posterior, sin un `if` especial para "es el primer abono".
+
+### Arquitectura
+
+**Esquema:** sin cambios (punto 1). `customer`/`sale`/`payment` ya
+existen desde la v1.
+
+**`CustomerDao`** (nuevo, `data/local/dao/`):
+- `insert(customer: CustomerEntity): Long`
+- `update(customer: CustomerEntity)`
+- `archive(id: Long)` — `UPDATE customer SET archived = 1`, D-006.
+- `observeActive(): Flow<List<CustomerEntity>>` — excluye archivadas,
+  orden alfabético.
+- `getById(id): CustomerEntity?`
+
+**`PaymentDao`** (nuevo, `data/local/dao/`):
+- `insert(payment: PaymentEntity): Long`
+- `observeForSale(saleId): Flow<List<PaymentEntity>>` — para el estado
+  de cuenta (lista de abonos con fecha/monto/método).
+- `sumForSale(saleId): Long` — `COALESCE(SUM(amount_cents), 0)`, para
+  validar el saldo antes de aceptar un abono nuevo.
+
+**`SaleDao`** (**extendido**, no un DAO competidor — mismo criterio que
+D-032/Fase 06 ya establecieron para esta interfaz):
+- `observePendingCreditSales(): Flow<List<PendingSaleRow>>` — un JOIN
+  `sale`+`customer` (`status = 'PENDING'`) con el monto abonado de cada
+  venta como subconsulta (`COALESCE((SELECT SUM(amount_cents) FROM
+  payment WHERE payment.sale_id = sale.id), 0)`). Devuelve filas
+  crudas (una por venta pendiente, no agregadas por clienta todavía);
+  la agregación por clienta y el cálculo de saldo real se hacen en
+  Kotlin con `PricingCalculator.saleBalance` (punto 2) — la resta que
+  importa no se duplica en SQL y en Kotlin, vive una sola vez.
+- `updateStatus(...)` (Fase 06, sin cambios): se reutiliza tal cual
+  para la transición a `PAID` — pasarle `cancelledAt = null,
+  cancelReason = null` es un no-op sobre una venta que nunca se
+  canceló, no hace falta un método nuevo solo para esto.
+
+**`SaleRepository`** (extendido — mismo archivo, mismo patrón que ya
+usa `PurchaseRepository`/`SaleRepository` para las transacciones):
+- `register()`: la firma no cambia; el `input.credit` nuevo decide
+  `type`/`status`/`customer_id`. Si trae `initialPayment`, dentro de
+  la misma `db.withTransaction { }` (Room anida transacciones sobre la
+  misma conexión sin problema — confirmarlo con un test de atomicidad
+  dedicado) llama a la función privada compartida de abonar.
+- `registerPayment(saleId, amountCents, paidAt, method, notes):
+  RegisterPaymentResult` — una transacción: `checkNotNull` la venta
+  existe, `check(status == "PENDING")` (no se puede abonar una venta ya
+  pagada, cancelada, o de contado), calcula el saldo con
+  `PricingCalculator.saleBalance` + `PaymentDao.sumForSale`,
+  `require(amountCents in 1..saldo.cents)` (criterio 3: rechaza con
+  mensaje claro, cero y negativo tampoco entran — `payment.amount_cents
+  > 0` de `ESQUEMA.md`), inserta el `payment`, y si el saldo nuevo es
+  `Money.ZERO` pasa la venta a `PAID` (criterio 4).
+- `observeCustomerDebts(): Flow<List<CustomerDebtSummary>>` — agrupa
+  `observePendingCreditSales()` por clienta, suma los saldos
+  (`saleBalance` por fila, sumado), toma la fecha `sold_at` más vieja
+  del grupo, ordena descendente por saldo total (punto 3). Por
+  construcción, toda clienta que aparece acá tiene saldo > 0 (una
+  venta solo queda `PENDING` mientras su saldo sea > 0 — en cuanto
+  llega a cero pasa a `PAID` por `registerPayment`), así que no hace
+  falta un filtro extra "saldo > 0" aparte, pero se agrega un test que
+  confirme esa invariante en vez de asumirla en silencio.
+- `getCustomerAccountStatement(customerId): Flow<CustomerAccountStatement>`
+  — todas las ventas `PENDING` de esa clienta (no solo la más
+  reciente), cada una con su lista de abonos y su saldo — "estado de
+  cuenta por venta" del criterio de `FASES.md`, agrupado bajo la
+  clienta para la pantalla del punto 3.
+
+**`CustomerRepository`** (nuevo, `data/repository/`): CRUD fino sobre
+`CustomerDao`, **sin `UseCase`** — mismo criterio que `CategoryRepository`
+(Fase 04), que también se inyecta directo en los `ViewModel` sin una
+capa de `usecase` intermedia porque no tiene ninguna regla de negocio
+propia más allá de "guardar/archivar". La única regla real (bloquear
+archivar con saldo pendiente, punto 4 de arriba) vive acá, no en un
+`UseCase`, porque necesita consultar `SaleRepository`/el saldo — si
+hiciera falta más adelante una orquestación más compleja, se sube a
+`domain/usecase` en ese momento, no antes (CLAUDE.md sección 5: no
+adelantar abstracciones sin un segundo caso de uso real).
+
+**`domain/usecase/RegisterPaymentUseCase.kt`** (nuevo, el único
+`usecase` que sí prevé "Archivos permitidos" de `FASES.md` con su glob
+`*Payment*.kt`): paso directo a `SaleRepository.registerPayment()`,
+mismo patrón que `RegisterSaleUseCase`/`RegisterPurchaseUseCase`. La
+venta a crédito en sí (`register()` con `credit != null`) **no**
+necesita un `UseCase` nuevo — sigue siendo `RegisterSaleUseCase`
+existente, sin cambios en su propio archivo (solo cambia el `input`
+que recibe, que vive en `data/repository`, ya permitido).
+
+**UI (`ui/customer/`):**
+- `CustomerListScreen`/`ViewModel`/`UiState`/`Route` — CRUD (alta,
+  edición, archivar con confirmación de texto claro).
+- `CustomerPickerDropdown.kt` — selector reutilizable (mismo patrón
+  que `ProductPickerDropdown` de Fase 05: `ExposedDropdownMenuBox`
+  con búsqueda simple), usado tanto desde el CRUD como desde el flujo
+  de venta a crédito (punto de la pregunta de diseño, abajo). Incluye
+  una opción "+ Nueva clienta" al final de la lista que abre el mismo
+  diálogo de alta rápida sin salir de la pantalla donde se está —
+  propuesta mía, no pedida explícita: si la clienta de "te pago
+  después" no está cargada todavía, obligarla a abandonar la venta
+  para ir a "Clientes" y volver sería fricción real en el momento
+  exacto que este módulo quiere resolver. La marco para tu
+  confirmación igual que las demás propuestas de esta fase.
+
+**UI (`ui/credit/`):**
+- `CustomersScreen.kt`/`ViewModel`/`UiState`/`Route` — la pantalla de
+  dos pestañas del punto 3 ("Quién me debe" / "Todas las clientas"),
+  o dos pantallas separadas si preferís esa alternativa.
+- `AccountStatementScreen.kt`/`ViewModel`/`UiState`/`Route` — estado
+  de cuenta de una clienta: sus ventas `PENDING`, abonos por venta,
+  saldo, botón "Registrar abono" por venta (diálogo con
+  `MoneyTextField`, selector de método con `AssistChip` de un toque —
+  mismo patrón visual que los motivos de anulación de Fase 06,
+  D-037 — para `CASH`/`TRANSFER`/`OTHER`, y fecha con el `DatePicker`
+  de Material3 que ya usa `RegisterPurchaseScreen`, Fase 05).
+
+**Corrección de alcance a "Archivos permitidos" de `FASES.md`
+(propuesta, no aplicada todavía — mismo criterio que Fase 05/06: son
+omisiones de la lista original, no decisiones de diseño):**
+
+La lista original es `ui/customer/**`, `ui/credit/**`,
+`domain/usecase/*Payment*.kt`, `data/**`, `strings.xml`. Falta:
+
+- **`ui/sale/**`** — la razón más importante de todo este bloque:
+  `RegisterSaleScreen`/`ViewModel`/`UiState` necesitan el selector
+  contado/crédito (pregunta de diseño, abajo) para que una venta a
+  crédito sea alcanzable desde algún lado — sin esto, `SaleRepository`
+  soportaría crédito pero ninguna pantalla real podría registrar una.
+  Además, `TodaySalesScreen`/`SaleSummary` necesitan una insignia
+  visual "Crédito · Pendiente" en las filas que sean `CREDIT`/`PENDING`
+  — sin esto, una venta a crédito recién hecha se vería en "Ventas de
+  hoy" exactamente igual que una de contado ya cobrada, y ella podría
+  creer que tiene ese dinero en la mano cuando no lo tiene. No es un
+  detalle cosmético, es un riesgo real de que la app mienta sobre
+  cuánto efectivo tiene.
+- **`domain/pricing/PricingCalculator.kt`** — para `saleBalance`
+  (punto 2). Mismo tipo de corrección que ya hicieron Fase 05
+  (`weightedAverageCost`) y Fase 06 (`saleProfit`): es aritmética pura
+  de dinero, no le corresponde a un `usecase` de orquestación.
+- **`ui/navigation/**`** — destinos nuevos (`Customers`,
+  `AccountStatement`) y el botón nuevo en `HomeScreen` ("Clientes").
+  Misma corrección que Fase 05/06 ya necesitaron.
+- **`app/src/test/java/**/domain/**`, `app/src/test/java/**/data/**`,
+  `app/src/test/java/**/ui/**`** — la lista original no tiene **ningún**
+  directorio de test, y la fase está marcada `[TESTS OBLIGATORIOS]` —
+  mismo olvido exacto que tuvieron Fase 05 y Fase 06 antes de
+  corregirse. `ui/**` (no solo `ui/credit/**`/`ui/customer/**`) porque
+  también hace falta tocar el test de `RegisterSaleUiState` existente
+  para el nuevo estado de crédito.
+
+Ningún archivo fuera de estas listas (corregidas + originales) debería
+hacer falta tocar. Si durante la implementación aparece alguno más, lo
+anoto acá antes de tocarlo, como exige `CLAUDE.md` sección 7.
+
+### Plan de tests
+
+**`PricingCalculatorTest`** (nuevo grupo `saleBalance_*`): sin abonos,
+abono parcial, abono exacto (saldo cero), descuento que ya deja el
+total en cero con abonos también en cero.
+
+**`SaleRepositoryTest`** (extiende el archivo de Fase 06):
+- `register_creditSale_startsAsPendingWithCustomer` — `type = CREDIT`,
+  `status = PENDING`, `customer_id` correcto, sin abonos.
+- `register_creditSale_withoutInitialPayment_hasNoPaymentRows` (punto
+  5, criterio explícito).
+- `register_creditSale_initialPaymentCoversTotal_marksPaidImmediately`
+  — el camino que prueba que el abono inicial pasa por la misma
+  función que cualquier abono.
+- `register_creditSale_withoutCustomerId_throws` — defensa en
+  profundidad, mismo criterio que ya usa `register()` con
+  `checkNotNull`/`require` para CASH.
+- `registerPayment_exceedsBalance_throws` (criterio 3).
+- `registerPayment_zeroOrNegativeAmount_throws` (`payment.amount_cents
+  > 0` de `ESQUEMA.md`, caso de borde no cubierto por el criterio 3
+  literal pero sí por el esquema).
+- `registerPayment_exactBalance_marksPaid` /
+  `registerPayment_oneCentShort_staysPending` (criterio 4, el mismo
+  par "justo en el límite" que ya usan los tests de redondeo de Fase
+  02).
+- `registerPayment_onAlreadyPaidSale_throws` /
+  `registerPayment_onCancelledSale_throws`.
+- `observeCustomerDebts_everyRowHasPositiveBalance` — la invariante
+  que arriba dejé anotada en vez de asumir en silencio.
+- `observeCustomerDebts_sortedByBalanceDescending`.
+
+**`CustomerRepositoryTest`** (nuevo, Robolectric): CRUD básico, y
+`archive_withPendingBalance_throws` /
+`archive_withoutPendingBalance_succeeds` (la regla del punto 4).
+
+**Sin Robolectric (`app/src/test/java/**/ui/**`, JUnit4 puro, mismo
+criterio que `RegisterSaleUiStateTest`):** validación de
+`RegisterSaleUiState` extendido (cliente obligatorio si es crédito,
+abono inicial que excede el total, `canSave` con las dos ramas) y de
+cualquier estado puro nuevo de `ui/credit/`.
+
+### Verificación manual planeada (antes de cerrar, con capturas en
+`app/build/screenshots/fase07-*.png`, protocolo igual a Fases 03/05/06)
+
+- Alta de clienta (nombre solo, después con teléfono).
+- Venta a crédito completa: elegir contado→crédito, elegir clienta
+  (incluida la opción "+ Nueva clienta" si se implementa), **sin**
+  abono inicial, confirmar, verificar en la base real que `status =
+  PENDING` y no hay filas en `payment`.
+- Registrar un abono parcial con coma, letra por letra (punto 3).
+- Registrar un abono que exactamente cubre el saldo → verificar que
+  `status` pasa a `PAID` sin volver a tocar la venta a mano.
+- Intentar un abono mayor al saldo → aviso, rechazo.
+- Abrir "¿Quién me debe?": orden por saldo, texto de antigüedad con
+  los dos niveles de color.
+- Intentar archivar una clienta con saldo pendiente → bloqueado con el
+  mensaje claro.
+- "Ventas de hoy" con una venta a crédito reciente → confirmar que se
+  distingue visualmente de una de contado.
+
+### Bloqueos / preguntas para el humano
+
+Nada bloquea empezar el código de las partes no ambiguas (DAOs,
+`CustomerRepository`, `saleBalance`, `registerPayment`), pero dejo
+explícitas las propuestas de diseño que no estaban en `FASES.md`
+literal y que preferís confirmar o corregir antes de que las
+implemente:
+
+1. **Orden de "¿Quién me debe?"**: saldo descendente (mayor deuda
+   primero) — `FASES.md` no dice la dirección.
+2. **Unificar "¿Quién me debe?" y el CRUD de clientas en una sola
+   pantalla con dos pestañas**, en vez de dos pantallas separadas con
+   dos botones en `Home`.
+3. **Umbrales de antigüedad de deuda (15/30 días) fijos en código**,
+   no una clave nueva de `app_setting` — para no introducir una
+   migración que nadie pidió.
+4. **Bloquear archivar una clienta con saldo pendiente.**
+5. **"+ Nueva clienta" inline desde el selector de la venta a
+   crédito**, para no obligarla a abandonar la venta.
+6. **Corrección de "Archivos permitidos"** de `FASES.md` (arriba):
+   `ui/sale/**`, `domain/pricing/PricingCalculator.kt`,
+   `ui/navigation/**`, directorios de test.
+7. **La pregunta de diseño que hiciste sobre el flujo contado/crédito**
+   — ver la sección siguiente, separada porque tiene más detalle.
+
+No empiezo a escribir código todavía — quedo esperando tu respuesta a
+estos siete puntos (o a los que corrijas), como pediste.
+
+### Pregunta de diseño: ¿cómo elige entre contado y crédito?
+
+**Propuesta: un solo flujo ("Vender"), con un selector arriba de la
+pantalla, contado como opción por defecto.**
+
+`RegisterSaleScreen` gana un `SingleChoiceSegmentedButtonRow` (o
+`TabRow` chico, Material3) con dos opciones, **"Al contado"**
+preseleccionada siempre al entrar a la pantalla, **"A crédito"** al
+lado. Elegir piezas, cantidades y descuento es **exactamente el mismo
+carrito para las dos** — no se duplica nada de esa lógica ya probada
+en Fase 06. La única diferencia visible es lo que aparece **debajo del
+selector, antes del carrito**:
+
+- **Contado (default):** nada nuevo. El flujo es tap-a-tap idéntico al
+  de Fase 06, cero fricción agregada para el caso común — ni un campo
+  ni un toque de más.
+- **Crédito:** aparecen dos campos nuevos arriba del carrito —
+  `CustomerPickerDropdown` (obligatorio, sin él "Confirmar venta"
+  queda deshabilitado, mismo criterio que cualquier campo obligatorio
+  de esta app) y un `MoneyTextField` de "Abono inicial (opcional)"
+  debajo, vacío por default (punto 5: nunca exige un monto).
+
+**Por qué un selector arriba y no dos botones separados en el flujo
+de venta, ni un botón "Vender a crédito" aparte en Home:**
+- Dos botones en Home (uno "Vender", otro "Vender a crédito")
+  duplicaría toda la pantalla de selección de piezas/carrito/descuento
+  — la misma lógica de negocio en dos archivos, dos veces la
+  superficie de bugs, y contradice CLAUDE.md sección 6 ("dos acciones
+  grandes: Vender y Agregar pieza", no tres ni cuatro).
+- Un selector que aparece *después* de armar el carrito (al confirmar,
+  por ejemplo) es peor para el caso crédito: ella necesitaría elegir
+  la clienta recién al final, cuando ya invirtió tiempo armando el
+  carrito, en vez de decidirlo desde el principio — un cambio de
+  contexto tardío es más fricción, no menos.
+- Un selector arriba, con contado ya elegido de entrada, cumple las
+  dos mitades de tu pregunta a la vez: el caso común (contado) no
+  pierde ningún toque respecto a Fase 06 (nace preseleccionado), y el
+  crédito no queda escondido (está a un solo toque, visible apenas
+  entra a la pantalla, no en un menú ni un `Composable` colapsado —
+  mismo espíritu que D-026 ya aplicó para categoría: lo que se
+  esconde, no se descubre).
+
+Si la aprobás, esto es lo que dispara la corrección de `ui/sale/**` en
+"Archivos permitidos" (arriba). Si preferís otra forma de elegir
+(un botón "A crédito" chico junto al carrito, un diálogo aparte al
+confirmar, etc.), decímelo antes de que empiece.
+
+### Bloqueos — resueltos (2026-09-20)
+
+Los siete puntos, con la respuesta exacta del humano:
+
+1. **Orden de "¿Quién me debe?" (saldo descendente):** aprobado tal cual.
+2. **Unificar "¿Quién me debe?" y el CRUD de clientas en pestañas:**
+   aprobado tal cual — "el argumento sobre Home me convenció."
+3. **Umbrales de antigüedad (15/30 días) fijos en código:** aprobado,
+   **con el razonamiento corregido antes de registrarse** — ver el
+   bloque siguiente, "Corrección del punto 3". No quedó aprobado con
+   el motivo que yo escribí originalmente.
+4. **Bloquear archivar clienta con saldo pendiente:** aprobado tal cual.
+5. **"+ Nueva clienta" inline desde el selector de crédito:** aprobado
+   tal cual.
+6. **Corrección de "Archivos permitidos":** aprobada. El humano señaló
+   además que lo más valioso de este punto no era el pedido de
+   archivos en sí, sino algo que yo mencioné de paso dentro de la
+   justificación y que no estaba en `FASES.md`: la insignia
+   "Crédito · Pendiente" en "Ventas de hoy". Sin eso, una venta a
+   crédito recién hecha se ve igual que una de contado ya cobrada, y
+   ella podría cerrar el día creyendo que tiene efectivo que en
+   realidad no cobró — un problema real de confianza en los números
+   que muestra la app, no un detalle cosmético.
+7. **Selector contado/crédito arriba de "Vender", contado
+   preseleccionado:** aprobado tal cual.
+
+**Aplicado ya en este mismo commit sin tag** (antes de escribir
+código, como corresponde a una corrección de alcance, no a una
+decisión de diseño): `FASES.md`, "Archivos permitidos" de Fase 07,
+suma `ui/sale/**`, `domain/pricing/PricingCalculator.kt`,
+`ui/navigation/**`, `app/src/test/java/**/domain/**`,
+`app/src/test/java/**/data/**`, `app/src/test/java/**/ui/**`.
+
+Los puntos 1, 2, 4, 5 y 7 quedan registrados como decisiones de diseño
+nuevas en `DECISIONES.md` (D-038 a D-042 — ver ahí el detalle
+completo de cada uno, ya con la aprobación del humano incorporada).
+
+### Corrección del punto 3 (2026-09-20) — el motivo que había escrito era técnicamente falso
+
+Mi plan original decía: "una clave nueva en `app_setting` exige
+sembrarla también en instalaciones ya existentes, lo que en este
+proyecto se ha resuelto siempre con una migración Room" — y usaba eso
+como el argumento principal para no hacer configurable el umbral de
+antigüedad de deuda.
+
+**El humano corrigió esto, y con razón — lo dejo escrito para que
+ninguna sesión futura cite mi frase original como si fuera cierta:**
+la semilla de `app_setting` corre en `AppDatabase.SeedCallback.onCreate`,
+que solo se ejecuta en una instalación **nueva**. Para una instalación
+**existente**, agregar una clave nueva no exige la migración pesada que
+`MIGRATION_1_2` hizo para `price_history` (recrear la tabla completa
+por la columna con `FOREIGN KEY`) — alcanza con insertar la fila si
+falta, sin tocar el esquema de `app_setting` en absoluto (es una tabla
+clave/valor genérica, agregar una fila no es un cambio de esquema).
+`min_margin_bp` viajó dentro de `MIGRATION_1_2` porque esa migración
+ya estaba pasando por otra razón (las columnas nuevas de
+`price_history`, D-033) — no porque insertar una clave nueva en
+`app_setting` exigiera por sí sola ese mecanismo.
+
+**La decisión (umbrales fijos en código) se mantiene, pero con el
+motivo correcto:** nadie pidió que el umbral sea ajustable, un color
+de aviso en una pantalla no es una regla de negocio (a diferencia de
+`min_margin_bp`, que sí define cuándo avisar que una compra le deja
+poco margen — una cifra que afecta directamente cuánto gana), y
+agregar una clave de configuración para una preferencia que nadie
+expresó es complejidad sin demanda real. Registrado así en
+**D-041** de `DECISIONES.md`, reemplazando el motivo técnico que había
+usado acá.
+
+---
+
+## Fase 07 — Cierre
+
+**Rama:** `fase/07-credit`, abierta desde `main` (fases 00-06
+tageadas). Un solo commit, sin tag — como se pidió.
+
+### Qué se hizo
+
+**Esquema:** sin cambios. `customer`, `sale` y `payment` ya estaban
+completas desde la v1 (D-011) — esta fase solo agrega DAO,
+repositorio y pantallas. La versión de la base sigue en 2.
+
+**Dinero puro (`domain/pricing/PricingCalculator.kt`):**
+`saleBalance(total, discount, paid) = (total - discount) - paid` —
+`saldoDeVenta` de `ESQUEMA.md`, la única función de toda la app que
+hace esta resta. Nunca se persiste (criterio 2 de `FASES.md`).
+
+**Datos (`data/`):**
+- `CustomerDao`, `PaymentDao` (nuevos): CRUD mínimo + `sumForSale`.
+- `SaleDao` (extendido, no un DAO competidor — mismo criterio que
+  D-032/Fase 06): `observePendingCreditSales()`/
+  `observePendingCreditSalesForCustomer()`, filas crudas para que la
+  agregación y el cálculo de saldo vivan en Kotlin, no en SQL.
+- `CustomerRepository` (nuevo): CRUD sin `UseCase` intermedio (mismo
+  criterio que `CategoryRepository`), con `archive()` bloqueado si
+  hay saldo pendiente (D-039, `CustomerHasPendingBalanceException`
+  con el monto y la cantidad de ventas).
+- `SaleRepository` (extendido): `register()` soporta crédito
+  (`credit: CreditSaleDetails?`, `null` = contado, sin cambios de
+  Fase 06); `registerPayment()` valida y aplica un abono (rechaza
+  cero/negativo/que exceda el saldo, pasa a `PAID` si el saldo llega
+  a `Money.ZERO`); `observeCustomerDebts()` para "¿Quién me debe?";
+  `observeAccountStatements()` para el estado de cuenta;
+  `cancel()` ahora rechaza anular una venta con abonos ya registrados
+  (D-043, encontrado durante la implementación, no pedido).
+
+**Dominio:** `RegisterPaymentUseCase` (paso directo al repositorio,
+único `UseCase` que preveía `FASES.md` con su glob `*Payment*.kt`).
+La venta a crédito en sí reutiliza `RegisterSaleUseCase` sin tocarlo.
+
+**UI (`ui/customer/`):** `CustomerPickerDropdown` (selector con
+"+ Nueva clienta" inline, D-040) y `CustomerQuickAddDialog` (nombre +
+teléfono, diálogo chico para no interrumpir la venta).
+
+**UI (`ui/credit/`):** `CustomersScreen` (D-038: pestañas "Quién me
+debe" — orden por saldo descendente, antigüedad con dos niveles de
+color, D-041 — y "Todas las clientas" — CRUD completo con notas);
+`AccountStatementScreen` (total/abonos/saldo por venta, diálogo
+"Registrar abono" con `MoneyTextField` y chips de método).
+
+**UI (`ui/sale/`, extendida — D-042):** `RegisterSaleScreen` suma el
+selector "Al contado"/"A crédito" (contado preseleccionado) y, en
+crédito, el selector de clienta + abono inicial opcional.
+`TodaySalesScreen` suma la insignia "Crédito · Pendiente" en ventas
+`CREDIT`/`PENDING` (lo más valioso de la corrección de alcance, según
+tu propia revisión) y oculta "Anular venta" cuando la venta ya tiene
+abonos (D-043).
+
+**Navegación y Home:** destinos `Customers`/`AccountStatement`
+nuevos; botón "Clientes" chico en `HomeScreen`, mismo nivel que
+Inventario/Ventas de hoy/Registrar compra.
+
+**`CLAUDE.md`:** sección 10 suma la regla de que el silencio nunca es
+aprobación (pedido explícito). **`FASES.md`:** "Archivos permitidos"
+de Fase 07 corregido (`ui/sale/**`, `PricingCalculator.kt`,
+`ui/navigation/**`, directorios de test). **`DECISIONES.md`:** D-038
+a D-043 nuevas (las cinco del plan aprobadas tal cual, más D-043
+encontrada durante la implementación); el motivo del punto 3 quedó
+corregido dentro de D-041, no reescrito en el lugar original.
+
+### Archivos tocados fuera de "Archivos permitidos" (corregido)
+
+⚠️ **`di/DatabaseModule.kt`** — no está en ningún glob de "Archivos
+permitidos" de Fase 07 (tampoco lo estuvo, explícitamente, en Fase 05
+ni Fase 06, que igual lo tocaron para registrar sus DAOs nuevos sin
+que quedara anotado como corrección). Lo toqué por la misma razón
+mecánica: `CustomerDao`/`PaymentDao` (sí permitidos, bajo `data/**`)
+necesitan que Hilt los provea para poder inyectarse en cualquier
+`ViewModel`/repositorio — es la consecuencia obligatoria de agregar
+un DAO nuevo, no una decisión de diseño ni un archivo elegido por
+conveniencia. Lo dejo anotado acá, a diferencia de Fase 05/06 que no
+lo mencionaron, para que quede escrito una vez y no se repita la
+omisión.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | Build y tests pasan | `./gradlew testDebugUnitTest assembleDebug` | ✅ 159 tests, 0 fallos |
+| 2 | Saldo siempre `total - descuento - Σ abonos`, sin columna persistida | `PricingCalculatorTest.saleBalance_*` (5 tests) + por construcción: ningún esquema/entidad nueva agrega una columna de saldo (`git diff` de `ESQUEMA.md` y las entidades, sin cambios) | ✅ |
+| 3 | Abono que excede el saldo, rechazado con error claro | `SaleRepositoryTest.registerPayment_exceedsBalance_throwsWithClearMessage` + verificado a mano en el emulador (captura, con coma) | ✅ |
+| 4 | Saldo exacto → `PAID`; un centavo menos → sigue `PENDING` | `SaleRepositoryTest.registerPayment_exactBalance_marksPaid` / `_oneCentShort_staysPending` + verificado en base real | ✅ |
+
+### Tests agregados
+
+- `PricingCalculatorTest`: +5 (`saleBalance_*`). Total: 44.
+- `SaleRepositoryTest`: +15 — venta a crédito (nace `PENDING`, con/sin
+  abono inicial, abono inicial que cubre el total, cliente
+  inexistente/archivada rechazados), `registerPayment` (excede
+  saldo, monto cero, saldo exacto, un centavo corto, sobre venta ya
+  pagada, dos abonos parciales que acumulan), D-043 (anular con
+  abonos rechazado), "¿Quién me debe?" (invariante de saldo positivo,
+  orden descendente).
+- `CustomerRepositoryTest` (nuevo, Robolectric): 5 — alta/edición,
+  archivar sin deuda, archivar con deuda (rechazado, mensaje con
+  monto y cantidad exactos), archivar después de pagar.
+- `RegisterSaleUiStateTest`: +7 — contado ignora clienta/abono
+  inicial, crédito sin clienta (`canSave` falso), crédito sin abono
+  inicial (`canSave` verdadero, punto 5), abono inicial que excede el
+  neto, abono inicial incompleto, abono parcial válido, clientas
+  disponibles en el estado.
+
+Total: **159 tests, 0 fallos** (127 de Fase 06 + 32 nuevos).
+
+### Verificación manual en el emulador (con capturas, `app/build/screenshots/fase07-*.png`)
+
+Protocolo igual a Fases 03/05/06, con una corrección de método: los
+primeros intentos de tapear por coordenadas estimadas a ojo desde la
+captura (aplicando el factor de escala 900→1080) fallaron —
+`uiautomator dump` mostró que el botón real estaba en una posición
+muy distinta a la estimada visualmente. Desde ese punto, todas las
+coordenadas salieron de `uiautomator dump` real, no de estimación
+visual — más lento pero confiable, y lo dejo anotado para no repetir
+el mismo error en una verificación futura.
+
+1. **Selector contado/crédito:** "Al contado" preseleccionado al
+   entrar a "Vender" (`fase07-02-*`); "A crédito" revela clienta +
+   abono inicial, "Confirmar venta" deshabilitado sin clienta
+   (`fase07-03-*`).
+2. **"+ Nueva clienta" inline (D-040):** diálogo con nombre/teléfono,
+   "Agregar" deshabilitado sin nombre, clienta creada queda
+   seleccionada automáticamente sin salir de "Vender"
+   (`fase07-05` a `fase07-08`).
+3. **Abono inicial con coma:** "20,50" tecleado sin perder ningún
+   carácter ni el separador (`fase07-09-*`), verificado también en la
+   base real: `payment.amount_cents = 2050`.
+4. **Venta a crédito sin abono inicial (punto 5):** guardada sin
+   exigir ningún monto, `status = PENDING`, cero filas en `payment`
+   (`fase07-23-*`, verificado en base real).
+5. **Aviso de pérdida (D-035) también en crédito:** mismo diálogo,
+   mismo texto con el monto exacto (`fase07-11-*`).
+6. **"¿Quién me debe?" (D-038):** total agregado correcto
+   (Q8,979.50 = Q9,000.00 − Q20.50), orden descendente, "Debe desde
+   hoy" para una deuda del día (`fase07-14-*`).
+7. **Estado de cuenta:** total/abonos/saldo por venta, botón
+   "Registrar abono" (`fase07-15-*`).
+8. **Abono que excede el saldo:** aviso claro, "Registrar"
+   deshabilitado (`fase07-17-*`).
+9. **Abono con coma que cubre el saldo exacto:** `Registrar` habilitado,
+   confirmado, venta pasa a `PAID`, saldo total de la clienta baja a
+   `Q0.00`, la venta desaparece del estado de cuenta sin recargar
+   nada a mano (`fase07-18`, `fase07-19`) — verificado en base real:
+   `payment` con las dos filas (2050 + 897950 = 900000 exacto),
+   `sale.status = PAID`.
+10. **CRUD de clientas ("Todas las clientas"):** listado con teléfono,
+    edición con los tres campos incluidas notas, confirmación de
+    archivado con texto claro D-006 (`fase07-20` a `fase07-22`).
+11. **Insignia "Crédito · Pendiente" en "Ventas de hoy" (D-042):**
+    visible y en rojo en la venta pendiente, ausente en la de contado
+    ya cobrada, en la misma lista (`fase07-24-*`).
+12. Sin crashes en ningún momento de la sesión (`adb logcat -d | grep
+    -iE "FATAL|AndroidRuntime"` sobre el paquete, vacío).
+
+**Bug real encontrado durante esta verificación (no en revisión de
+código) y corregido en el mismo commit:** el chip "Otro" del selector
+de método de abono se cortaba en dos líneas ("Otr" / "o") porque la
+fila de tres chips no entraba en el ancho fijo del diálogo. Corregido
+con el mismo patrón que ya usa el diálogo de motivo de anulación
+(Fase 06, D-037): `Row` con `horizontalScroll`. Verificado de nuevo
+en el emulador tras el fix (`fase07-26-*`).
+
+### Suposiciones que tomé
+
+- **"¿Quién me debe?" y el CRUD de clientas unificados en una
+  pantalla con pestañas** (D-038) — aprobada explícitamente.
+- **Umbrales de antigüedad de deuda (15/30 días) fijos en código**
+  (D-041) — aprobada, con el motivo corregido por vos.
+- **"+ Nueva clienta" inline** (D-040) — aprobada explícitamente.
+- **Bloquear archivar con saldo pendiente** (D-039) — aprobada
+  explícitamente.
+- **D-043 (bloquear anular con abonos):** no fue parte de la ronda de
+  bloqueos — la tomé yo solo durante la implementación, con el mismo
+  criterio que D-036 (rechazar en vez de dejar datos a medio
+  consistentes). La marco para tu confirmación igual que las demás
+  decisiones no preguntadas antes de codificar.
+- El abono inicial de una venta a crédito, si se registra, usa
+  siempre `method = "CASH"` — no hay ningún selector de método en la
+  pantalla de venta (a diferencia del estado de cuenta, que sí lo
+  tiene para abonos posteriores). No pedido explícito; lo asumí
+  porque el flujo de alta rápida de la venta ya tiene bastantes
+  campos nuevos con el crédito, y el método del abono inicial me
+  pareció un detalle de segunda importancia frente a los datos que sí
+  hacen falta (clienta, monto). Si preferís que también se elija el
+  método ahí, es un cambio chico.
+
+### Lo que NO hice
+
+- **No agregué un selector de método al abono inicial** de la venta a
+  crédito (ver suposición arriba) — siempre `CASH`.
+- **No dividí "Ventas de hoy" en total cobrado vs. total vendido.**
+  El total de arriba (`Total: Qxxxx`) sigue sumando `net` de todas
+  las ventas del día, contado y crédito por igual — incluye dinero
+  que todavía no se cobró si hubo una venta a crédito. La insignia
+  por fila (D-042) resuelve la confusión al nivel de cada venta, pero
+  el total agregado no distingue las dos — me pareció alcance de
+  Fase 09 (reportes), no de esta fase, y no fue parte de lo pedido en
+  la ronda de bloqueos. Lo marco explícito para que no quede
+  ambiguo.
+- **No agregué "ver clientas archivadas"** en el CRUD — igual que
+  productos archivados, quedan invisibles pero no borrados (D-006);
+  una pantalla para verlas no está pedida por `FASES.md`.
+- **No implementé Fase 08** (recordatorios por WhatsApp) — el
+  teléfono ya se captura y guarda, listo para esa fase futura, pero
+  no se usa todavía.
+
+### Deuda técnica que dejé
+
+Ninguna deliberada dentro del alcance de esta fase.
+
+### Bloqueos / preguntas para el humano
+
+Uno solo, explícito: **D-043** (bloquear anular una venta con abonos)
+no pasó por la ronda de bloqueos — pido confirmación, con el mismo
+criterio de CLAUDE.md sección 10 que vos mismo reforzaste: no asumo
+aprobación por defecto. El resto de la fase queda lista para
+revisión, tag y merge.
+
+### Correcciones post-cierre (2026-09-20, mismo commit, antes del tag)
+
+**D-043 aprobada** ("el problema que detectaste es real y bloquear es
+correcto por ahora"), con dos correcciones:
+
+**1. Contradicción entre "mensaje claro" y "botón oculto":** la
+primera versión ocultaba "Anular venta" cuando había abonos, dejando
+el texto de explicación sin nada a lo que referirse — si el botón no
+aparece, ella lo busca, no lo encuentra, y no sabe si es una regla o
+un bug. Mismo error que ya se había corregido en Fase 06 con los
+topes de stock/saldo (nunca un límite invisible). Corregido: el botón
+queda **siempre visible, deshabilitado** cuando la venta tiene
+abonos, con el motivo en texto (ahora en rojo, mismo color que otros
+avisos bloqueantes de la app) siempre arriba de él, nunca escondido.
+Verificado con captura en el emulador
+(`fase07-29-cancel-blocked-visible.png`): venta con un abono de
+Q100.00 registrado, "Anular venta" visible pero apagado, con el texto
+completo arriba.
+
+**2. Instrucción accionable, pero honesta sobre lo que la app puede
+hacer:** el mensaje ahora le dice qué hacer mientras tanto en vez de
+solo "no se puede" — con una corrección sobre la sugerencia original.
+Instruirla a "anotar la devolución en las notas de la venta" habría
+sido la app mintiendo: `sale.notes` no tiene ninguna pantalla que lo
+edite después de creada la venta (`RegisterSaleViewModel.save()`
+siempre graba `notes = null`) — decirle que use un campo que no puede
+tocar es peor que no decirle nada. El texto final le pide anotarlo
+fuera de la app ("por ejemplo, en tu cuaderno") en su lugar. Ver
+`DECISIONES.md` D-043 para el detalle completo de esta corrección.
+
+**Limitación conocida agregada, no implementada (pedido explícito):**
+el escenario completo -- clienta abona, después devuelve la pieza --
+queda documentado como limitación conocida en D-043
+(`DECISIONES.md`) y como idea nueva en `FASES.md`, "Devoluciones con
+reembolso de abonos", con el escenario concreto. No se toca código
+de esa funcionalidad en esta fase.
+
+`./gradlew testDebugUnitTest assembleDebug` tras las correcciones:
+**159 tests, 0 fallos** (ningún test nuevo hacía falta -- el cambio
+es de UI/texto, no de lógica de `SaleRepository`, que ya estaba
+probada). Sin crashes en la verificación repetida
+(`adb logcat -d | grep -iE "FATAL|AndroidRuntime"` sobre el paquete,
+vacío).
+
+Sin bloqueos nuevos. Fase 07 queda lista para el tag.

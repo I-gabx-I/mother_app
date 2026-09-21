@@ -1901,6 +1901,310 @@ valor exacto en vez de solo `isNotNull()`.
 
 ---
 
+## D-038 — Pantalla "Clientes" única, con pestañas ("Quién me debe" / "Todas las clientas"), orden por saldo descendente
+
+**Contexto:** `FASES.md` (Fase 07) pide dos cosas por separado —
+"CRUD de clientes" y una pantalla "¿Quién me debe?" — y no dice en qué
+dirección ordenar el saldo de esta última ("ordenada por monto", sin
+especificar ascendente o descendente). "Fase 07 — Plan" (`ESTADO.md`,
+2026-09-20) propuso unificar las dos en una sola pantalla con
+pestañas, en vez de dos pantallas con dos botones en `Home`, y ordenar
+por saldo de mayor a menor.
+
+**Decisión:**
+- Orden **descendente** por saldo total de la clienta: es la pregunta
+  que ella hace al abrir la pantalla ("¿quién me debe más?"), y la
+  deuda más grande es la que más conviene perseguir primero.
+- Una sola pantalla (`ui/credit/CustomersScreen.kt`) con dos pestañas:
+  "Quién me debe" (pestaña por defecto, solo clientas con saldo
+  pendiente > 0) y "Todas las clientas" (CRUD completo: agregar,
+  editar, archivar). Un solo botón nuevo en `HomeScreen` ("Clientes",
+  `TextButton` chico, mismo nivel que "Inventario"/"Ventas de
+  hoy"/"Registrar compra").
+
+**Por qué la pantalla única y no dos separadas:** `Home` ya tiene
+cuatro elementos chicos antes de esta fase; dos pantallas nuevas con
+dos botones dejarían cinco filas chicas, en contra del espíritu de
+CLAUDE.md sección 6 (dos acciones grandes, el resto son enlaces, no un
+dashboard). Además, el CRUD de clientas (agregar una nueva, corregir
+un teléfono) es una tarea rara comparada con revisar quién debe, que
+es diaria — no parecen merecer el mismo nivel de visibilidad en la
+navegación. El humano aprobó esta razón explícitamente ("el argumento
+sobre Home me convenció").
+
+**Descartado:** dos pantallas separadas con dos botones en `Home`
+(más literal a la redacción de `FASES.md`, pero infla `Home` sin
+necesidad real).
+
+**Consecuencia:** "CRUD de clientes" y "¿Quién me debe?" de
+`FASES.md` se cumplen los dos, como dos vistas de la misma pantalla,
+no como dos pantallas independientes.
+
+---
+
+## D-039 — Archivar una clienta con saldo pendiente queda bloqueado
+
+**Contexto:** `FASES.md` (Fase 07) pide "CRUD de clientes (archivar,
+no borrar)" sin decir qué pasa si la clienta tiene una venta a
+crédito todavía pendiente de cobro. `CustomersScreen` (D-038) excluye
+clientas archivadas de "Quién me debe", igual que `ProductRepository`
+excluye piezas archivadas de la pantalla de venta (Fase 06) —
+consistente con el resto del proyecto, pero con una consecuencia
+distinta acá: un producto archivado con stock no representa dinero
+que alguien le deba a ella; una clienta archivada con saldo pendiente
+sí.
+
+**Decisión:** `CustomerRepository.archive()` rechaza la operación
+(con mensaje claro: "Tiene Qxxxx pendientes en N venta(s) — no se
+puede archivar hasta que termine de pagar o anules esas ventas") si
+la clienta tiene saldo pendiente > 0 en alguna venta `PENDING`.
+
+**Por qué:** archivarla la saca de "Quién me debe" sin que la deuda
+real deje de existir — perdería visibilidad de un dinero real que
+todavía no cobró, exactamente lo que este módulo existe para evitar.
+El humano aprobó la propuesta tal cual.
+
+**Descartado:** permitir archivar igual, dejando la deuda "invisible"
+pero técnicamente todavía en la base (rechazado: contradice el
+propósito completo de la fase).
+
+**Consecuencia:** `CustomerRepository.archive()` necesita consultar el
+saldo pendiente de la clienta antes de archivar — usa la misma
+consulta de `SaleDao` que arma "¿Quién me debe?" (D-038), filtrada a
+una sola clienta, no una copia de esa lógica.
+
+---
+
+## D-040 — "+ Nueva clienta" inline desde el selector de venta a crédito
+
+**Contexto:** al registrar una venta a crédito (D-042), hace falta
+elegir una clienta de una lista. Si la clienta todavía no está
+cargada, la alternativa obvia es que ella abandone la venta, vaya a
+"Clientes", la agregue, y vuelva a armar el carrito desde cero.
+
+**Decisión:** `CustomerPickerDropdown` (`ui/customer/`, reutilizable)
+suma una opción al final de la lista, "+ Nueva clienta", que abre un
+diálogo chico (nombre obligatorio, teléfono opcional) sin abandonar la
+pantalla de venta ni perder el carrito ya armado.
+
+**Por qué:** el caso real de este módulo es "te pago después" en el
+momento exacto de la venta (CLAUDE.md sección 1). Obligarla a
+abandonar la venta para cargar a la clienta es fricción justo cuando
+menos la puede pagar — mismo espíritu que D-037 (sugerencias de un
+toque en la anulación, para no obligarla a salir del flujo). El
+humano aprobó la propuesta tal cual.
+
+**Descartado:** exigir que la clienta ya exista antes de poder vender
+a crédito (obliga a un paso previo separado, fricción real sin
+beneficio).
+
+**Consecuencia:** `CustomerPickerDropdown` depende de
+`CustomerRepository` para el alta rápida, no solo para leer la lista —
+mismo componente se reutiliza tanto en el CRUD (D-038) como en el
+flujo de venta (D-042).
+
+---
+
+## D-041 — Umbrales de antigüedad de deuda (15/30 días) fijos en código: no por costo de migración, sino porque nadie pidió que sean ajustables
+
+**Contexto:** "¿Quién me debe?" (D-038) distingue una deuda vieja de
+una reciente con un texto de fecha relativa y dos niveles de color
+(normal hasta 15 días, advertencia de 15 a 30, error más de 30 —
+mismo patrón visual de dos niveles que ya estableció D-031 para
+margen). "Fase 07 — Plan" (`ESTADO.md`, 2026-09-20) propuso dejar
+estos umbrales fijos en `ui/credit/`, en vez de una clave nueva en
+`app_setting`, **con un motivo que resultó ser técnicamente falso**:
+que agregar una clave nueva a `app_setting` exigiría una migración
+Room. El humano lo corrigió: la semilla de `app_setting` corre en
+`AppDatabase.SeedCallback.onCreate`, que solo se ejecuta en una
+instalación nueva; para una instalación existente alcanza con
+insertar la fila si falta, sin tocar el esquema de la tabla (es
+clave/valor genérica) — no hace falta la migración pesada que sí
+hizo falta para `price_history` (D-033, recrear la tabla completa por
+la columna con `FOREIGN KEY`). `min_margin_bp` viajó dentro de
+`MIGRATION_1_2` porque esa migración ya estaba pasando por otra razón
+(las columnas nuevas de `price_history`), no porque insertar una
+clave nueva lo exigiera por sí sola. Ver `ESTADO.md`, "Corrección del
+punto 3", para el detalle completo de la corrección.
+
+**Decisión (se mantiene, con el motivo correcto):** los umbrales de
+15/30 días quedan fijos en código (`ui/credit/`), no en `app_setting`.
+
+**Por qué — el motivo real, no el técnico que se descartó:** nadie
+pidió que este umbral sea ajustable. Un color de aviso en una
+pantalla no es una regla de negocio — a diferencia de `min_margin_bp`
+(D-031), que define cuándo avisar que una compra le deja poco margen,
+una cifra que afecta directamente cuánto gana ella. Agregar una clave
+de configuración para una preferencia que nadie expresó es
+complejidad sin demanda real (CLAUDE.md sección 5: no adelantar
+abstracciones sin un caso de uso real).
+
+**Descartado:**
+- El motivo técnico original ("exige una migración Room") — falso,
+  ver arriba. **Anotado explícitamente para que ninguna sesión futura
+  lo tome como precedente real: agregar una fila nueva a
+  `app_setting` para una instalación existente no exige el mecanismo
+  pesado de `MIGRATION_1_2`.**
+- Una clave nueva en `app_setting` para estos umbrales (rechazado por
+  el motivo correcto de arriba, no por costo de implementación).
+
+**Consecuencia:** si en el futuro alguien pide que estos umbrales sean
+ajustables, se resuelve en una decisión aparte, con su propia
+migración liviana (un `INSERT OR IGNORE` a `app_setting`, no una
+recreación de tabla) — el costo real de esa migración, si algún día
+hace falta, es bajo, y no debe usarse como argumento en contra de
+hacerla si hay una razón de negocio real para pedirla.
+
+---
+
+## D-042 — Selector contado/crédito en "Vender" (contado preseleccionado) + insignia "Crédito · Pendiente" en "Ventas de hoy"
+
+**Contexto:** `FASES.md` (Fase 07) pide que una venta pueda ser
+`CREDIT` (con o sin abono inicial) pero no dice cómo se elige entre
+contado y crédito al registrar una venta. Se le preguntó al humano
+directamente (pregunta de diseño, "Fase 07 — Plan",
+`ESTADO.md`, 2026-09-20): "¿cómo elige entre contado y crédito? el
+flujo más rápido para el caso común (contado), sin que el crédito
+quede escondido."
+
+**Decisión:**
+- `RegisterSaleScreen` (Fase 06) suma un
+  `SingleChoiceSegmentedButtonRow` (Material3) arriba de la pantalla,
+  con "Al contado" **preseleccionado siempre** al entrar y "A
+  crédito" al lado. El carrito (elegir piezas, cantidades, descuento)
+  es idéntico para los dos casos, sin duplicar la lógica ya probada
+  en Fase 06. Elegir "A crédito" revela, debajo del selector y antes
+  del carrito, un `CustomerPickerDropdown` (obligatorio, con la
+  opción "+ Nueva clienta" de D-040) y un `MoneyTextField` de "Abono
+  inicial (opcional)", vacío por defecto (nunca exige un monto,
+  cumpliendo el entregable "con o sin abono inicial" de `FASES.md`).
+- `TodaySalesScreen`/`SaleSummary` (Fase 06, extendidos) suman una
+  insignia visual "Crédito · Pendiente" en las filas de venta que
+  sean `type = CREDIT` y `status = PENDING`.
+
+**Por qué el selector arriba, con contado preseleccionado, y no otras
+alternativas consideradas:**
+- Dos botones separados en `Home` ("Vender" / "Vender a crédito")
+  duplicarían toda la pantalla de carrito en dos archivos — el doble
+  de superficie de bugs para la misma lógica de negocio — y violan
+  CLAUDE.md sección 6 (dos acciones grandes máximo).
+- Elegir contado/crédito recién al confirmar la venta es peor para el
+  caso crédito: ella elegiría la clienta después de haber invertido
+  tiempo armando el carrito, un cambio de contexto tardío que es más
+  fricción, no menos.
+- El selector arriba, con contado preseleccionado, deja el caso común
+  exactamente como en Fase 06 (cero toques de más) y deja el crédito a
+  un solo toque, visible de entrada, nunca escondido en un menú —
+  mismo espíritu que D-026 aplicó para categoría en el alta rápida de
+  pieza ("lo que se esconde, no se descubre").
+
+**Por qué la insignia en "Ventas de hoy" — la parte que el humano
+señaló como la más valiosa de esta ronda de revisión, no pedida por
+`FASES.md`:** sin ella, una venta a crédito recién registrada se ve en
+"Ventas de hoy" exactamente igual que una de contado ya cobrada (`net`
+formateado igual, sin ninguna marca) — ella podría cerrar el día
+creyendo que tiene en la mano un dinero que en realidad todavía no
+cobró. No es un detalle cosmético: es la app mostrando un número de
+efectivo que no corresponde a la realidad, el mismo tipo de riesgo que
+CLAUDE.md sección 3 ya trata como crítico para montos de dinero en
+general.
+
+**Descartado:**
+- Botones separados en `Home` para cada tipo de venta (duplica
+  lógica, viola CLAUDE.md sección 6).
+- Elegir el tipo de venta al confirmar, no al empezar (más fricción
+  para el caso crédito).
+
+**Consecuencia:** dispara la corrección de alcance de "Archivos
+permitidos" de Fase 07 (`ui/sale/**`, ver `ESTADO.md`) — sin tocar
+`RegisterSaleScreen`/`TodaySalesScreen`, ninguna de las dos mitades de
+esta decisión sería alcanzable.
+
+---
+
+## D-043 — No se anula una venta que ya tiene abonos registrados
+
+**Contexto:** encontrado al escribir `SaleRepository` para Fase 07, no
+pedido en la ronda de bloqueos ni en `FASES.md`. `cancel()` (Fase 06)
+ya existía para devolver el stock de una venta y marcarla
+`CANCELLED`, pensado originalmente solo para ventas `CASH`. Con
+crédito, una venta `PENDING` puede tener una o más filas reales en
+`payment` antes de anularse (el abono inicial, o abonos posteriores).
+Si `cancel()` se dejaba tal cual, anular esa venta la marcaría
+`CANCELLED` sin tocar sus `payment`, dejando esas filas apuntando a
+una venta cancelada -- el dinero que ya cobró de esa clienta quedaría
+sin ninguna venta viva a la que corresponder, y no hay en esta fase
+(ni está pedida) ninguna forma de anular un abono para deshacer ese
+estado.
+
+**Decisión:** `SaleRepository.cancel()` rechaza la operación
+(`check()`, mensaje claro con el monto ya abonado) si la venta tiene
+algún `payment` registrado, sin importar el monto. La UI
+("Ventas de hoy") no espera a que el repositorio la rechace: el botón
+"Anular venta" queda **visible pero deshabilitado**
+(`SaleDetail.canCancel`), con el motivo siempre a la vista arriba de
+él, y el texto le dice qué hacer mientras tanto (ver abajo) — no solo
+que no se puede.
+
+**Corrección de la primera versión (mismo commit, antes del tag,
+revisión del humano):** la primera versión de esta UI **ocultaba** el
+botón en vez de deshabilitarlo, dejando el texto de explicación sin
+nada a lo que referirse — la misma clase de error que ya corrigió
+Fase 06 con los topes de stock/saldo (D-030/D-035: un límite
+invisible es indistinguible de un bug para quien no puede ver el
+código). Si el botón directamente no aparece, ella busca "Anular
+venta", no lo encuentra, y no tiene forma de saber si es una regla o
+si la app se rompió. Corregido a botón siempre visible, deshabilitado
+cuando corresponde, con el motivo siempre presente arriba.
+
+**Por qué bloquear en vez de, por ejemplo, devolver también los
+abonos o dejarlos huérfanos:** ninguna de las alternativas tiene un
+lugar claro adónde ir. Devolver el dinero de los abonos no es una
+operación que este módulo modele (no hay "efectivo devuelto a la
+clienta" en ningún lado del esquema); dejarlos huérfanos rompe la
+garantía implícita de que todo `payment` corresponde a una venta
+viva. Bloquear es la única opción que no inventa un comportamiento
+nuevo no pedido ni deja datos en un estado a medias -- mismo criterio
+que ya usó D-036 (rechazar en vez de "arreglar" una entrada que no
+debería llegar así).
+
+**Descartado:**
+- Anular igual y dejar los `payment` como están (rompe la garantía de
+  integridad entre `payment` y `sale`, silenciosamente).
+- Devolver/anular los abonos también al anular la venta (inventa una
+  operación de negocio -- "devolución de abono" -- que nadie pidió y
+  que no tiene dónde vivir en el esquema actual).
+
+**Consecuencia:** `SaleDetail` suma `hasPayments`/`canCancel`.
+`SaleRepositoryTest.cancel_saleWithPayments_throws` prueba el
+rechazo. Si en el futuro hace falta anular una venta con abonos
+(ej. una devolución real), es una fase nueva con su propia decisión
+-- no se resuelve acá por elaboración.
+
+**Limitación conocida que esto NO resuelve (señalada por el humano,
+no implementada acá a propósito):** una clienta compra a crédito,
+abona una o más veces, y después devuelve la pieza. Hoy no hay ningún
+camino para ese caso completo: la venta no se puede anular (esta
+decisión), no existe manera de devolver o anular un abono ya
+registrado, y la pieza queda fuera del stock aunque ella la tenga de
+vuelta en la mano. El mensaje de la UI (`today_sales_cannot_cancel_has_payments`)
+le da una salida provisoria honesta -- anotarlo aparte, por ejemplo en
+su cuaderno físico -- en vez de dejarla en un callejón sin salida sin
+ninguna instrucción, que es exactamente el tipo de fricción que la
+haría volver al cuaderno para todo, no solo para este caso.
+**Corrección sobre el texto propuesto originalmente:** la primera
+idea era decirle "anotá la devolución en las notas de la venta", pero
+`sale.notes` no tiene ninguna pantalla que lo edite después de creada
+la venta (`RegisterSaleViewModel.save()` siempre graba `notes = null`)
+-- instruirla a usar un campo que la app no deja tocar sería la app
+mintiendo sobre lo que puede hacer (CLAUDE.md sección 5). El texto
+final le pide anotarlo fuera de la app en su lugar. Registrado acá
+como limitación conocida, y en `FASES.md` ("Ideas para después") como
+"Devoluciones con reembolso de abonos" — no se implementa en esta
+fase.
+
+---
+
 <!--
 ## D-00X — Título
 

@@ -1,6 +1,7 @@
 package gt.marcos.joyeria.ui.sale
 
 import com.google.common.truth.Truth.assertThat
+import gt.marcos.joyeria.data.repository.Customer
 import gt.marcos.joyeria.data.repository.ProductSummary
 import gt.marcos.joyeria.domain.model.Money
 import org.junit.Test
@@ -207,5 +208,90 @@ class RegisterSaleUiStateTest {
         )
 
         assertThat(state.availableProducts.map { it.id }).containsExactly(1L)
+    }
+
+    // --- Fase 07: contado/crédito (D-042). Contado sigue exactamente igual
+    // que Fase 06 -- estos tests prueban que agregar el crédito no le
+    // cambió nada al camino CASH. ---
+
+    @Test
+    fun canSave_cashSale_ignoresCustomerAndInitialPayment() {
+        // saleType por defecto es CASH: ni clienta ni abono inicial hacen
+        // falta, aunque estén sin completar.
+        val state = RegisterSaleUiState(lines = listOf(line(qtyText = "1")))
+
+        assertThat(state.isCredit).isFalse()
+        assertThat(state.canSave).isTrue()
+    }
+
+    @Test
+    fun canSave_creditSale_withoutCustomer_isFalse() {
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")),
+            saleType = SaleTypeChoice.CREDIT,
+            selectedCustomerId = null,
+        )
+
+        assertThat(state.canSave).isFalse()
+    }
+
+    @Test
+    fun canSave_creditSale_withCustomerAndNoInitialPayment_isTrue() {
+        // Punto 5 del pedido de Fase 07: nunca exige un abono inicial.
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")),
+            saleType = SaleTypeChoice.CREDIT,
+            selectedCustomerId = 1L,
+            initialPaymentText = "",
+        )
+
+        assertThat(state.initialPayment).isEqualTo(Money.ZERO)
+        assertThat(state.canSave).isTrue()
+    }
+
+    @Test
+    fun canSave_creditSale_initialPaymentExceedsNet_isFalse() {
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")), // net = 8000
+            saleType = SaleTypeChoice.CREDIT,
+            selectedCustomerId = 1L,
+            initialPaymentText = "90.00", // 9000 > 8000
+        )
+
+        assertThat(state.initialPaymentExceedsNet).isTrue()
+        assertThat(state.canSave).isFalse()
+    }
+
+    @Test
+    fun canSave_creditSale_initialPaymentIncomplete_isFalse() {
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")),
+            saleType = SaleTypeChoice.CREDIT,
+            selectedCustomerId = 1L,
+            initialPaymentText = "20.",
+        )
+
+        assertThat(state.initialPayment).isNull()
+        assertThat(state.canSave).isFalse()
+    }
+
+    @Test
+    fun canSave_creditSale_validPartialInitialPayment_isTrue() {
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")), // net = 8000
+            saleType = SaleTypeChoice.CREDIT,
+            selectedCustomerId = 1L,
+            initialPaymentText = "30.00",
+        )
+
+        assertThat(state.canSave).isTrue()
+    }
+
+    @Test
+    fun customers_availableForPicker_comeFromState() {
+        val customer = Customer(id = 1, name = "Doña María", phone = null, notes = null, archived = false)
+        val state = RegisterSaleUiState(customers = listOf(customer))
+
+        assertThat(state.customers).containsExactly(customer)
     }
 }
