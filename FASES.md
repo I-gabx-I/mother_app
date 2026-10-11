@@ -651,12 +651,53 @@ corregir ninguna.
 - Confirmaciones en toda acción irreversible.
 - Modo de carga inicial rápida, pensado para pasar el cuaderno a la app de un solo.
 - Ícono y nombre de la app.
+- **Cerrar los cuatro tests pendientes de la auditoría de nombres de test**
+  (ver abajo). No es trabajo nuevo: ya están identificados, con el problema
+  de cada uno escrito.
+
+**Deuda arrastrada — auditoría de nombres de test (2026-10-10):**
+
+La ronda de corrección de uso real auditó las 207 funciones de test del
+proyecto contra la regla de `CLAUDE.md` sección 8 ("el nombre de un test es
+una afirmación sobre lo que cubre"). Encontró 6 nombres que prometían más
+de lo que probaban. **Los dos de prioridad alta se arreglaron en esa misma
+ronda** (commit `fix: user feedback round`); estos cuatro quedaron
+explícitamente diferidos acá:
+
+| Test | Qué promete de más |
+|---|---|
+| `MoneyInputTest.toEditableText_and_parseMoneyToCents_areInverses` | "Son inversas" probado con **un** valor y **una** dirección |
+| `MoneyTest.compareTo_ordersByCents` | Ejercita solo `<`; el operador que usa producción es `>` |
+| `SaleRepositoryTest.observeCustomerDebts_everyRowHasPositiveBalance` | `all { }` sobre una lista de **una** fila |
+| `PricingCalculatorTest.weightedAverageCost_totalQtyZeroOrLess_...` | "Cero o menos": prueba solo el cero |
+
+Se agrega uno más, detectado en la misma auditoría pero no contado entre
+los 6 porque apareció como contexto de otro hallazgo:
+`RegisterSaleUiStateTest.availableProducts_filtersByName_caseInsensitive`
+prueba una sola dirección de caso. Conviene arreglarlo junto con los
+cuatro: su test hermano (`..._filtersByUid_regardlessOfQueryCase`) ya se
+corrigió y hoy los dos usan criterios de nombre distintos.
+
+**El detalle completo de cada uno — por qué importa, qué caso falta y el
+orden sugerido — está en `ESTADO.md`, sección "Auditoría de nombres de test
+(2026-10-10)".** No repetir el análisis acá: leer esa sección antes de
+tocar nada. Se anota en esta fase, y no se deja solo en `ESTADO.md`, porque
+entre la ronda de corrección y el pulido final hay siete fases de distancia
+y una deuda que solo vive en la bitácora es una deuda que nadie encuentra.
+
+Criterio al arreglarlos (sección 8): **partir en dos tests antes que
+acortar el nombre.** El nombre acortado es honesto, pero la rama que se cae
+del nombre se cae también de la cobertura. Y verificar por mutación que
+cada test nuevo detecta la regresión que dice proteger, como se hizo con
+los dos de prioridad alta.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
 2. Checklist de accesibilidad completo en `ESTADO.md`, pantalla por pantalla.
 3. Lista completa de strings de UI revisada y pegada en `ESTADO.md` para aprobación humana.
 4. Prueba con la usuaria real documentada: qué logró sola, dónde se trabó.
+5. Los cinco tests de la deuda de arriba, cerrados: cada uno ejercita lo que
+   su nombre afirma, o lleva un nombre que afirma solo lo que ejercita.
 
 **Commit:** `fase-15: usability polish` → tag `fase-15-ok`
 
