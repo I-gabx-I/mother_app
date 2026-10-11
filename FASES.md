@@ -694,6 +694,43 @@ del nombre se cae también de la cobertura. Y verificar por mutación que
 cada test nuevo detecta la regresión que dice proteger, como se hizo con
 los dos de prioridad alta.
 
+**Deuda arrastrada — auditoría de relojes en repositorios (2026-10-10):**
+
+La misma ronda de corrección encontró `System.currentTimeMillis()` dentro
+de `CustomerRepository.add()` y lo arregló ahí mismo (D-055). Al revisar el
+resto de `data/`/`domain/` contra la misma regla ("un repositorio no lee el
+reloj; toda marca de tiempo que se persiste entra como parámetro desde
+`ui`"), quedaron cuatro más, **sin tocar**:
+
+| # | Lugar | Qué marca | Costo de arreglarlo |
+|---|---|---|---|
+| 1 | `ProductRepository.insert` | `created_at` y `updated_at` de una pieza nueva | `AddProductInput` gana `createdAt`. Toca `AddProductViewModel` y los tests de alta |
+| 2 | `ProductRepository.archive` | `updated_at` al archivar | `archive(id, updatedAt)`, igual que `SaleRepository.cancel(id, cancelledAt, ...)`. Toca `ProductEditViewModel` |
+| 3 | `ProductRepository.update` | `updated_at`, y el `changed_at` de la fila de `price_history` | `EditProductInput` gana `updatedAt`. El de mayor valor de los cuatro: `price_history` es el historial de precios, y hoy no hay forma de testear con qué fecha se inserta una fila sin depender de la hora real |
+| 4 | `PurchaseRepository.register` | `updated_at` de los productos y `changed_at` de `price_history` | `RegisterPurchaseInput` ya recibe `purchasedAt` de quien llama; le falta el `now` de las escrituras derivadas |
+
+**Nota de riesgo sobre el caso 4, a leer antes de tocar
+`PurchaseRepository.register`:** `register()` ya acepta `purchasedAt` como
+parámetro (D-032, porque la usuaria puede anotar una compra con fecha
+anterior) y hoy además llama al reloj para las escrituras derivadas. Las
+dos fechas son distintas **a propósito** — la compra pudo ser la semana
+pasada, pero el costo nuevo rige desde hoy — pero nada en el código lo dice.
+Agregar el parámetro que falta deja una firma con **dos fechas
+`Long`/epoch millis, una al lado de la otra, que significan cosas
+distintas**: `purchasedAt` (cuándo pasó la compra) y el `now` nuevo
+(cuándo se registró, para `updated_at`/`changed_at`). Eso es exactamente la
+clase de firma donde alguien, meses después, invierte los dos argumentos
+sin que el compilador se queje — los dos son `Long`, ninguna de las dos
+fechas es inherentemente "la primera". El nombre del parámetro nuevo tiene
+que distinguirlas sin ambigüedad (`recordedAt`, no `now` ni `timestamp`) y
+llevar un comentario que diga por qué son dos y no una. Quien cierre este
+punto lee esta nota antes de escribir la firma, no después.
+
+**El detalle completo — tabla con rutas de archivo y línea, y el resto de
+las observaciones — está en `ESTADO.md`, sección "Auditoría de relojes en
+repositorios (2026-10-10)".** Orden sugerido ahí: 3 y 4 juntos primero (los
+que habilitan tests reales y los que hoy confunden), 1 y 2 después o nunca.
+
 **Criterios de aceptación:**
 1. Build y tests pasan.
 2. Checklist de accesibilidad completo en `ESTADO.md`, pantalla por pantalla.
