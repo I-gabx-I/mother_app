@@ -212,4 +212,14 @@
     <string name="category_manage_archive_confirm_message">"%1$s" ya no se va a ofrecer para piezas nuevas. Las piezas que ya la tengan asignada la van a seguir mostrando, marcada como archivada.</string>
     <string name="category_manage_archive_confirm_confirm">Sí, archivar</string>
     <string name="category_manage_archive_confirm_cancel">Cancelar</string>
+
+    <!-- Fase 10: recordatorios y estado de cuenta por WhatsApp -->
+    <string name="whatsapp_reminder_button">Recordar por WhatsApp</string>
+    <string name="whatsapp_reminder_message">Hola %1$s, ¿cómo estás? Te escribo para recordarte que te quedó pendiente %2$s de las piezas que llevaste. Si podés pasar a dejármelo cuando te quede bien, te lo agradezco. ¡Que estés bien!</string>
+    <string name="whatsapp_reminder_invalid_phone">No pudimos preparar el mensaje: revisá el teléfono de %1$s.</string>
+    <string name="account_statement_share_button">Compartir estado de cuenta</string>
+    <string name="account_statement_share_chooser_title">Compartir estado de cuenta</string>
+    <string name="account_statement_share_header">Estado de cuenta de %1$s</string>
+    <string name="account_statement_share_line">%1$s — Total: %2$s — Saldo: %3$s</string>
+    <string name="account_statement_share_total">Saldo total: %1$s</string>
 </resources>

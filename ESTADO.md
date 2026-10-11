@@ -8540,3 +8540,145 @@ Una sola, y es la que de verdad importa:
   con su razón, no hace falta que lo confirmes punto por punto.
 
 **Paro acá. Empiezo a escribir código cuando confirmes el mensaje.**
+
+---
+
+## Fase 10 — Recordatorios y estado de cuenta por WhatsApp
+
+**Inicio:** 2026-10-11
+**Cierre:** 2026-10-11
+**Commit:** (pendiente, un solo commit, sin tag todavía — paro antes del tag)
+
+### Qué se hizo
+
+Confirmaste el mensaje tal cual (sin emoji). Implementado según el plan:
+
+- `util/WhatsAppLink.kt` (nuevo): `normalizePhone(raw): String?` (los ocho
+  formatos de la tabla del plan, los cuatro de `FASES.md` más los cuatro
+  adicionales) y `buildReminderUrl(phone, message): String`, URL-encodeado
+  con `java.net.URLEncoder`, sin Android, JUnit4 puro.
+- `ui/credit/WhatsAppReminderButton.kt` (nuevo): `WhatsAppReminderButton`
+  (texto, perfil) y `WhatsAppReminderIconButton` (ícono solo, fila de
+  "¿Quién me debe?"). Ninguno aparece si el teléfono está vacío; si no
+  normaliza, avisan por `onInvalidPhone` en vez de quedar sin hacer nada.
+- `ui/credit/ShareAccountStatementButton.kt` (nuevo): arma el texto plano
+  del estado de cuenta y lo manda por `Intent.ACTION_SEND` +
+  `createChooser` (entregable de `FASES.md`, no específico de WhatsApp).
+- `CustomersScreen.kt`: ícono de WhatsApp en cada fila de `DebtRow`
+  (¿Quién me debe?), con `Snackbar` propio en el `Scaffold` para el caso
+  de teléfono inválido.
+- `CustomerProfileScreen.kt`: los dos botones nuevos (Recordar por
+  WhatsApp / Compartir estado de cuenta), apilados, junto a "Saldo
+  total" -- solo si `state.hasDebt`. Mismo `Snackbar` propio.
+- `strings.xml`: el mensaje confirmado (`whatsapp_reminder_message`) y el
+  resto de las claves nuevas.
+
+### Corrección encontrada durante la verificación manual (mismo commit)
+
+Los dos botones nuevos usaban `Modifier.height(48.dp)` -- por debajo del
+mínimo de 56dp que exige CLAUDE.md sección 6, y además insuficiente:
+"Compartir estado de cuenta" no entra en una línea a media pantalla y el
+texto quedaba cortado (visto en el emulador, `fase10-29`). Corregido a
+`heightIn(min = 56.dp)` y, en el perfil, los dos botones pasaron de un
+`Row` lado a lado a un `Column` apilado de ancho completo (mismo patrón
+que "Guardar cambios"/"Archivar pieza" en `ProductEditScreen`). No estaba
+en el plan original; se encontró con los ojos, no se podía prever
+leyendo el código -- misma clase de hallazgo que justifica la regla de
+"tocar la pantalla" de CLAUDE.md sección 7.10, aunque esta no sea una
+lista nueva.
+
+### Archivos tocados
+
+Todos dentro de "Archivos permitidos" de `FASES.md` (`ui/credit/**`,
+`util/WhatsAppLink.kt`, `strings.xml`), más la corrección de alcance ya
+anotada en el plan para los directorios de test:
+`util/WhatsAppLink.kt`, `ui/credit/WhatsAppReminderButton.kt`,
+`ui/credit/ShareAccountStatementButton.kt`, `ui/credit/CustomersScreen.kt`,
+`ui/credit/CustomerProfileScreen.kt`, `strings.xml`,
+`app/src/test/java/**/util/WhatsAppLinkTest.kt` (nuevo).
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | Build y tests pasan | `./gradlew assembleDebug testDebugUnitTest` | ✅ (234 tests, 0 fallos; eran 225) |
+| 2 | Test de normalización: los cuatro formatos de `FASES.md` dan el mismo resultado | `WhatsAppLinkTest.normalizePhone_theFourFasesExamples_allNormalizeToTheSameResult` | ✅ |
+| 3 | Test de URL-encoding correcto (tildes, ñ, saltos de línea) | `WhatsAppLinkTest.buildReminderUrl_encodesAccentsAndNewlines` / `..._encodesEne` | ✅ |
+| 4 | La app no pide permiso de contactos ni de teléfono | `AndroidManifest.xml` sin tocar (no está en "Archivos permitidos"); ni `ACTION_VIEW` sobre `https://` ni `ACTION_SEND` de texto piden permiso | ✅ |
+
+### Tests agregados
+
+`app/src/test/java/gt/marcos/joyeria/util/WhatsAppLinkTest.kt` (9):
+`normalizePhone_eightDigits_prependsCountryCode`,
+`normalizePhone_elevenDigitsStartingWith502_isUsedAsIs`,
+`normalizePhone_thirteenDigitsWithDoubleZeroPrefix_stripsTheDoubleZero`,
+`normalizePhone_theFourFasesExamples_allNormalizeToTheSameResult`,
+`normalizePhone_additionalRealGuatemalanFormats_allNormalizeToTheSameResult`,
+`normalizePhone_tooFewOrTooManyDigits_returnsNull`,
+`normalizePhone_nonGuatemalanCountryCode_returnsNull`,
+`buildReminderUrl_encodesAccentsAndNewlines`, `buildReminderUrl_encodesEne`.
+
+### Verificación manual (emulador `Medium_Phone_API_35`, sin WhatsApp instalado)
+
+El emulador no tiene WhatsApp, así que no se vio la conversación real --
+pero `wa.me` redirige a `api.whatsapp.com/send/`, que **muestra el número
+y el mensaje precargado antes de pedir "Open app"**, así que alcanzó para
+verificar de punta a punta lo que le importa a esta fase:
+
+1. **Venta a crédito real** a una clienta nueva ("ClientaPrueba"), con
+   teléfono `00502 5555 1234` (uno de los formatos agregados, no uno de
+   los cuatro de `FASES.md`), para generar una deuda real sin tocar la
+   base a mano.
+2. **"¿Quién me debe?"**: las dos filas (`ClientaPrueba` y una clienta de
+   pruebas anteriores) muestran el ícono de WhatsApp.
+3. **Tocar el ícono** abrió Chrome (no hay WhatsApp) en
+   `api.whatsapp.com/send/`, mostrando **"Chat on WhatsApp with +502 5555
+   1234"** -- confirma que `00502 5555 1234` normalizó correcto -- y el
+   mensaje precargado exacto: "Hola ClientaPrueba, ¿cómo estás? Te
+   escribo para recordarte que te quedó pendiente...", con tildes
+   decodificadas bien. Un botón "Open app" esperando el toque -- nada se
+   manda solo. Captura: `fase10-27-wame-page.png`.
+4. **Perfil de clienta**: los dos botones ("Recordar por WhatsApp",
+   "Compartir estado de cuenta") se ven completos tras la corrección de
+   altura. Captura: `fase10-31-profile-fixed.png`.
+5. **Compartir estado de cuenta**: abre el selector de Android con el
+   texto armado ("Estado de cuenta de ClientaPrueba / 10/11/26 — Total:
+   Q9,000.00 — Saldo: Q9,000.00 / Saldo total: Q9,000.00"). Captura:
+   `fase10-32-share-sheet.png`.
+6. **Teléfono no normalizable** (`123454`, editado a mano): el botón
+   **sigue apareciendo** y, al tocarlo, muestra el `Snackbar` exacto "No
+   pudimos preparar el mensaje: revisá el teléfono de ClientaPrueba." --
+   sin abrir nada. Captura: `fase10-38-invalid-phone-snackbar.png`.
+7. **Sin teléfono** (campo vacío): el botón de WhatsApp **desaparece**
+   del perfil; "Compartir estado de cuenta" se queda (no depende del
+   teléfono). Captura: `fase10-41-no-phone.png`.
+
+Capturas completas en `app/build/screenshots/fase10-*.png` (41 archivos;
+varias son reintentos por coordenadas mal calculadas al automatizar los
+taps con `adb shell input tap`, no hallazgos del producto).
+
+### Suposiciones que tomé
+
+- Ícono `Icons.AutoMirrored.Filled.Chat` para "Recordar por WhatsApp" (no
+  existe ícono de marca de WhatsApp en Material Icons) y
+  `Icons.Default.Share` para "Compartir" -- ya estaba en el plan.
+- El botón de WhatsApp no se ofrece en "Todas las clientas" (sin deuda,
+  nada que recordar) -- ya estaba en el plan.
+
+### Lo que NO hice
+
+- No agregué un ícono de marca de WhatsApp (dibujar uno propio era
+  desproporcionado para esta fase).
+- No implementé reintentar automáticamente si el `Intent` fallara --
+  `ACTION_VIEW` sobre `https://` prácticamente nunca falla (siempre hay
+  un navegador), así que no hay `try/catch` de `ActivityNotFoundException`
+  alrededor del `startActivity`. Si en el uso real aparece un caso real
+  donde falle, se agrega ahí con el caso concreto en la mano, no antes.
+
+### Deuda técnica que dejé
+
+Ninguna nueva.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno. **Falta el tag** (`fase-10-ok`) — lo ponés vos.

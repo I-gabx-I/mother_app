@@ -26,11 +26,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -44,6 +48,7 @@ import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.ui.customer.CustomerFormDialog
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 // D-041: umbrales fijos en código, no una clave de app_setting -- nadie pidió
@@ -76,6 +81,12 @@ fun CustomersScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Fase 10: feedback efímero cuando un teléfono no se pudo preparar
+    // para WhatsApp (DebtRow). Estado puramente de UI, no de negocio --
+    // se queda local en vez de pasar por el ViewModel.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -95,6 +106,7 @@ fun CustomersScreen(
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             SecondaryTabRow(selectedTabIndex = state.tab.ordinal) {
@@ -111,7 +123,11 @@ fun CustomersScreen(
             }
 
             when (state.tab) {
-                CustomersTab.WHO_OWES_ME -> WhoOwesMeTab(state = state, onDebtClick = onCustomerClick)
+                CustomersTab.WHO_OWES_ME -> WhoOwesMeTab(
+                    state = state,
+                    onDebtClick = onCustomerClick,
+                    onWhatsAppUnavailable = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+                )
                 CustomersTab.ALL_CUSTOMERS -> AllCustomersTab(
                     customers = state.allCustomers,
                     onCustomerClick = onCustomerClick,
@@ -172,7 +188,11 @@ fun CustomersScreen(
 }
 
 @Composable
-private fun WhoOwesMeTab(state: CustomersUiState, onDebtClick: (Long) -> Unit) {
+private fun WhoOwesMeTab(
+    state: CustomersUiState,
+    onDebtClick: (Long) -> Unit,
+    onWhatsAppUnavailable: (String) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = stringResource(R.string.customers_total_debt_label, state.totalDebt.format()),
@@ -193,7 +213,11 @@ private fun WhoOwesMeTab(state: CustomersUiState, onDebtClick: (Long) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(state.debts, key = { it.customerId }) { debt ->
-                    DebtRow(debt = debt, onClick = { onDebtClick(debt.customerId) })
+                    DebtRow(
+                        debt = debt,
+                        onClick = { onDebtClick(debt.customerId) },
+                        onWhatsAppUnavailable = onWhatsAppUnavailable,
+                    )
                 }
             }
         }
@@ -201,19 +225,29 @@ private fun WhoOwesMeTab(state: CustomersUiState, onDebtClick: (Long) -> Unit) {
 }
 
 @Composable
-private fun DebtRow(debt: CustomerDebtSummary, onClick: () -> Unit) {
+private fun DebtRow(
+    debt: CustomerDebtSummary,
+    onClick: () -> Unit,
+    onWhatsAppUnavailable: (String) -> Unit,
+) {
     val days = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - debt.oldestPendingSaleAt).toInt().coerceAtLeast(0)
     val ageColor = when {
         days >= ALERT_DAYS -> MaterialTheme.colorScheme.error
         days >= WARNING_DAYS -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    // Fase 10: mismo texto que el botón del perfil, armado acá porque
+    // necesita el nombre y el saldo de esta fila puntual.
+    val reminderMessage = stringResource(R.string.whatsapp_reminder_message, debt.customerName, debt.totalBalance.format())
+    val invalidPhoneMessage = stringResource(R.string.whatsapp_reminder_invalid_phone, debt.customerName)
+
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(debt.customerName, style = MaterialTheme.typography.bodyLarge)
                 Text(
                     text = daysAgoText(days),
@@ -222,6 +256,11 @@ private fun DebtRow(debt: CustomerDebtSummary, onClick: () -> Unit) {
                 )
             }
             Text(debt.totalBalance.format(), style = MaterialTheme.typography.bodyLarge)
+            WhatsAppReminderIconButton(
+                phone = debt.customerPhone,
+                message = reminderMessage,
+                onInvalidPhone = { onWhatsAppUnavailable(invalidPhoneMessage) },
+            )
         }
     }
 }

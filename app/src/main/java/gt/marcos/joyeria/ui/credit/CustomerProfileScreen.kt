@@ -28,16 +28,21 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
+import kotlinx.coroutines.launch
 import gt.marcos.joyeria.data.repository.Customer
 import gt.marcos.joyeria.data.repository.CustomerPurchaseHistory
 import gt.marcos.joyeria.data.repository.PaymentSummary
@@ -83,6 +88,11 @@ fun CustomerProfileScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Fase 10: feedback efímero si el teléfono no se pudo preparar para
+    // WhatsApp -- mismo criterio que CustomersScreen, estado local de UI.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -103,6 +113,7 @@ fun CustomerProfileScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier.padding(innerPadding).fillMaxSize(),
@@ -131,6 +142,36 @@ fun CustomerProfileScreen(
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+                item {
+                    val reminderMessage = stringResource(
+                        R.string.whatsapp_reminder_message,
+                        state.customerName,
+                        state.totalBalance.format(),
+                    )
+                    val invalidPhoneMessage = stringResource(
+                        R.string.whatsapp_reminder_invalid_phone,
+                        state.customerName,
+                    )
+                    // Apilados, no lado a lado: "Compartir estado de
+                    // cuenta" no entra en una sola línea a media pantalla
+                    // (se probó así en el emulador y el texto quedaba
+                    // cortado) -- mismo patrón que el resto de la app
+                    // (Guardar/Archivar en ProductEditScreen).
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WhatsAppReminderButton(
+                            phone = state.customer?.phone,
+                            message = reminderMessage,
+                            onInvalidPhone = { scope.launch { snackbarHostState.showSnackbar(invalidPhoneMessage) } },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        ShareAccountStatementButton(
+                            customerName = state.customerName,
+                            statements = state.statements,
+                            totalBalance = state.totalBalance,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 items(state.statements, key = { "statement-${it.saleId}" }) { statement ->
                     SaleStatementCard(
