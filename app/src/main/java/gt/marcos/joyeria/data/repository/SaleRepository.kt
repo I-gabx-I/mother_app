@@ -103,25 +103,39 @@ class SaleRepository @Inject constructor(
         val totalCents = items.sumOf { (_, line) -> line.unitPrice.cents * line.qty }
         val totalCostCents = items.sumOf { (product, line) -> product.costCents * line.qty }
 
-        // D-042: `credit == null` es el camino de Fase 06 sin ningún cambio
-        // (CASH/PAID/sin clienta). `credit != null` nace SIEMPRE PENDING
-        // (FASES.md: "con o sin abono inicial") -- si trae un abono inicial,
-        // se procesa después de insertar, por el mismo camino que cualquier
-        // otro abono (registerPaymentInternal), no un `if` especial.
+        // D-042: `credit == null` es el camino de Fase 06 (CASH/PAID).
+        // `credit != null` nace SIEMPRE PENDING (FASES.md: "con o sin abono
+        // inicial") -- si trae un abono inicial, se procesa después de
+        // insertar, por el mismo camino que cualquier otro abono
+        // (registerPaymentInternal), no un `if` especial.
+        //
+        // Fase 08: la clienta puede venir por dos lados. En crédito sale de
+        // `credit` (es la que debe); en contado, de `input.customerId` (la
+        // venta se le asocia pero no es deuda). `credit` gana si están los
+        // dos: la que debe no se puede cambiar por otra.
         val credit = input.credit
-        if (credit != null) {
-            val customer = checkNotNull(customerDao.getById(credit.customerId)) {
-                "Cliente ${credit.customerId} no existe -- no se puede vender a crédito a alguien que no está"
+        val customerId = credit?.customerId ?: input.customerId
+
+        // La validación corre para CUALQUIERA de los dos caminos, no solo
+        // para el crédito como hasta Fase 07. La clave foránea de
+        // `sale.customer_id` es NO_ACTION (ESQUEMA.md), así que la base no
+        // frena una venta apuntando a una clienta que no existe; y una
+        // clienta archivada no debería recibir ventas nuevas por ningún
+        // camino. Sin esto, el contado habría sido la puerta de atrás a las
+        // dos cosas.
+        if (customerId != null) {
+            val customer = checkNotNull(customerDao.getById(customerId)) {
+                "Cliente $customerId no existe -- no se puede venderle a alguien que no está"
             }
             check(!customer.archived) {
-                "Cliente ${credit.customerId} está archivada -- no se puede registrar una venta a crédito nueva"
+                "Cliente $customerId está archivada -- no se puede registrar una venta nueva a su nombre"
             }
         }
 
         val saleId = saleDao.insert(
             SaleEntity(
                 soldAt = input.soldAt,
-                customerId = credit?.customerId,
+                customerId = customerId,
                 type = if (credit != null) "CREDIT" else "CASH",
                 status = if (credit != null) "PENDING" else "PAID",
                 totalCents = totalCents,
@@ -324,6 +338,38 @@ class SaleRepository @Inject constructor(
                 }
             }
         }
+
+    /**
+     * Historial completo de compras de una clienta para su perfil
+     * (Fase 08): contado y crédito, incluidas las anuladas (B-06).
+     *
+     * `mayBeMissingCashSales` sale de comparar sus ventas contra la
+     * **primera venta de contado registrada con clienta en toda la base**
+     * (B-10). Si tiene alguna venta anterior a esa fecha, estuvo comprando
+     * en la época en que la app no guardaba a quién se le vendía, así que
+     * su historial **puede** tener huecos de contado y la pantalla lo
+     * avisa. Si todo su historial es posterior, no hay nada que explicar y
+     * no se muestra ningún aviso.
+     *
+     * Si todavía no existe **ninguna** venta de contado con clienta
+     * (`firstNamed == null`), el registro por nombre no empezó: cualquier
+     * clienta con historial previo puede tener huecos, así que el aviso se
+     * muestra. Se apaga solo en cuanto exista la primera.
+     *
+     * Limitación conocida, a propósito: esto detecta "era clienta cuando el
+     * contado no se registraba", no "le faltan compras de verdad". Una
+     * clienta de esa época que nunca compró de contado va a ver el aviso
+     * igual. Por eso el texto dice "puede que falten" y no "faltan": lo que
+     * se afirma es que no se puede saber, que es exactamente lo cierto.
+     */
+    fun observeCustomerHistory(customerId: Long): Flow<CustomerPurchaseHistory> =
+        saleDao.observeSalesForCustomer(customerId)
+            .combine(saleDao.observeFirstNamedCashSaleDate()) { sales, firstNamed ->
+                CustomerPurchaseHistory(
+                    sales = sales.map { it.toSummary() },
+                    mayBeMissingCashSales = sales.any { firstNamed == null || it.soldAt < firstNamed },
+                )
+            }
 
     private fun SaleEntity.toProfit(): Money =
         PricingCalculator.saleProfit(Money(totalCents), Money(discountCents), Money(totalCostCents))

@@ -76,6 +76,7 @@ fun RegisterSaleScreen(
     onBackClick: () -> Unit,
     onSaleTypeChange: (SaleTypeChoice) -> Unit,
     onCustomerSelected: (Long) -> Unit,
+    onClearCustomerClick: () -> Unit,
     onNewCustomerConfirmed: (name: String, phone: String?) -> Unit,
     onInitialPaymentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -119,6 +120,34 @@ fun RegisterSaleScreen(
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) {
                         Text(stringResource(R.string.sale_type_credit))
+                    }
+                }
+            }
+
+            // B-07, Fase 08: entrando desde el perfil de una clienta, la
+            // venta de contado se le asocia. Sin este encabezado ella no
+            // tendría forma de ver ni de corregir a quién se la están
+            // cargando. Es una línea de texto y un "Cambiar", no el
+            // desplegable entero: la pantalla más usada no gana un control
+            // más (CLAUDE.md sección 6).
+            if (state.showsCashCustomerHeader) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = state.selectedCustomer?.name?.let { name ->
+                                stringResource(R.string.sale_customer_header, name)
+                            } ?: stringResource(R.string.sale_customer_none),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        if (state.selectedCustomerId != null) {
+                            TextButton(onClick = onClearCustomerClick) {
+                                Text(stringResource(R.string.sale_customer_change))
+                            }
+                        }
                     }
                 }
             }
@@ -462,6 +491,7 @@ private fun RegisterSaleScreenPreview() {
             onBackClick = {},
             onSaleTypeChange = {},
             onCustomerSelected = {},
+            onClearCustomerClick = {},
             onNewCustomerConfirmed = { _, _ -> },
             onInitialPaymentChange = {},
         )

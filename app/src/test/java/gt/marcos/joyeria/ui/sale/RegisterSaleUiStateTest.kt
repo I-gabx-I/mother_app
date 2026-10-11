@@ -257,6 +257,57 @@ class RegisterSaleUiStateTest {
         assertThat(state.canSave).isTrue()
     }
 
+    // --- Fase 08: encabezado de "venta para X" en contado (B-07) ---
+
+    @Test
+    fun cashSaleFromCustomerProfile_showsCustomerHeader() {
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")),
+            customers = listOf(Customer(id = 7, name = "Doña María", phone = null, notes = null, archived = false)),
+            selectedCustomerId = 7,
+            cameFromCustomerProfile = true,
+        )
+
+        assertThat(state.showsCashCustomerHeader).isTrue()
+        assertThat(state.selectedCustomer?.name).isEqualTo("Doña María")
+    }
+
+    @Test
+    fun cashSaleFromHome_showsNoCustomerHeader() {
+        // El camino más usado: entrar por "Vender" desde el inicio no gana
+        // ningún elemento nuevo en pantalla.
+        val state = RegisterSaleUiState(lines = listOf(line(qtyText = "1")))
+
+        assertThat(state.showsCashCustomerHeader).isFalse()
+    }
+
+    @Test
+    fun creditSale_showsNoCashCustomerHeader_becauseThePickerIsAlreadyThere() {
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")),
+            saleType = SaleTypeChoice.CREDIT,
+            selectedCustomerId = 7,
+            cameFromCustomerProfile = true,
+        )
+
+        assertThat(state.showsCashCustomerHeader).isFalse()
+    }
+
+    @Test
+    fun cashSaleFromCustomerProfile_afterClearingCustomer_stillShowsHeader() {
+        // Tras tocar "Cambiar" queda sin clienta, y el encabezado tiene que
+        // seguir visible diciendo "sin clienta": si desapareciera, ella no
+        // tendría cómo volver a verlo ni saber que la venta quedó suelta.
+        val state = RegisterSaleUiState(
+            lines = listOf(line(qtyText = "1")),
+            selectedCustomerId = null,
+            cameFromCustomerProfile = true,
+        )
+
+        assertThat(state.showsCashCustomerHeader).isTrue()
+        assertThat(state.selectedCustomer).isNull()
+    }
+
     // --- canSave ---
 
     @Test

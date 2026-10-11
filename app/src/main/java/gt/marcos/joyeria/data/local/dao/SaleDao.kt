@@ -68,6 +68,13 @@ interface SaleDao {
     // Todas las ventas a crédito sin cobrar del todo, con la clienta y lo ya
     // abonado -- "¿Quién me debe?" (D-038) agrupa esto por clienta en Kotlin,
     // nunca en SQL (la resta del saldo vive una sola vez, en PricingCalculator).
+    //
+    // `type = 'CREDIT'` es redundante HOY (una venta de contado nace PAID,
+    // así que `status = 'PENDING'` ya la deja afuera) y va igual: D-050.
+    // Ese "nace PAID" se cumple en SaleRepository, otro archivo -- la
+    // consulta estaba acertando por una coincidencia entre dos archivos, no
+    // por lo que ella misma pide. Desde Fase 08 una venta de contado SÍ
+    // puede tener `customer_id`, así que el margen de error desapareció.
     @Query(
         """
         SELECT sale.id AS saleId, sale.customer_id AS customerId, customer.name AS customerName,
@@ -76,7 +83,7 @@ interface SaleDao {
                COALESCE((SELECT SUM(amount_cents) FROM payment WHERE payment.sale_id = sale.id), 0) AS paidCents
         FROM sale
         INNER JOIN customer ON customer.id = sale.customer_id
-        WHERE sale.status = 'PENDING'
+        WHERE sale.status = 'PENDING' AND sale.type = 'CREDIT'
         ORDER BY sale.sold_at ASC
         """,
     )
@@ -84,8 +91,12 @@ interface SaleDao {
 
     // Mismo dato que arriba, para una sola clienta -- lo usa
     // CustomerRepository.archive() (D-039) para decidir si bloquea el
-    // archivado, y AccountStatement (estado de cuenta) para listar sus
-    // ventas pendientes.
+    // archivado, y el perfil de clienta para listar sus ventas pendientes.
+    //
+    // `type = 'CREDIT'` por la misma razón que la consulta de arriba
+    // (D-050), y acá el costo de no tenerlo sería peor: con una venta de
+    // contado colada, no se podría archivar a ninguna clienta a la que se
+    // le haya vendido de contado, con un mensaje de deuda que no existe.
     @Query(
         """
         SELECT sale.id AS saleId, sale.customer_id AS customerId, customer.name AS customerName,
@@ -94,9 +105,56 @@ interface SaleDao {
                COALESCE((SELECT SUM(amount_cents) FROM payment WHERE payment.sale_id = sale.id), 0) AS paidCents
         FROM sale
         INNER JOIN customer ON customer.id = sale.customer_id
-        WHERE sale.status = 'PENDING' AND sale.customer_id = :customerId
+        WHERE sale.status = 'PENDING' AND sale.type = 'CREDIT' AND sale.customer_id = :customerId
         ORDER BY sale.sold_at ASC
         """,
     )
     fun observePendingCreditSalesForCustomer(customerId: Long): Flow<List<PendingSaleRow>>
+
+    /**
+     * Misma consulta que `observePendingCreditSalesForCustomer`, de una
+     * sola lectura. Existe para `CustomerRepository.archive()`, que corre
+     * dentro de una transacción: recolectar el `Flow` reactivo ahí adentro
+     * (con `.first()`) es pedirle a la transacción que espere a una
+     * consulta que necesita salir de ella. Ver D-056.
+     */
+    @Query(
+        """
+        SELECT sale.id AS saleId, sale.customer_id AS customerId, customer.name AS customerName,
+               customer.phone AS customerPhone, sale.sold_at AS soldAt, sale.total_cents AS totalCents,
+               sale.discount_cents AS discountCents,
+               COALESCE((SELECT SUM(amount_cents) FROM payment WHERE payment.sale_id = sale.id), 0) AS paidCents
+        FROM sale
+        INNER JOIN customer ON customer.id = sale.customer_id
+        WHERE sale.status = 'PENDING' AND sale.type = 'CREDIT' AND sale.customer_id = :customerId
+        ORDER BY sale.sold_at ASC
+        """,
+    )
+    suspend fun getPendingCreditSalesForCustomer(customerId: Long): List<PendingSaleRow>
+
+    /**
+     * Historial completo de una clienta (Fase 08): contado y crédito,
+     * cobradas y pendientes, **y también las anuladas** (B-06). No se
+     * excluye `CANCELLED` acá, a diferencia de `observeBetween`: en
+     * "Ventas de hoy" una anulada distorsionaría el total del día, pero en
+     * el historial de una clienta esconder una compra que ella recuerda
+     * haber hecho es peor -- D-006 existe justamente para que nada
+     * desaparezca. La pantalla las marca y **no las suma a ningún total**.
+     */
+    @Query("SELECT * FROM sale WHERE customer_id = :customerId ORDER BY sold_at DESC")
+    fun observeSalesForCustomer(customerId: Long): Flow<List<SaleEntity>>
+
+    /**
+     * Fecha de la **primera venta de contado registrada con clienta** en
+     * toda la base, o `null` si todavía no hay ninguna.
+     *
+     * Antes de Fase 08 ninguna venta de contado guardaba `customer_id`:
+     * nadie anotaba a quién se le vendía. Esta fecha es, en la práctica, el
+     * momento en que la app empezó a registrarlo, **deducido de los datos
+     * que ya existen** -- sin ninguna clave nueva, sin migración y sin
+     * nada escrito a mano (B-10). Sirve para decidir, clienta por clienta,
+     * si su historial puede tener huecos.
+     */
+    @Query("SELECT MIN(sold_at) FROM sale WHERE type = 'CASH' AND customer_id IS NOT NULL")
+    fun observeFirstNamedCashSaleDate(): Flow<Long?>
 }

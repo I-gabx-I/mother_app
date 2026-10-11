@@ -187,6 +187,26 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
   Si el esquema cambia, se agrega una migración nueva y su test.
 - **`exportSchema = true`** y los JSON de esquema se commitean. Son la evidencia
   para auditar que nadie rompió la base.
+- **Una consulta tiene que expresar TODA su condición, aunque parte sea
+  hoy redundante.** Si una consulta responde "las ventas a crédito
+  pendientes", pide `status = 'PENDING' AND type = 'CREDIT'` — aunque hoy
+  la segunda condición no descarte ni una fila, porque ninguna venta de
+  contado puede estar pendiente. Razón: **un invariante que se cumple en
+  otro archivo no es una garantía, es una coincidencia con fecha de
+  vencimiento.** Quien cambia el otro archivo no está leyendo esta
+  consulta, y la consulta no se queja: sigue devolviendo filas, solo que
+  las equivocadas. No hay error de compilación ni excepción que marque el
+  momento en que dejó de ser correcta — aparece meses después como "a Doña
+  María le figura una deuda que ya pagó". El costo de cumplir la regla es
+  una condición de más en un `WHERE`. Visto en Fase 08 (D-050): las dos
+  consultas de ventas pendientes filtraban solo por `status`, y al permitir
+  que una venta de contado tenga `customer_id` eso habría puesto ventas ya
+  cobradas en "¿Quién me debe?" **y** habría impedido archivar a cualquier
+  clienta con ventas de contado (D-039 usa la misma consulta).
+  **Corolario para los tests:** para probar que una consulta se defiende
+  sola, el test tiene que construir el estado que el resto del sistema hoy
+  impide — no el que el sistema produce. Un test del camino real pasa
+  igual con la consulta rota.
 - El esquema completo vive en `ESQUEMA.md`. **No inventes tablas ni columnas.**
   Si necesitás una que no está ahí, parás, lo proponés en `ESTADO.md` y esperás.
 
@@ -358,6 +378,18 @@ Estas son requisitos, no sugerencias estéticas.
     tocar `.gitignore`, ya lo cubre) y no chocan con el bloqueo de lecturas
     fuera del árbol de trabajo. `ESTADO.md` referencia la ruta relativa de
     cada archivo, no la pega entera ni la deja solo en la consola.
+    **Antes de cerrar una fase hay que abrir cada pantalla nueva que
+    tenga una lista y ejercitarla de verdad: agregar un elemento, quitar
+    uno, salir y volver a entrar.** No alcanza con que compile y con que
+    la suite pase. Razón: dos fases seguidas tiraron la app por una clave
+    de `LazyColumn`, con causas **distintas** — una clave repetida entre
+    dos secciones del mismo `LazyColumn` (D-048) y una clave que quedó
+    como texto literal en vez de interpolarse (Fase 08) — y las dos veces
+    el compilador y la suite completa dieron verde. No es casualidad:
+    una clave es un `String` cualquiera, así que ningún tipo la valida, y
+    el error solo existe en tiempo de composición, con datos reales, al
+    dibujar la segunda fila. La única forma de verlas es tocar la
+    pantalla.
 11. **Una medición de tiempo o performance tomada en un entorno con
     contención de recursos real (build corriendo en paralelo, ANRs de
     otras apps en el emulador, CPU/host saturados) no es una medición

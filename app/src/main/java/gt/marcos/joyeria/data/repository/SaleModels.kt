@@ -34,6 +34,20 @@ data class RegisterSaleInput(
     val notes: String?,
     val lines: List<SaleLineInput>,
     val credit: CreditSaleDetails? = null,
+    /**
+     * Clienta de una venta **de contado** (Fase 08): la venta queda
+     * asociada a ella y aparece en su perfil, pero sigue naciendo
+     * `CASH`/`PAID` y **no** es una deuda.
+     *
+     * `null` es el caso común -- vender de contado a quien pasa por ahí --
+     * y es exactamente el comportamiento de Fase 06, sin cambios.
+     *
+     * En una venta a crédito este campo se ignora: la clienta sale de
+     * `credit.customerId`, que es la única que puede deber plata. No hay
+     * forma de pedir una venta a crédito "a otra clienta" que la que la
+     * debe.
+     */
+    val customerId: Long? = null,
 )
 
 /** `initialPayment` en `null` o `Money.ZERO` significa "sin abono inicial" (FASES.md, Fase 07, punto 5 del pedido). */
@@ -90,6 +104,27 @@ data class SaleDetail(
     // dejar esos abonos huérfanos -- "Ventas de hoy" oculta el botón en vez
     // de esperar a que el repositorio la rechace.
     val canCancel: Boolean get() = status != "CANCELLED" && !hasPayments
+}
+
+/**
+ * El historial de compras de una clienta, tal como lo ve su perfil
+ * (Fase 08).
+ *
+ * `mayBeMissingCashSales` (B-10) es `true` cuando esta clienta **pudo**
+ * haber comprado de contado en la época en que la app no guardaba a quién
+ * se le vendía. No afirma que falte algo: afirma que no se puede saber. La
+ * pantalla solo avisa cuando esto es `true` -- a una clienta cuyo
+ * historial entero es posterior no se le muestra nada, para no crearle una
+ * duda a quien no la tenía.
+ */
+data class CustomerPurchaseHistory(
+    val sales: List<SaleSummary> = emptyList(),
+    val mayBeMissingCashSales: Boolean = false,
+) {
+    /** Las anuladas no suman a ningún total (B-06): se ven, no se cuentan. */
+    val activeSales: List<SaleSummary> get() = sales.filter { it.status != "CANCELLED" }
+
+    val totalPurchased: Money get() = activeSales.fold(Money.ZERO) { acc, sale -> acc + sale.net }
 }
 
 data class RegisterPaymentInput(

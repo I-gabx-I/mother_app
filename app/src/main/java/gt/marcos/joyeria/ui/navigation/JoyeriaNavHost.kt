@@ -7,7 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import gt.marcos.joyeria.ui.credit.AccountStatementRoute
+import gt.marcos.joyeria.ui.credit.CustomerProfileRoute
 import gt.marcos.joyeria.ui.credit.CustomersRoute
 import gt.marcos.joyeria.ui.product.add.AddProductRoute
 import gt.marcos.joyeria.ui.product.edit.ProductEditRoute
@@ -25,7 +25,7 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = JoyeriaDestination.Home.route) {
         composable(JoyeriaDestination.Home.route) {
             HomeRoute(
-                onSellClick = { navController.navigate(JoyeriaDestination.RegisterSale.route) },
+                onSellClick = { navController.navigate(JoyeriaDestination.RegisterSale.createRoute()) },
                 onAddProductClick = { navController.navigate(JoyeriaDestination.AddProduct.route) },
                 onInventoryClick = { navController.navigate(JoyeriaDestination.ProductList.route) },
                 onRegisterPurchaseClick = { navController.navigate(JoyeriaDestination.RegisterPurchase.route) },
@@ -35,19 +35,36 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable(JoyeriaDestination.Customers.route) {
             CustomersRoute(
-                onDebtClick = { customerId ->
-                    navController.navigate(JoyeriaDestination.AccountStatement.createRoute(customerId))
+                // Las dos pestañas llevan al mismo perfil (Fase 08). Antes
+                // "Todas las clientas" abría el diálogo de editar y una
+                // clienta sin deuda no tenía a dónde entrar.
+                onCustomerClick = { customerId ->
+                    navController.navigate(JoyeriaDestination.CustomerProfile.createRoute(customerId))
                 },
                 onBackClick = { navController.popBackStack() },
             )
         }
         composable(
-            route = JoyeriaDestination.AccountStatement.route,
-            arguments = listOf(navArgument(JoyeriaDestination.AccountStatement.ARG_CUSTOMER_ID) { type = NavType.LongType }),
+            route = JoyeriaDestination.CustomerProfile.route,
+            arguments = listOf(navArgument(JoyeriaDestination.CustomerProfile.ARG_CUSTOMER_ID) { type = NavType.LongType }),
         ) {
-            AccountStatementRoute(onBackClick = { navController.popBackStack() })
+            CustomerProfileRoute(
+                onSellClick = { customerId ->
+                    navController.navigate(JoyeriaDestination.RegisterSale.createRoute(customerId))
+                },
+                onBackClick = { navController.popBackStack() },
+            )
         }
-        composable(JoyeriaDestination.RegisterSale.route) {
+        composable(
+            route = JoyeriaDestination.RegisterSale.route,
+            arguments = listOf(
+                navArgument(JoyeriaDestination.RegisterSale.ARG_CUSTOMER_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             RegisterSaleRoute(onBackClick = { navController.popBackStack() })
         }
         composable(JoyeriaDestination.TodaySales.route) {

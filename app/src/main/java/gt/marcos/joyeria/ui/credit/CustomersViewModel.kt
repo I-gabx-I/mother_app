@@ -90,7 +90,14 @@ class CustomersViewModel @Inject constructor(
             if (editingId != null) {
                 customerRepository.update(EditCustomerInput(id = editingId, name = name, phone = phone, notes = notes))
             } else {
-                customerRepository.add(AddCustomerInput(name = name, phone = phone, notes = notes))
+                customerRepository.add(
+                    AddCustomerInput(
+                        name = name,
+                        phone = phone,
+                        notes = notes,
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
             }
             _uiState.update { it.copy(showFormDialog = false, editingCustomerId = null) }
         }

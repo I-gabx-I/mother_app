@@ -15,9 +15,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -36,9 +38,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.data.repository.Customer
+import gt.marcos.joyeria.data.repository.CustomerPurchaseHistory
 import gt.marcos.joyeria.data.repository.PaymentSummary
 import gt.marcos.joyeria.data.repository.SaleAccountStatement
+import gt.marcos.joyeria.data.repository.SaleSummary
 import gt.marcos.joyeria.domain.model.Money
+import gt.marcos.joyeria.ui.customer.CustomerFormDialog
 import gt.marcos.joyeria.ui.format.MoneyTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
@@ -48,12 +54,27 @@ import java.util.Date
 /**
  * Estado de cuenta de una clienta (FASES.md, Fase 07): todas sus ventas
  * a crédito pendientes, cada una con total/abonos/saldo, y el botón para
- * registrar un abono nuevo. Stateless y `@Preview`-able (CLAUDE.md sección 5).
+ * registrar un abono nuevo.
+ *
+ * Fase 08 (B-05): pasó de ser el estado de cuenta a ser el **perfil
+ * completo** -- datos de la clienta, su historial de compras, su saldo si
+ * lo tiene, y el botón para venderle. El estado de cuenta quedó como una
+ * sección de acá en vez de una pantalla aparte: dos pantallas mostrando
+ * saldos son dos lugares que se desincronizan.
+ *
+ * Stateless y `@Preview`-able (CLAUDE.md sección 5).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountStatementScreen(
-    state: AccountStatementUiState,
+fun CustomerProfileScreen(
+    state: CustomerProfileUiState,
+    onSellClick: () -> Unit,
+    onEditClick: () -> Unit,
+    onFormNameChange: (String) -> Unit,
+    onFormPhoneChange: (String) -> Unit,
+    onFormNotesChange: (String) -> Unit,
+    onFormDismiss: () -> Unit,
+    onFormConfirm: () -> Unit,
     onRegisterPaymentClick: (Long) -> Unit,
     onPaymentDialogDismiss: () -> Unit,
     onAmountChange: (String) -> Unit,
@@ -66,43 +87,121 @@ fun AccountStatementScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(state.customerName.ifBlank { stringResource(R.string.account_statement_title) }) },
+                title = { Text(state.customerName.ifBlank { stringResource(R.string.customer_profile_title) }) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back))
                     }
                 },
+                actions = {
+                    // B-09: editar sin salir del perfil. Mandarla a otra
+                    // pantalla para corregir un teléfono, estando ya parada
+                    // sobre esa clienta, es fricción sin motivo.
+                    IconButton(onClick = onEditClick) {
+                        Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.customers_edit_button))
+                    }
+                },
             )
         },
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            Text(
-                text = stringResource(R.string.account_statement_total_balance, state.totalBalance.format()),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(16.dp),
-            )
-            if (state.statements.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        LazyColumn(
+            modifier = Modifier.padding(innerPadding).fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { CustomerDetails(state = state) }
+
+            // La acción principal de esta pantalla, arriba y grande
+            // (CLAUDE.md sección 6).
+            item {
+                Button(
+                    onClick = onSellClick,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                ) {
+                    Text(stringResource(R.string.customer_profile_sell_button))
+                }
+            }
+
+            // Sin deuda no se muestra un "Q0.00": se omite la sección
+            // entera, igual que el Total de "Vender" cuando no hay carrito.
+            if (state.hasDebt) {
+                item {
                     Text(
-                        text = stringResource(R.string.account_statement_empty),
+                        text = stringResource(R.string.account_statement_total_balance, state.totalBalance.format()),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                items(state.statements, key = { "statement-${it.saleId}" }) { statement ->
+                    SaleStatementCard(
+                        statement = statement,
+                        onRegisterPaymentClick = { onRegisterPaymentClick(statement.saleId) },
+                    )
+                }
+            }
+
+            item { HorizontalDivider() }
+            item {
+                Text(
+                    text = stringResource(R.string.customer_profile_history_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+
+            if (state.history.sales.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.customer_profile_history_empty),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(state.statements, key = { it.saleId }) { statement ->
-                        SaleStatementCard(
-                            statement = statement,
-                            onRegisterPaymentClick = { onRegisterPaymentClick(statement.saleId) },
+                item {
+                    Text(
+                        text = stringResource(
+                            R.string.customer_profile_history_total,
+                            state.history.totalPurchased.format(),
+                        ),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+                // `key` con prefijo: esta lista y la de arriba viven en el
+                // MISMO LazyColumn y comparten espacio de claves (D-048).
+                items(state.history.sales, key = { "history-${it.id}" }) { sale ->
+                    PurchaseRow(sale = sale)
+                }
+                // B-10: el aviso aparece SOLO si esta clienta concreta pudo
+                // comprar de contado cuando la app no guardaba el nombre.
+                // A una clienta cuyo historial entero es posterior no se le
+                // dice nada: un cartel genérico le crearía la duda a quien
+                // no la tenía.
+                if (state.history.mayBeMissingCashSales) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.customer_profile_history_may_be_incomplete),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
         }
+    }
+
+    if (state.showEditDialog) {
+        CustomerFormDialog(
+            isEditing = true,
+            name = state.formName,
+            phone = state.formPhone,
+            notes = state.formNotes,
+            canSave = state.canSaveForm,
+            onNameChange = onFormNameChange,
+            onPhoneChange = onFormPhoneChange,
+            onNotesChange = onFormNotesChange,
+            onDismiss = onFormDismiss,
+            onConfirm = onFormConfirm,
+        )
     }
 
     state.paymentDialogSale?.let { sale ->
@@ -157,6 +256,50 @@ fun AccountStatementScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun CustomerDetails(state: CustomerProfileUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(state.customerName, style = MaterialTheme.typography.headlineSmall)
+        state.customer?.phone?.takeIf { it.isNotBlank() }?.let { phone ->
+            Text(phone, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        state.customer?.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+            Text(notes, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Una compra del historial. Las anuladas se muestran marcadas (B-06): si
+ * una clienta pregunta por una compra que se anuló y no aparece, parece
+ * que la app perdió el dato -- y D-006 existe justamente para que nada
+ * desaparezca. No suman a ningún total (`CustomerPurchaseHistory.activeSales`).
+ */
+@Composable
+private fun PurchaseRow(sale: SaleSummary) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column {
+            Text(formatDate(sale.soldAt), style = MaterialTheme.typography.bodyLarge)
+            when {
+                sale.status == "CANCELLED" -> Text(
+                    text = stringResource(R.string.customer_profile_history_cancelled),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                sale.isPendingCredit -> Text(
+                    text = stringResource(R.string.sale_credit_pending_badge),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        Text(sale.net.format(), style = MaterialTheme.typography.bodyLarge)
     }
 }
 
@@ -224,12 +367,26 @@ private fun formatDate(millis: Long): String =
 
 @Preview(showBackground = true)
 @Composable
-private fun AccountStatementScreenPreview() {
+private fun CustomerProfileScreenPreview() {
     JoyeriaTheme {
-        AccountStatementScreen(
-            state = AccountStatementUiState(
+        CustomerProfileScreen(
+            state = CustomerProfileUiState(
                 customerId = 1,
-                customerName = "Doña María",
+                customer = Customer(id = 1, name = "Doña María", phone = "5555-1234", notes = null, archived = false),
+                history = CustomerPurchaseHistory(
+                    sales = listOf(
+                        SaleSummary(
+                            id = 1,
+                            soldAt = System.currentTimeMillis(),
+                            total = Money(15000),
+                            discount = Money.ZERO,
+                            profit = Money(7000),
+                            type = "CREDIT",
+                            status = "PENDING",
+                        ),
+                    ),
+                    mayBeMissingCashSales = true,
+                ),
                 statements = listOf(
                     SaleAccountStatement(
                         saleId = 1,
@@ -243,6 +400,13 @@ private fun AccountStatementScreenPreview() {
                     ),
                 ),
             ),
+            onSellClick = {},
+            onEditClick = {},
+            onFormNameChange = {},
+            onFormPhoneChange = {},
+            onFormNotesChange = {},
+            onFormDismiss = {},
+            onFormConfirm = {},
             onRegisterPaymentClick = {},
             onPaymentDialogDismiss = {},
             onAmountChange = {},

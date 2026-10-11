@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import gt.marcos.joyeria.data.repository.CustomerRepository
+import gt.marcos.joyeria.data.repository.EditCustomerInput
 import gt.marcos.joyeria.data.repository.RegisterPaymentInput
 import gt.marcos.joyeria.data.repository.SaleRepository
 import gt.marcos.joyeria.domain.usecase.RegisterPaymentUseCase
@@ -17,12 +18,12 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Único `StateFlow<UiState>` del estado de cuenta (CLAUDE.md sección 5).
+ * Único `StateFlow<UiState>` del perfil de clienta (CLAUDE.md sección 5).
  * `customerId` llega por `SavedStateHandle` (argumento de navegación),
  * mismo patrón que `ProductEditViewModel` (Fase 04).
  */
 @HiltViewModel
-class AccountStatementViewModel @Inject constructor(
+class CustomerProfileViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val saleRepository: SaleRepository,
     private val customerRepository: CustomerRepository,
@@ -30,23 +31,76 @@ class AccountStatementViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val customerId: Long = checkNotNull(savedStateHandle["customerId"]) {
-        "AccountStatementViewModel necesita un argumento de navegación customerId"
+        "CustomerProfileViewModel necesita un argumento de navegación customerId"
     }
 
-    private val _uiState = MutableStateFlow(AccountStatementUiState(customerId = customerId))
-    val uiState: StateFlow<AccountStatementUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(CustomerProfileUiState(customerId = customerId))
+    val uiState: StateFlow<CustomerProfileUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            val customer = customerRepository.getById(customerId)
-            _uiState.update { it.copy(customerName = customer?.name.orEmpty()) }
-        }
+        refreshCustomer()
         viewModelScope.launch {
             saleRepository.observeAccountStatements(customerId).collectLatest { statements ->
                 _uiState.update { it.copy(statements = statements) }
             }
         }
+        viewModelScope.launch {
+            saleRepository.observeCustomerHistory(customerId).collectLatest { history ->
+                _uiState.update { it.copy(history = history) }
+            }
+        }
     }
+
+    private fun refreshCustomer() {
+        viewModelScope.launch {
+            val customer = customerRepository.getById(customerId)
+            _uiState.update { it.copy(customer = customer) }
+        }
+    }
+
+    // --- B-09: editar sin salir del perfil, con el diálogo compartido ---
+
+    fun onEditClick() {
+        val customer = _uiState.value.customer ?: return
+        _uiState.update {
+            it.copy(
+                showEditDialog = true,
+                formName = customer.name,
+                formPhone = customer.phone.orEmpty(),
+                formNotes = customer.notes.orEmpty(),
+            )
+        }
+    }
+
+    fun onFormNameChange(value: String) = _uiState.update { it.copy(formName = value) }
+
+    fun onFormPhoneChange(value: String) = _uiState.update { it.copy(formPhone = value) }
+
+    fun onFormNotesChange(value: String) = _uiState.update { it.copy(formNotes = value) }
+
+    fun onFormDismiss() = _uiState.update { it.copy(showEditDialog = false) }
+
+    fun onFormConfirm() {
+        val state = _uiState.value
+        if (!state.canSaveForm) return
+        viewModelScope.launch {
+            customerRepository.update(
+                EditCustomerInput(
+                    id = customerId,
+                    name = state.formName,
+                    phone = state.formPhone.ifBlank { null },
+                    notes = state.formNotes.ifBlank { null },
+                ),
+            )
+            _uiState.update { it.copy(showEditDialog = false) }
+            // `customer` no es un Flow (CustomerRepository.getById es
+            // suspend), así que tras editar hay que releerla -- si no, el
+            // encabezado seguiría mostrando el nombre viejo.
+            refreshCustomer()
+        }
+    }
+
+    // --- Estado de cuenta: igual que en Fase 07, sin cambios ---
 
     fun onRegisterPaymentClick(saleId: Long) {
         _uiState.update { it.copy(paymentDialogSaleId = saleId, amountText = "", method = "CASH") }

@@ -8,6 +8,7 @@ import com.google.common.truth.Truth.assertThat
 import gt.marcos.joyeria.data.local.AppDatabase
 import gt.marcos.joyeria.data.local.entity.CustomerEntity
 import gt.marcos.joyeria.data.local.entity.ProductEntity
+import gt.marcos.joyeria.data.local.entity.SaleEntity
 import gt.marcos.joyeria.domain.model.Money
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -449,6 +450,236 @@ class SaleRepositoryTest {
         assertThat(product.stockQty).isEqualTo(4)
         val sale = checkNotNull(db.saleDao().getById(result.saleId))
         assertThat(sale.status).isEqualTo("PENDING")
+    }
+
+    // --- Fase 08 / D-050: la consulta de deudas tiene que excluir el
+    // contado por SÍ MISMA, no porque otro archivo le garantice que una
+    // venta de contado nunca está PENDING. ---
+
+    @Test
+    fun observeCustomerDebts_excludesCashSales_evenIfSomethingLeavesThemPending() = runTest {
+        // Estado que `SaleRepository.register()` no puede producir hoy: una
+        // venta CASH en PENDING con clienta. Se inserta a mano, saltándose
+        // el repositorio a propósito.
+        //
+        // No es un caso de uso: es el experimento que separa "la consulta
+        // filtra bien" de "la consulta acierta porque otro archivo le tapa
+        // el agujero". Si mañana existe cualquier camino que deje una venta
+        // de contado PENDING -- un apartado, un cobro parcial de contado, un
+        // bug -- la clienta aparecería debiendo plata que ya pagó.
+        val customerId = insertCustomer("Doña María")
+        db.saleDao().insert(
+            SaleEntity(
+                soldAt = 1_000L,
+                customerId = customerId,
+                type = "CASH",
+                status = "PENDING",
+                totalCents = 8000,
+                totalCostCents = 4000,
+                discountCents = 0,
+                notes = null,
+                cancelledAt = null,
+                cancelReason = null,
+            ),
+        )
+
+        assertThat(repository.observeCustomerDebts().first()).isEmpty()
+        assertThat(repository.observeAccountStatements(customerId).first()).isEmpty()
+    }
+
+    // --- Fase 08: una venta de contado puede quedar asociada a una clienta ---
+
+    @Test
+    fun register_cashSaleWithCustomer_isAssociated_butStaysCashAndPaid() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        val result = repository.register(sale(productId, qty = 1).copy(customerId = customerId))
+
+        val saved = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(saved.customerId).isEqualTo(customerId)
+        assertThat(saved.type).isEqualTo("CASH")
+        assertThat(saved.status).isEqualTo("PAID")
+    }
+
+    @Test
+    fun register_cashSaleWithCustomer_doesNotAppearAsDebt() = runTest {
+        // El criterio 4 de FASES.md por el camino real. Ojo: este test pasa
+        // igual SIN el filtro `type = 'CREDIT'` de la consulta, porque la
+        // venta nace PAID y `status = 'PENDING'` ya la deja afuera. Es la
+        // prueba de la funcionalidad, NO la del filtro -- esa es
+        // `observeCustomerDebts_excludesCashSales_evenIfSomethingLeavesThemPending`,
+        // arriba, que sí falla sin el filtro (D-050).
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        repository.register(sale(productId, qty = 1).copy(customerId = customerId))
+
+        assertThat(repository.observeCustomerDebts().first()).isEmpty()
+        assertThat(repository.observeAccountStatements(customerId).first()).isEmpty()
+    }
+
+    @Test
+    fun register_cashSaleToArchivedCustomer_isRejected() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        db.customerDao().archive(customerId)
+
+        var threw = false
+        try {
+            repository.register(sale(productId, qty = 1).copy(customerId = customerId))
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+
+        assertThat(threw).isTrue()
+        // Nada se aplicó: el stock quedó intacto.
+        assertThat(checkNotNull(db.productDao().getById(productId)).stockQty).isEqualTo(5)
+    }
+
+    @Test
+    fun register_cashSaleToMissingCustomer_isRejected() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        var threw = false
+        try {
+            repository.register(sale(productId, qty = 1).copy(customerId = 999_999L))
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+
+        assertThat(threw).isTrue()
+        assertThat(checkNotNull(db.productDao().getById(productId)).stockQty).isEqualTo(5)
+    }
+
+    @Test
+    fun register_cashSaleWithoutCustomer_isUnchangedFromPhase06() = runTest {
+        // El camino más usado de la app: que no se le haya movido nada.
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        val result = repository.register(sale(productId, qty = 1))
+
+        val saved = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(saved.customerId).isNull()
+        assertThat(saved.type).isEqualTo("CASH")
+        assertThat(saved.status).isEqualTo("PAID")
+    }
+
+    // --- Fase 08: historial de compras del perfil de clienta ---
+
+    @Test
+    fun customerHistory_includesCashAndCreditAndCancelled() = runTest {
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        repository.register(sale(productId, qty = 1, soldAt = 1_000L).copy(customerId = customerId))
+        repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null, soldAt = 2_000L))
+        val toCancel = repository.register(sale(productId, qty = 1, soldAt = 3_000L).copy(customerId = customerId))
+        repository.cancel(toCancel.saleId, cancelledAt = 4_000L, cancelReason = "Devolución")
+
+        val history = repository.observeCustomerHistory(customerId).first()
+
+        // B-06: la anulada se ve -- esconderla haría parecer que la app
+        // perdió el dato.
+        assertThat(history.sales).hasSize(3)
+        assertThat(history.sales.map { it.soldAt }).containsExactly(3_000L, 2_000L, 1_000L).inOrder()
+        assertThat(history.sales.count { it.status == "CANCELLED" }).isEqualTo(1)
+    }
+
+    @Test
+    fun customerHistory_cancelledSalesDoNotCountTowardTotals() = runTest {
+        // B-06: se ven, no se cuentan.
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        repository.register(sale(productId, qty = 1, soldAt = 1_000L).copy(customerId = customerId))
+        val toCancel = repository.register(sale(productId, qty = 1, soldAt = 2_000L).copy(customerId = customerId))
+        repository.cancel(toCancel.saleId, cancelledAt = 3_000L, cancelReason = null)
+
+        val history = repository.observeCustomerHistory(customerId).first()
+
+        assertThat(history.sales).hasSize(2)
+        assertThat(history.activeSales).hasSize(1)
+        assertThat(history.totalPurchased).isEqualTo(Money(8000))
+    }
+
+    @Test
+    fun customerHistory_excludesOtherCustomersSales() = runTest {
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val mine = insertCustomer("Doña María")
+        val other = insertCustomer("Doña Juana")
+        repository.register(sale(productId, qty = 1).copy(customerId = mine))
+        repository.register(sale(productId, qty = 1).copy(customerId = other))
+        repository.register(sale(productId, qty = 1)) // sin clienta
+
+        assertThat(repository.observeCustomerHistory(mine).first().sales).hasSize(1)
+    }
+
+    // --- B-10: el aviso de huecos se muestra solo donde hay algo que
+    // explicar. Cada test es uno de los casos que la heurística tiene que
+    // distinguir; si alguno se borra, el aviso vuelve a ser un cartel
+    // genérico que le crea la duda a quien no la tenía. ---
+
+    @Test
+    fun history_customerWithSalesOlderThanFirstNamedCashSale_warnsAboutGaps() = runTest {
+        // La clienta de siempre: compró a crédito cuando el contado todavía
+        // no se registraba con nombre. Ahí SÍ puede faltarle contado.
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val oldCustomer = insertCustomer("Doña María")
+        repository.register(creditSale(productId, oldCustomer, qty = 1, initialPayment = null, soldAt = 1_000L))
+        // La primera venta de contado con nombre de toda la base, posterior.
+        val newCustomer = insertCustomer("Doña Juana")
+        repository.register(sale(productId, qty = 1, soldAt = 5_000L).copy(customerId = newCustomer))
+
+        assertThat(repository.observeCustomerHistory(oldCustomer).first().mayBeMissingCashSales).isTrue()
+    }
+
+    @Test
+    fun history_customerWhoseSalesAreAllLaterThanFirstNamedCashSale_doesNotWarn() = runTest {
+        // Clienta nueva: todo su historial es de después de que la app
+        // empezó a guardar el nombre. No hay nada que explicarle.
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val first = insertCustomer("Doña María")
+        repository.register(sale(productId, qty = 1, soldAt = 1_000L).copy(customerId = first))
+        val newCustomer = insertCustomer("Doña Juana")
+        repository.register(sale(productId, qty = 1, soldAt = 5_000L).copy(customerId = newCustomer))
+
+        assertThat(repository.observeCustomerHistory(newCustomer).first().mayBeMissingCashSales).isFalse()
+    }
+
+    @Test
+    fun history_customerWithOnlyCreditSales_andNoNamedCashSaleAnywhere_warns() = runTest {
+        // El caso que la regla literal ("ventas anteriores a SU primera
+        // venta de contado con nombre") no podía distinguir: esta clienta
+        // no tiene ninguna venta de contado con nombre a la que compararse,
+        // y es justo la que más probable tiene huecos. Por eso la fecha de
+        // corte es la de TODA la base, no la de cada clienta.
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        repository.register(creditSale(productId, customerId, qty = 1, initialPayment = null, soldAt = 1_000L))
+
+        assertThat(repository.observeCustomerHistory(customerId).first().mayBeMissingCashSales).isTrue()
+    }
+
+    @Test
+    fun history_customerWithNoSalesAtAll_doesNotWarn() = runTest {
+        // Clienta recién agregada, sin compras. Un aviso sobre compras
+        // faltantes encima de un historial vacío es ruido puro.
+        val customerId = insertCustomer("Doña María")
+
+        val history = repository.observeCustomerHistory(customerId).first()
+
+        assertThat(history.sales).isEmpty()
+        assertThat(history.mayBeMissingCashSales).isFalse()
+    }
+
+    @Test
+    fun history_firstNamedCashSaleItself_doesNotWarnItsOwnCustomer() = runTest {
+        // Borde: la clienta cuya venta ES la primera de contado con nombre.
+        // Su venta no es ANTERIOR a la fecha de corte, es la fecha de corte.
+        val productId = insertProduct(stockQty = 10, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+        repository.register(sale(productId, qty = 1, soldAt = 5_000L).copy(customerId = customerId))
+
+        assertThat(repository.observeCustomerHistory(customerId).first().mayBeMissingCashSales).isFalse()
     }
 
     // --- Fase 07: "¿Quién me debe?" (D-038) ---

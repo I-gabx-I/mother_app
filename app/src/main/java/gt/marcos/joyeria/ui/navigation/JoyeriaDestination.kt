@@ -13,11 +13,28 @@ sealed class JoyeriaDestination(val route: String) {
         fun createRoute(productId: Long) = "product_edit/$productId"
     }
     data object RegisterPurchase : JoyeriaDestination("register_purchase")
-    data object RegisterSale : JoyeriaDestination("register_sale")
+    /**
+     * `customerId` es opcional (Fase 08): sin él, "Vender" se comporta
+     * exactamente igual que en Fase 06/07. Con él, la venta llega con esa
+     * clienta ya elegida -- se entra desde su perfil.
+     *
+     * Viaja como `String` y no como `Long` a propósito: `NavType.LongType`
+     * no admite `null` en Navigation Compose, y "sin clienta" tiene que ser
+     * un estado representable. El `ViewModel` lo convierte con
+     * `toLongOrNull()`, así que un valor corrupto se comporta como "sin
+     * clienta" en vez de tirar la app.
+     */
+    data object RegisterSale : JoyeriaDestination("register_sale?customerId={customerId}") {
+        const val ARG_CUSTOMER_ID = "customerId"
+
+        /** Sin clienta: el camino de siempre, desde el inicio. */
+        fun createRoute(customerId: Long? = null): String =
+            if (customerId == null) "register_sale" else "register_sale?customerId=$customerId"
+    }
     data object TodaySales : JoyeriaDestination("today_sales")
     data object Customers : JoyeriaDestination("customers")
-    data object AccountStatement : JoyeriaDestination("account_statement/{customerId}") {
+    data object CustomerProfile : JoyeriaDestination("customer_profile/{customerId}") {
         const val ARG_CUSTOMER_ID = "customerId"
-        fun createRoute(customerId: Long) = "account_statement/$customerId"
+        fun createRoute(customerId: Long) = "customer_profile/$customerId"
     }
 }

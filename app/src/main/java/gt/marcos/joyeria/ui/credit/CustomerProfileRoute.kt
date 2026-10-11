@@ -6,17 +6,25 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-/** Borde delgado entre navegación/Hilt y `AccountStatementScreen` (CLAUDE.md sección 5). */
+/** Borde delgado entre navegación/Hilt y `CustomerProfileScreen` (CLAUDE.md sección 5). */
 @Composable
-fun AccountStatementRoute(
+fun CustomerProfileRoute(
+    onSellClick: (Long) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: AccountStatementViewModel = hiltViewModel(),
+    viewModel: CustomerProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    AccountStatementScreen(
+    CustomerProfileScreen(
         state = state,
+        onSellClick = { onSellClick(state.customerId) },
+        onEditClick = viewModel::onEditClick,
+        onFormNameChange = viewModel::onFormNameChange,
+        onFormPhoneChange = viewModel::onFormPhoneChange,
+        onFormNotesChange = viewModel::onFormNotesChange,
+        onFormDismiss = viewModel::onFormDismiss,
+        onFormConfirm = viewModel::onFormConfirm,
         onRegisterPaymentClick = viewModel::onRegisterPaymentClick,
         onPaymentDialogDismiss = viewModel::onPaymentDialogDismiss,
         onAmountChange = viewModel::onAmountChanged,

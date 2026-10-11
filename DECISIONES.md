@@ -2519,6 +2519,340 @@ diferir unas columnas a "Fase 09", que es la fase de reportes, hoy Fase 11.
 
 ---
 
+## D-050 — Una consulta expresa toda su condición, aunque parte sea hoy redundante
+
+**Contexto:** Fase 08. Las dos consultas de ventas pendientes de `SaleDao`
+decían únicamente:
+
+```sql
+WHERE sale.status = 'PENDING'
+```
+
+Hasta Fase 07 eso bastaba, pero no por lo que la consulta pide: bastaba
+porque **ninguna venta de contado podía cumplirla**. Una venta de contado
+nace `PAID` (`SaleRepository`), así que `status = 'PENDING'` la dejaba
+afuera sola. La consulta verificaba una de las dos condiciones que
+necesitaba y se apoyaba en que la otra se cumplía **en otro archivo**.
+
+Fase 08 permite que una venta de contado tenga `customer_id`. El margen
+desapareció: lo único que separaba "a quién le vendí" de "quién me debe"
+pasó a ser un invariante implícito entre dos archivos.
+
+**Decisión — la regla, no solo el caso:**
+
+> **Una consulta tiene que expresar TODA su condición, aunque parte sea
+> hoy redundante.** Si una consulta responde "las ventas a crédito
+> pendientes", pide `status = 'PENDING' AND type = 'CREDIT'`, aunque hoy
+> la segunda no descarte ninguna fila.
+
+**Por qué:** un invariante que se cumple en otro archivo **no es una
+garantía, es una coincidencia con fecha de vencimiento.** Quien cambia el
+otro archivo no está leyendo esta consulta, y la consulta no se queja: sigue
+devolviendo filas, solo que las equivocadas. No hay error de compilación, no
+hay excepción, no hay nada que señale el momento en que dejó de ser
+correcta. Es la clase de defecto que aparece como "a Doña María le figura
+una deuda que ya pagó", meses después, sin ninguna pista de dónde salió.
+
+El costo de cumplir la regla es una condición de más en un `WHERE`. El costo
+de no cumplirla, acá, era doble:
+
+1. **"¿Quién me debe?" (D-038)** habría empezado a mostrar ventas de
+   contado como deuda.
+2. **`CustomerRepository.archive()` (D-039)**, que usa la misma consulta
+   para bloquear el archivado, habría impedido archivar a **cualquier**
+   clienta a la que se le haya vendido de contado, con un mensaje de deuda
+   inexistente. Ese segundo consumidor es el que hace la regla evidente:
+   nadie que cambie `customer_id` en `SaleRepository` va a acordarse de que
+   una consulta de deudas también decide quién se puede archivar.
+
+**Cómo se verificó — el orden importa, y es parte de la decisión:**
+
+1. Se escribió primero el test que construye el estado que la consulta
+   debería rechazar **por sí misma**: una venta `CASH` + `PENDING` + con
+   clienta, insertada a mano salteando el repositorio (que hoy no puede
+   producirla). **Falló**, exponiendo el agujero real.
+2. Se agregó `AND sale.type = 'CREDIT'` a las dos consultas. **Pasó.**
+3. Se agregó el soporte de `customer_id` en ventas de contado y el test del
+   camino real (venta de contado con clienta, que no aparece como deuda).
+   **Pasó.**
+4. **Mutación:** quitando el filtro `type` otra vez, falla **solo** el test
+   del paso 1. El test del camino real sigue pasando sin el filtro, porque
+   la venta nace `PAID`.
+
+**El paso 4 es el hallazgo que justifica escribir el test del paso 1.** Un
+test que solo cubriera el camino real habría dado verde con la consulta rota
+y habría parecido cobertura suficiente — exactamente el problema que la
+sección 8 de `CLAUDE.md` describe para los nombres de test, acá aplicado a
+qué estado construye un test. **Para probar que una consulta se defiende
+sola hay que construir el estado que el resto del sistema hoy impide**, no
+el estado que el sistema produce.
+
+**Descartado:** confiar en el invariante y documentarlo con un comentario
+("una venta de contado nunca está PENDING"). Un comentario en `SaleDao` no
+lo lee quien edita `SaleRepository`, y no falla cuando deja de ser cierto.
+
+**Consecuencia:** regla agregada a `CLAUDE.md` sección 4. Y un segundo
+corolario que ya se aplicó en la misma fase: `SaleRepository.register()`
+validaba que la clienta existiera y no estuviera archivada **solo dentro
+del `if (credit != null)`**. Esa validación pasó a correr para cualquier
+venta con clienta, por el mismo razonamiento: estaba acertando porque el
+contado no podía tener clienta, no porque el contado no la necesitara.
+
+---
+
+## D-051 — El perfil de clienta amplía el estado de cuenta, no es una pantalla nueva
+
+**Contexto:** Fase 08, bloqueo B-05. Hasta Fase 07 lo más parecido a un
+perfil era `AccountStatementScreen`, y tenía tres límites: solo se llegaba
+desde "¿Quién me debe?", solo mostraba ventas `PENDING`, y en "Todas las
+clientas" tocar una fila abría el diálogo de **editar**. Una clienta al día
+no tenía a dónde entrar, y si hubiera entrado, habría visto una pantalla
+vacía.
+
+**Decisión:** `AccountStatement*` pasa a ser `CustomerProfile*`. El estado
+de cuenta queda como una **sección** del perfil, junto con los datos de la
+clienta, su historial completo y el botón de venderle. Las dos pestañas de
+"Clientes" llevan ahí; editar y archivar siguen en sus dos íconos de la
+fila.
+
+**Por qué no una pantalla nueva que contuviera al estado de cuenta:** serían
+**dos pantallas mostrando saldos**, y ahí es exactamente donde se
+desincronizan. El estado de cuenta ya recibía `customerId`, ya leía la
+clienta por `SavedStateHandle` y ya calculaba `totalBalance`; una pantalla
+nueva habría duplicado ese andamiaje para terminar mostrando lo mismo. El
+costo de ampliar fue un rename mecánico que el compilador verificó entero.
+
+**Decisión asociada (B-09): el perfil edita a la clienta en el lugar**,
+reutilizando el diálogo que ya existía en `CustomersScreen`, extraído a
+`ui/customer/CustomerFormDialog.kt`. Mandarla a otra pantalla para corregir
+un teléfono, estando ya parada sobre esa clienta, es fricción sin motivo.
+Es el **mismo** diálogo y no uno parecido, por el mismo razonamiento que el
+resto de la decisión: dos formularios para el mismo dato se desincronizan
+en cuanto uno gane un campo.
+
+**Consecuencia:** sin deuda no se muestra un "Saldo: Q0.00" — se omite la
+sección entera, mismo criterio que el Total de "Vender" cuando no hay
+carrito (D-015: no afirmar un número que no corresponde a nada).
+
+---
+
+## D-052 — Vender desde el perfil reutiliza la pantalla de venta, y una venta de contado puede llevar clienta
+
+**Contexto:** Fase 08, puntos 2 y 3 del pedido. Para venderle varias piezas
+a la misma persona había que ir pieza por pieza desde "Vender", y una venta
+de contado guardaba `customer_id = null` siempre, así que venderle desde su
+perfil no habría quedado asociado a ella — justo lo que la usuaria quiere
+ver.
+
+**Decisión — una sola pantalla de venta, sin duplicar nada:**
+
+- La ruta acepta un argumento **opcional**:
+  `register_sale?customerId={customerId}`. Sin él, "Vender" se comporta
+  exactamente igual que en Fase 06/07.
+- Viaja como `String` y no como `Long`: `NavType.LongType` no admite nulos
+  en Navigation Compose, y "sin clienta" tiene que ser representable.
+  `toLongOrNull()` hace que un valor corrupto se comporte como "sin
+  clienta" en vez de tirar la app.
+- `RegisterSaleInput` gana `customerId: Long?`, separado de `credit`. En
+  crédito la clienta sigue saliendo de `credit` (es la única que puede
+  deber); si vinieran los dos, **gana `credit`**: la que debe no se puede
+  cambiar por otra.
+- **El selector Contado/Crédito no se toca.** Entrar desde el perfil no
+  decide por ella: la usuaria dijo "de contado o a crédito", así que D-042
+  sigue valiendo y la pantalla llega en "Al contado".
+
+**B-07 — lo único que se tocó de `RegisterSaleScreen`:** un encabezado
+"Venta para X" con un "Cambiar", visible **solo en contado** (en crédito ya
+estaba el selector de clienta). Sin eso, ella no tendría forma de ver ni de
+corregir a quién se le está cargando la venta. Es una línea de texto y un
+botón de texto, no el desplegable entero: la pantalla más usada de la app
+no gana un control más (`CLAUDE.md` sección 6).
+
+**Validación que se corrigió de paso:** `SaleRepository.register()`
+verificaba que la clienta existiera y no estuviera archivada **solo dentro
+del `if (credit != null)`**. Mismo error de razonamiento que D-050:
+acertaba porque el contado no podía tener clienta, no porque no la
+necesitara. Ahora corre para cualquier venta con clienta — la clave foránea
+de `sale.customer_id` es `NO_ACTION`, así que sin esto el contado habría
+sido la puerta de atrás para venderle a una clienta archivada o
+inexistente.
+
+---
+
+## D-053 — El historial de la clienta muestra las ventas anuladas, marcadas, y no las suma a ningún total
+
+**Contexto:** Fase 08, bloqueo B-06. "Ventas de hoy" excluye las
+`CANCELLED` **a nivel de consulta**, porque ahí distorsionarían el total
+del día. Había que decidir qué hace el historial de una clienta.
+
+**Decisión:** las incluye, marcadas como "Anulada", y **fuera de todos los
+totales** (`CustomerPurchaseHistory.activeSales` es lo que alimenta
+`totalPurchased`).
+
+**Por qué:** si una clienta pregunta por una compra que se anuló y no
+aparece en ningún lado, **parece que la app perdió el dato**. D-006 existe
+justamente para que nada desaparezca: anular deja la venta con su motivo y
+su fecha precisamente para poder mostrarla después. Esconderla convertiría
+una operación reversible y auditable en una desaparición.
+
+La distinción con "Ventas de hoy" no es incoherencia, es la misma regla
+aplicada a dos preguntas distintas: ahí la pregunta es "cuánto vendí hoy"
+(una anulada no es venta), acá es "qué pasó con esta clienta" (una anulada
+sí pasó).
+
+---
+
+## D-054 — El aviso de historial incompleto se decide por clienta, con una fecha de corte deducida de toda la base
+
+**Contexto:** Fase 08, bloqueo B-10. Las ventas de contado anteriores a
+esta fase tienen `customer_id = null` y ese dato **no existe**: nadie
+registró a quién se le vendía. El historial de una clienta vieja puede
+mostrar menos compras de las que ella recuerda, y un perfil que parece
+haber perdido datos parece roto.
+
+**Lo primero que se descartó, y por qué importa:** un cartel fijo en todos
+los perfiles explicando desde cuándo se registra el contado. **Le pide
+disculpas por algo que ella no sabe que falta.** Si abre el perfil de
+Juana, ve tres compras y lee esa explicación, se le crea una duda que no
+tenía. El aviso tiene que aparecer **solo donde hay algo que explicar**.
+
+**Decisión:** el aviso se muestra si la clienta tiene **alguna venta
+anterior a la primera venta de contado registrada con clienta en toda la
+base**:
+
+```sql
+SELECT MIN(sold_at) FROM sale WHERE type = 'CASH' AND customer_id IS NOT NULL
+```
+
+Esa fecha es, deducida de los datos que ya existen, el momento en que la
+app empezó a guardar el nombre. **Cero claves nuevas, cero cambios de
+esquema, cero migración, cero fechas escritas a mano.** Si no existe
+ninguna todavía (`null`), el registro por nombre no empezó y cualquier
+clienta con historial previo puede tener huecos: el aviso se muestra, y se
+apaga solo en cuanto exista la primera.
+
+### Por qué la fecha de corte es GLOBAL y no por clienta — no simplificar esto
+
+La versión propuesta originalmente era por clienta: *"si tiene alguna venta
+anterior a **su** primera venta con `customer_id`"*. Es la formulación
+intuitiva y **falla en el peor caso**:
+
+> **Una clienta vieja que solo tiene ventas a crédito y ninguna de
+> contado.** No tiene ninguna venta de contado con nombre contra la cual
+> compararse, así que la regla por clienta no dispara nunca — y es
+> exactamente la clienta con más probabilidad de tener compras de contado
+> sin registrar, porque estuvo activa toda la época en que el contado era
+> anónimo.
+
+La fecha de corte global sí la cubre: sus ventas a crédito son anteriores a
+la primera venta de contado con nombre de la base, así que el aviso
+aparece. **Este párrafo es la razón de ser de la decisión**: la regla por
+clienta parece más simple y más local, y alguien va a querer "simplificar"
+hacia ella. Hay un test que la mata
+(`history_customerWithOnlyCreditSales_andNoNamedCashSaleAnywhere_warns`).
+
+### Los casos, cada uno con test
+
+| Caso | Aviso |
+|---|---|
+| Clienta vieja con ventas previas al corte | **Sí** |
+| Clienta nueva, todo su historial posterior al corte | No |
+| Clienta vieja solo con crédito, sin ninguna venta de contado con nombre en la base | **Sí** (el caso de arriba) |
+| Clienta sin ninguna compra | No — un aviso sobre un historial vacío es ruido puro |
+| La clienta cuya venta **es** el corte | No — su venta no es anterior al corte, **es** el corte |
+
+**Limitación conocida, aceptada a propósito:** esto detecta "era clienta
+cuando el contado no se registraba", no "le faltan compras de verdad". Una
+clienta de esa época que nunca compró de contado va a ver el aviso igual.
+Por eso el texto dice **"Puede que falten compras de contado anteriores:
+antes no se guardaba a quién se le vendía"** y no "faltan": lo que se
+afirma es que no se puede saber, que es exactamente lo cierto. Un aviso que
+afirmara más que eso sería una mentira en la dirección contraria.
+
+**Pendiente de verificación con la usuaria real (Fase 15, criterio 6):**
+esta fase es la primera vez que ella va a ver un perfil con compras
+faltantes. Que el texto exista no alcanza — hay que mirarla usarlo y anotar
+si entiende por qué faltan o si cree que la app perdió el dato.
+
+---
+
+## D-055 — `AddCustomerInput.createdAt` lo decide quien llama: el repositorio no lee el reloj
+
+**Contexto:** revisión de Fase 08. `CustomerRepository.add()` llamaba a
+`System.currentTimeMillis()` adentro. Es exactamente lo que ya se había
+corregido en Fase 06 para `SaleRepository.cancel()`, donde `cancelledAt` se
+recibe como parámetro "para que el repositorio sea determinístico y
+testeable sin depender del reloj real; quien llama (el `ViewModel`) es
+quien decide ahora".
+
+**Decisión:** `createdAt` pasa a ser un campo de `AddCustomerInput`, igual
+que `soldAt` en `RegisterSaleInput` y `cancelledAt` en `cancel()`. Los dos
+llamadores (`CustomersViewModel.onFormConfirm` y
+`RegisterSaleViewModel.onNewCustomerConfirmed`) pasan
+`System.currentTimeMillis()`.
+
+**Por qué importa y no es ceremonia:** sin esto, ningún test puede afirmar
+nada sobre `created_at` sin depender de la hora a la que corre. Hay un test
+nuevo que lo fija
+(`add_usesTheCreatedAtGivenByTheCaller_notTheRealClock`) y que sería
+imposible de escribir con el reloj adentro.
+
+**El criterio general, para no volver a discutirlo caso por caso:** un
+repositorio **no lee el reloj**. Cualquier marca de tiempo que se persista
+entra como parámetro desde `ui`, que es la capa que sabe qué significa
+"ahora" para la usuaria. Esto ya valía para `soldAt`, `cancelledAt` y
+`paidAt`; ahora también para `createdAt`.
+
+**Pendiente, reportado y no arreglado:** la auditoría que acompañó esta
+corrección encontró **cuatro relojes más** adentro de repositorios
+(`ProductRepository.insert/archive/update`, `PurchaseRepository.register`).
+Están listados en `ESTADO.md`, "Auditoría de relojes en repositorios", con
+el costo de cada uno. No se tocaron en este commit.
+
+---
+
+## D-056 — `CustomerRepository.archive()` va en una transacción, y lee con una consulta suspend en vez de recolectar un `Flow`
+
+**Contexto:** revisión de Fase 08. `archive()` hacía leer-y-escribir en dos
+pasos sin transacción, a diferencia del resto del proyecto
+(`ProductRepository.update`, `SaleRepository.register`, `PurchaseRepository.register`,
+todos con `withTransaction`). Con la corrección del no-op silencioso pasó a
+tener **tres** operaciones: verificar que la clienta existe, verificar que
+no debe, y archivar.
+
+**Decisión: se envuelve en `withTransaction`.**
+
+**Por qué, y por qué no el argumento de "la carrera es irreal":** es cierto
+que en un teléfono con una sola usuaria nadie va a archivar a la misma
+clienta mientras otro hilo le registra un abono. Pero ese argumento, si se
+acepta, **vale para todas las transacciones del proyecto** — y entonces
+ninguna se justificaría. Lo que de verdad cuesta es la inconsistencia de
+patrón: quien lea `archive()` al lado de `update()` y vea una con
+transacción y la otra sin, va a asumir que hay una razón, y la va a buscar.
+El costo de envolver es una línea y un parámetro más en el constructor; el
+costo de la excepción es que alguien pierda media hora buscando una razón
+que no existe.
+
+**El detalle que hace que esto no sea trivial:** la verificación de deuda
+leía con `saleDao.observePendingCreditSalesForCustomer(id).first()`, o sea
+**recolectando un `Flow` de Room**. Hacer eso adentro de una transacción es
+pedirle a la transacción que espere a una consulta que necesita salir de
+ella — `withTransaction` confina la ejecución, y el `Flow` del
+`InvalidationTracker` corre sus consultas por el ejecutor de consultas.
+Envolver sin tocar esa lectura habría cambiado un problema de estilo por
+uno de bloqueo.
+
+Por eso se agregó `SaleDao.getPendingCreditSalesForCustomer()`, **suspend,
+con el mismo SQL** que su gemela reactiva. Además era un olor por su cuenta:
+usar un `Flow` reactivo solo para tomarle el primer valor es pedir una
+suscripción para hacer una lectura.
+
+**Corolario:** una lectura de una sola vez usa una consulta `suspend`; el
+`Flow` es para lo que de verdad se observa (la pantalla). Si hace falta
+leer dentro de una transacción, **siempre** la `suspend`.
+
+---
+
 <!--
 ## D-00X — Título
 

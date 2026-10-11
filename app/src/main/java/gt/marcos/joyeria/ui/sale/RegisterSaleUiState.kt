@@ -98,8 +98,21 @@ data class RegisterSaleUiState(
     val customers: List<Customer> = emptyList(),
     val selectedCustomerId: Long? = null,
     val initialPaymentText: String = "",
+    /**
+     * Se entró desde el perfil de una clienta (Fase 08). Solo cambia una
+     * cosa: en **contado** se muestra de quién es la venta, con un
+     * "Cambiar" -- si no, ella no tendría forma de ver ni corregir a quién
+     * se la están cargando. En crédito el selector de clienta ya existía.
+     */
+    val cameFromCustomerProfile: Boolean = false,
 ) {
     val isCredit: Boolean get() = saleType == SaleTypeChoice.CREDIT
+
+    /** La clienta de la venta, ya resuelta a su nombre para mostrarla. */
+    val selectedCustomer: Customer? get() = customers.find { it.id == selectedCustomerId }
+
+    /** El encabezado "Venta para X" solo tiene sentido en contado: en crédito ya está el selector. */
+    val showsCashCustomerHeader: Boolean get() = !isCredit && (cameFromCustomerProfile || selectedCustomerId != null)
 
     /** Solo piezas con stock: vender algo agotado no tiene sentido (punto 3 del plan). */
     val availableProducts: List<ProductSummary>

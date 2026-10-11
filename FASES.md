@@ -445,6 +445,9 @@ clienta y armar ahí la venta completa, de contado o a crédito.
 `app/src/main/java/**/ui/navigation/JoyeriaNavHost.kt`,
 `app/src/main/java/**/ui/sale/RegisterSaleRoute.kt`,
 `app/src/main/java/**/ui/sale/RegisterSaleViewModel.kt`,
+`app/src/main/java/**/ui/sale/RegisterSaleScreen.kt` (agregado al aprobar
+B-07: **únicamente** para mostrar y permitir corregir de quién es la venta
+en el camino de contado -- nada más en esa pantalla),
 `app/src/main/java/**/data/repository/SaleRepository.kt`,
 `app/src/main/java/**/data/repository/SaleModels.kt`,
 `app/src/main/java/**/data/local/dao/SaleDao.kt`,
@@ -698,6 +701,15 @@ los dos de prioridad alta.
 4. Prueba con la usuaria real documentada: qué logró sola, dónde se trabó.
 5. Los cinco tests de la deuda de arriba, cerrados: cada uno ejercita lo que
    su nombre afirma, o lleva un nombre que afirma solo lo que ejercita.
+6. **Verificado con la usuaria: el perfil de una clienta vieja muestra menos
+   compras de las que ella recuerda.** Las ventas de contado anteriores a la
+   Fase 08 tienen `customer_id = null` y ese dato no existe; el perfil lo
+   explica con una línea al pie del historial. Esta fase es la **primera vez
+   que ella va a ver un perfil con compras faltantes**, así que no alcanza
+   con que el texto esté: hay que mirarla usarlo y anotar si entiende por
+   qué faltan o si cree que la app perdió el dato. Si no se entiende, el
+   texto cambia -- el problema no es de datos, es de que la app parezca
+   rota. Ver `ESTADO.md`, "Fase 08 -- Plan", sección 6.
 
 **Commit:** `fase-15: usability polish` → tag `fase-15-ok`
 

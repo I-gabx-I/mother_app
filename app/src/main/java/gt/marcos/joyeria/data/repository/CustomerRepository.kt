@@ -1,12 +1,13 @@
 package gt.marcos.joyeria.data.repository
 
+import androidx.room.withTransaction
+import gt.marcos.joyeria.data.local.AppDatabase
 import gt.marcos.joyeria.data.local.dao.CustomerDao
 import gt.marcos.joyeria.data.local.dao.SaleDao
 import gt.marcos.joyeria.data.local.entity.CustomerEntity
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.pricing.PricingCalculator
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -18,10 +19,16 @@ data class Customer(
     val archived: Boolean,
 )
 
+/**
+ * `createdAt` lo decide quien llama, igual que `soldAt` en una venta o
+ * `cancelledAt` en una anulación (D-055): el repositorio no lee el reloj,
+ * así que es determinístico y testeable sin depender de la hora real.
+ */
 data class AddCustomerInput(
     val name: String,
     val phone: String?,
     val notes: String?,
+    val createdAt: Long,
 )
 
 data class EditCustomerInput(
@@ -44,6 +51,7 @@ class CustomerHasPendingBalanceException(val pendingCents: Long, val pendingSale
  * pendiente (D-039), que sí vive acá porque necesita consultar `SaleDao`.
  */
 class CustomerRepository @Inject constructor(
+    private val db: AppDatabase,
     private val customerDao: CustomerDao,
     private val saleDao: SaleDao,
 ) {
@@ -52,7 +60,7 @@ class CustomerRepository @Inject constructor(
             name = input.name,
             phone = input.phone,
             notes = input.notes,
-            createdAt = System.currentTimeMillis(),
+            createdAt = input.createdAt,
         ),
     )
 
@@ -69,9 +77,23 @@ class CustomerRepository @Inject constructor(
      * Archiva a la clienta (D-006: nunca se borra), salvo que tenga saldo
      * pendiente en alguna venta a crédito -- archivarla la sacaría de
      * "¿Quién me debe?" (D-038) sin que la deuda real deje de existir.
+     *
+     * Las tres operaciones (existe / no debe / archivar) van en una sola
+     * transacción, igual que el resto del proyecto (D-056). La lectura de
+     * ventas pendientes usa la consulta **suspend**, no `.first()` sobre
+     * el `Flow` reactivo: recolectar un `Flow` de Room dentro de su propia
+     * transacción es pedirle a la transacción que espere a una consulta
+     * que necesita salir de ella.
      */
-    suspend fun archive(id: Long) {
-        val pendingSales = saleDao.observePendingCreditSalesForCustomer(id).first()
+    suspend fun archive(id: Long): Unit = db.withTransaction {
+        // Antes esto no verificaba nada: `customerDao.archive(id)` sobre un
+        // id inexistente afecta cero filas y la operación "funcionaba" en
+        // silencio. Mismo no-op silencioso que `update()` ya rechazaba.
+        checkNotNull(customerDao.getById(id)) {
+            "Cliente $id no existe -- no se puede archivar a alguien que no está"
+        }
+
+        val pendingSales = saleDao.getPendingCreditSalesForCustomer(id)
         if (pendingSales.isNotEmpty()) {
             val pendingCents = pendingSales.fold(0L) { acc, row ->
                 acc + PricingCalculator.saleBalance(Money(row.totalCents), Money(row.discountCents), Money(row.paidCents)).cents

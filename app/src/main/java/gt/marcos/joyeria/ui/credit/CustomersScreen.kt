@@ -41,6 +41,7 @@ import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.Customer
 import gt.marcos.joyeria.data.repository.CustomerDebtSummary
 import gt.marcos.joyeria.domain.model.Money
+import gt.marcos.joyeria.ui.customer.CustomerFormDialog
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 import java.util.concurrent.TimeUnit
@@ -61,7 +62,7 @@ private const val ALERT_DAYS = 30
 fun CustomersScreen(
     state: CustomersUiState,
     onTabSelected: (CustomersTab) -> Unit,
-    onDebtClick: (Long) -> Unit,
+    onCustomerClick: (Long) -> Unit,
     onAddClick: () -> Unit,
     onEditClick: (Customer) -> Unit,
     onFormNameChange: (String) -> Unit,
@@ -110,9 +111,10 @@ fun CustomersScreen(
             }
 
             when (state.tab) {
-                CustomersTab.WHO_OWES_ME -> WhoOwesMeTab(state = state, onDebtClick = onDebtClick)
+                CustomersTab.WHO_OWES_ME -> WhoOwesMeTab(state = state, onDebtClick = onCustomerClick)
                 CustomersTab.ALL_CUSTOMERS -> AllCustomersTab(
                     customers = state.allCustomers,
+                    onCustomerClick = onCustomerClick,
                     onEditClick = onEditClick,
                     onArchiveClick = onArchiveClick,
                 )
@@ -235,6 +237,7 @@ private fun daysAgoText(days: Int): String =
 @Composable
 private fun AllCustomersTab(
     customers: List<Customer>,
+    onCustomerClick: (Long) -> Unit,
     onEditClick: (Customer) -> Unit,
     onArchiveClick: (Customer) -> Unit,
 ) {
@@ -252,15 +255,28 @@ private fun AllCustomersTab(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(customers, key = { it.id }) { customer ->
-                CustomerRow(customer = customer, onEditClick = { onEditClick(customer) }, onArchiveClick = { onArchiveClick(customer) })
+                CustomerRow(
+                    customer = customer,
+                    // Fase 08: tocar la fila abre el perfil, no el diálogo
+                    // de editar. Una clienta sin deuda no tenía a dónde
+                    // entrar; editar y archivar siguen en sus dos íconos.
+                    onClick = { onCustomerClick(customer.id) },
+                    onEditClick = { onEditClick(customer) },
+                    onArchiveClick = { onArchiveClick(customer) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun CustomerRow(customer: Customer, onEditClick: () -> Unit, onArchiveClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onEditClick)) {
+private fun CustomerRow(
+    customer: Customer,
+    onClick: () -> Unit,
+    onEditClick: () -> Unit,
+    onArchiveClick: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -287,66 +303,6 @@ private fun CustomerRow(customer: Customer, onEditClick: () -> Unit, onArchiveCl
 }
 
 @Composable
-private fun CustomerFormDialog(
-    isEditing: Boolean,
-    name: String,
-    phone: String,
-    notes: String,
-    canSave: Boolean,
-    onNameChange: (String) -> Unit,
-    onPhoneChange: (String) -> Unit,
-    onNotesChange: (String) -> Unit,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                stringResource(
-                    if (isEditing) R.string.customers_edit_title else R.string.customers_add_title,
-                ),
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = onNameChange,
-                    label = { Text(stringResource(R.string.customer_name_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = onPhoneChange,
-                    label = { Text(stringResource(R.string.customer_phone_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = onNotesChange,
-                    label = { Text(stringResource(R.string.customer_notes_label)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm, enabled = canSave) {
-                Text(stringResource(R.string.customers_form_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.customer_form_cancel))
-            }
-        },
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
 private fun CustomersScreenPreview() {
     JoyeriaTheme {
         CustomersScreen(
@@ -362,7 +318,7 @@ private fun CustomersScreenPreview() {
                 ),
             ),
             onTabSelected = {},
-            onDebtClick = {},
+            onCustomerClick = {},
             onAddClick = {},
             onEditClick = {},
             onFormNameChange = {},

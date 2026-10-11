@@ -177,7 +177,7 @@ Si `extra_cost_cents = 0`, que es el caso normal, el costo real es simplemente
 |---|---|---|
 | `id` | Long PK | |
 | `sold_at` | Long | |
-| `customer_id` | Long? | null si fue contado a desconocido |
+| `customer_id` | Long? | tres estados, ver abajo |
 | `type` | String | `CASH` \| `CREDIT` |
 | `status` | String | `PAID` \| `PENDING` \| `CANCELLED` |
 | `total_cents` | Long | suma de las líneas, calculada al guardar |
@@ -191,6 +191,41 @@ Si `extra_cost_cents = 0`, que es el caso normal, el costo real es simplemente
 
 Una venta `CASH` nace `PAID`. Una venta `CREDIT` nace `PENDING` y pasa a `PAID`
 cuando la suma de abonos alcanza `total_cents - discount_cents`.
+
+### `customer_id` — tres estados, y un `null` que significa dos cosas distintas
+
+| Estado | Significa | Desde |
+|---|---|---|
+| `NOT NULL` + `type = 'CREDIT'` | La clienta que **debe** esta venta. Es la que alimenta "¿Quién me debe?" y el estado de cuenta | Fase 07 |
+| `NOT NULL` + `type = 'CASH'` | Clienta a la que se le vendió de contado. Queda asociada a ella y aparece en su perfil, **pero no es una deuda** | Fase 08 |
+| `NULL` | Venta sin clienta — **pero significa dos cosas distintas según la antigüedad de la fila** (ver abajo) | — |
+
+**El `null` de una fila vieja y el de una nueva no son lo mismo:**
+
+- **Fila escrita antes de Fase 08**, de contado: significa **"no se
+  sabe"**. La app no guardaba a quién se le vendía, así que la venta
+  *pudo* haber sido a una clienta conocida y el dato simplemente no se
+  capturó.
+- **Fila escrita desde Fase 08**, de contado: significa **"sin clienta, a
+  propósito"**. Es el caso común — venderle a quien pasa por ahí — y la
+  usuaria tuvo la opción de asociarla y no la usó.
+
+**No hay forma de distinguir los dos casos mirando la fila.** La columna es
+`null` en los dos y no existe ninguna marca de versión por fila. Por eso el
+perfil de clienta **no** afirma nada sobre una venta puntual: deduce una
+fecha de corte de toda la base
+(`MIN(sold_at) WHERE type = 'CASH' AND customer_id IS NOT NULL`) y avisa,
+por clienta, que su historial *puede* estar incompleto. El detalle completo
+y el caso que tumbó la versión por clienta están en **D-054**.
+
+**Consecuencia para cualquier consulta nueva:** `customer_id IS NOT NULL`
+**no** quiere decir "venta a crédito" ni "deuda". Desde Fase 08 una venta
+de contado también lo tiene. Toda consulta de deuda pide además
+`type = 'CREDIT' AND status = 'PENDING'` — ver **D-050**, que es la regla
+general de por qué esas condiciones se escriben aunque parezcan
+redundantes.
+
+---
 
 ### ⚠️ `discount_cents` es una columna de legado y SIGUE EN USO
 

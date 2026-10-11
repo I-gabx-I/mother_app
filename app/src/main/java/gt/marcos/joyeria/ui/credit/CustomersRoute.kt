@@ -9,7 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 /** Borde delgado entre navegación/Hilt y `CustomersScreen` (CLAUDE.md sección 5). */
 @Composable
 fun CustomersRoute(
-    onDebtClick: (Long) -> Unit,
+    onCustomerClick: (Long) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: CustomersViewModel = hiltViewModel(),
@@ -19,7 +19,7 @@ fun CustomersRoute(
     CustomersScreen(
         state = state,
         onTabSelected = viewModel::onTabSelected,
-        onDebtClick = onDebtClick,
+        onCustomerClick = onCustomerClick,
         onAddClick = viewModel::onAddClick,
         onEditClick = viewModel::onEditClick,
         onFormNameChange = viewModel::onFormNameChange,

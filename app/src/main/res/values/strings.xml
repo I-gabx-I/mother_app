@@ -161,6 +161,18 @@
     <string name="customers_archive_blocked_message">Tiene %1$s pendientes en %2$d venta(s) — no se puede archivar hasta que termine de pagar o anules esas ventas.</string>
 
     <string name="account_statement_title">Estado de cuenta</string>
+
+    <!-- Fase 08: perfil de clienta -->
+    <string name="customer_profile_title">Clienta</string>
+    <string name="customer_profile_sell_button">Venderle a esta clienta</string>
+    <string name="customer_profile_history_title">Sus compras</string>
+    <string name="customer_profile_history_empty">Todavía no le vendiste nada.</string>
+    <string name="customer_profile_history_total">Total de compras: %1$s</string>
+    <string name="customer_profile_history_cancelled">Anulada</string>
+    <string name="customer_profile_history_may_be_incomplete">Puede que falten compras de contado anteriores: antes no se guardaba a quién se le vendía.</string>
+    <string name="sale_customer_header">Venta para %1$s</string>
+    <string name="sale_customer_change">Cambiar</string>
+    <string name="sale_customer_none">Venta sin clienta</string>
     <string name="account_statement_total_balance">Saldo total: %1$s</string>
     <string name="account_statement_empty">Esta clienta no tiene ventas a crédito pendientes.</string>
     <string name="account_statement_sale_total">Total de la venta: %1$s</string>

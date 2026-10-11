@@ -29,6 +29,7 @@ fun RegisterSaleRoute(
         onBackClick = onBackClick,
         onSaleTypeChange = viewModel::onSaleTypeChanged,
         onCustomerSelected = viewModel::onCustomerSelected,
+        onClearCustomerClick = viewModel::onClearSelectedCustomer,
         onNewCustomerConfirmed = viewModel::onNewCustomerConfirmed,
         onInitialPaymentChange = viewModel::onInitialPaymentChanged,
         modifier = modifier,

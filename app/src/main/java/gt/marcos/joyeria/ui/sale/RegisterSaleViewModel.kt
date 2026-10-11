@@ -1,5 +1,6 @@
 package gt.marcos.joyeria.ui.sale
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -12,6 +13,7 @@ import gt.marcos.joyeria.data.repository.SaleLineInput
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.usecase.RegisterSaleUseCase
 import gt.marcos.joyeria.ui.format.toEditableText
+import gt.marcos.joyeria.ui.navigation.JoyeriaDestination
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,12 +25,33 @@ import javax.inject.Inject
 /** Único `StateFlow<UiState>` de la pantalla (CLAUDE.md sección 5). */
 @HiltViewModel
 class RegisterSaleViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val registerSaleUseCase: RegisterSaleUseCase,
     private val productRepository: ProductRepository,
     private val customerRepository: CustomerRepository,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(RegisterSaleUiState())
+    /**
+     * Clienta preelegida cuando se entra desde su perfil (Fase 08). Llega
+     * como `String?` porque `NavType.LongType` no admite nulos
+     * (`JoyeriaDestination.RegisterSale`); `toLongOrNull()` hace que un
+     * valor corrupto se comporte como "sin clienta" en vez de tirar la app.
+     *
+     * `null` -- entrar desde el inicio -- es el camino de siempre, sin
+     * ningún cambio de comportamiento.
+     */
+    private val preselectedCustomerId: Long? =
+        savedStateHandle.get<String?>(JoyeriaDestination.RegisterSale.ARG_CUSTOMER_ID)?.toLongOrNull()
+
+    private val _uiState = MutableStateFlow(
+        RegisterSaleUiState(
+            selectedCustomerId = preselectedCustomerId,
+            // D-042 intacto: entrar desde el perfil NO fuerza crédito. Ella
+            // dijo "de contado o a crédito", así que el selector sigue en
+            // "Al contado" y la decisión la toma ella, no la navegación.
+            cameFromCustomerProfile = preselectedCustomerId != null,
+        ),
+    )
     val uiState: StateFlow<RegisterSaleUiState> = _uiState.asStateFlow()
 
     init {
@@ -74,6 +97,11 @@ class RegisterSaleViewModel @Inject constructor(
         _uiState.update { it.copy(selectedCustomerId = customerId) }
     }
 
+    /** Quita la clienta de una venta de contado (el "Cambiar" del encabezado). */
+    fun onClearSelectedCustomer() {
+        _uiState.update { it.copy(selectedCustomerId = null) }
+    }
+
     fun onInitialPaymentChanged(raw: String) {
         _uiState.update { it.copy(initialPaymentText = raw) }
     }
@@ -82,7 +110,9 @@ class RegisterSaleViewModel @Inject constructor(
     fun onNewCustomerConfirmed(name: String, phone: String?) {
         if (name.isBlank()) return
         viewModelScope.launch {
-            val id = customerRepository.add(AddCustomerInput(name = name, phone = phone, notes = null))
+            val id = customerRepository.add(
+                AddCustomerInput(name = name, phone = phone, notes = null, createdAt = System.currentTimeMillis()),
+            )
             _uiState.update { it.copy(selectedCustomerId = id) }
         }
     }
@@ -200,6 +230,10 @@ class RegisterSaleViewModel @Inject constructor(
             val result = registerSaleUseCase(
                 RegisterSaleInput(
                     soldAt = System.currentTimeMillis(),
+                    // Fase 08: en contado la clienta se asocia a la venta
+                    // sin convertirla en deuda. En crédito este campo se
+                    // ignora -- la clienta sale de `credit`, abajo.
+                    customerId = if (state.isCredit) null else state.selectedCustomerId,
                     // D-047: el descuento general ya no existe en la app, pero
                     // la columna sigue viva y sus fórmulas la siguen usando
                     // para las ventas viejas. Las nuevas escriben cero.
@@ -209,7 +243,16 @@ class RegisterSaleViewModel @Inject constructor(
                     credit = credit,
                 ),
             )
-            _uiState.value = RegisterSaleUiState(products = state.products, customers = state.customers, result = result)
+            // Se conserva la clienta preelegida al limpiar: si entró desde
+            // el perfil de Doña María para venderle, lo más probable es que
+            // la siguiente venta también sea para ella.
+            _uiState.value = RegisterSaleUiState(
+                products = state.products,
+                customers = state.customers,
+                result = result,
+                selectedCustomerId = preselectedCustomerId,
+                cameFromCustomerProfile = preselectedCustomerId != null,
+            )
         }
     }
 
