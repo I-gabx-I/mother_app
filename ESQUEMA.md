@@ -63,10 +63,42 @@ se commitea junto con `1.json`, sin tocarlo — ver D-031/D-032/D-033 en
 | Columna | Tipo | Notas |
 |---|---|---|
 | `id` | Long PK | |
-| `name` | String | "Anillos", "Cadenas", "Aretes", "Pulseras", "Juegos" |
+| `name` | String | "Anillos", "Cadenas", "Aretes", "Pulseras", "Juegos". **Sin restricción de unicidad en la base** — ver advertencia abajo |
 | `archived` | Boolean | default `false` |
 
 Semilla inicial: las cinco categorías de arriba, creadas en la primera apertura.
+
+Agregada en Fase 09 (categorías propias, antes solo tenía DAO/UI de lectura
+desde Fase 04): alta, renombre y archivado desde una pantalla de
+administración. Nunca se borra (D-006); archivar no destruye la
+clasificación de las piezas que ya la tenían asignada (D-057, Opción A).
+
+### ⚠️ `name` no tiene índice único — la unicidad la garantiza `CategoryRepository`, no la base
+
+**Decisión deliberada, no un olvido (D-057):** dos categorías **activas**
+nunca deberían llamarse igual (confunde el desplegable), pero una
+categoría **archivada** sí puede compartir nombre con una activa — no
+compiten por el mismo lugar en ningún selector a la vez, y por eso un
+índice único bloquearía también ese caso válido. La regla real es "única
+entre las activas", que una restricción de la base no puede expresar sin
+bloquear de más.
+
+`CategoryRepository.add()`/`rename()` rechazan el duplicado (sin
+distinguir mayúsculas ni espacios al borde) **antes** de escribir. Es
+exactamente el mismo patrón que D-050 (una consulta que expresa toda su
+condición en vez de confiar en un invariante de otro archivo): acá el
+invariante ("nunca hay dos activas con el mismo nombre") lo mantiene un
+solo repositorio, en código Kotlin, no una restricción de esquema.
+
+**Consecuencia para cualquier escritura futura que no pase por
+`CategoryRepository`:** puede crear duplicados sin que nada lo impida.
+La semilla (`AppDatabase.SeedCallback`, `execSQL` directo) no corre este
+chequeo, pero inserta nombres fijos y distintos entre sí, así que no
+colisiona. **Una importación de respaldo (Fase 14, futura) sí tiene que
+validar los nombres de categoría que traiga contra esta misma regla** —
+si importa pasando por debajo de `CategoryRepository` (`execSQL`/`insert`
+directo a la tabla, por velocidad o por restaurar ids exactos), nada en
+la base la va a frenar de crear dos "Pulseras" activas.
 
 ---
 

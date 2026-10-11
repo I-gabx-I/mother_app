@@ -8182,3 +8182,157 @@ sigo con lo que quedó escrito acá.
 
 **Paro acá, como corresponde. Empiezo a escribir código cuando confirmes
 este plan.**
+
+---
+
+## Fase 09 — Categorías propias
+
+**Inicio:** 2026-10-11
+**Cierre:** 2026-10-11
+**Commit:** (pendiente, un solo commit, sin tag todavía — paro antes del tag como pediste)
+
+### Qué se hizo
+
+Implementado tal cual el plan de arriba, sin desvíos:
+
+- `CategoryDao`: `observeAll()`, `observeSelectable()`, `rename()`,
+  `countActiveWithName()`, sumadas a `insert`/`observeActive`/`getById`/
+  `archive` que ya existían.
+- `CategoryRepository`: `Category` gana `archived: Boolean`;
+  `observeSelectable()`/`observeAll()` nuevos; `add()`/`rename()` validan
+  nombre duplicado contra `countActiveWithName()` y lanzan
+  `CategoryNameAlreadyExistsException` (mismo patrón que
+  `CustomerHasPendingBalanceException`, D-039) si ya existe.
+- Opción A aplicada: `ProductEditViewModel` y `ProductListViewModel`
+  pasaron de `observeActive()` a `observeSelectable()`. `CategoryDropdown`
+  y `CategoryFilterDropdown` muestran el sufijo "(archivada)"
+  (`category_archived_suffix`) para la categoría archivada que sigue
+  siendo seleccionable. `CategoryChipRow` (alta rápida) se dejó intacto,
+  sigue en `observeActive()` — una categoría archivada no se ofrece para
+  piezas nuevas, a propósito.
+- Pantalla nueva `ui/product/category/` (`CategoryManageRoute`,
+  `CategoryManageScreen`, `CategoryManageUiState`,
+  `CategoryManageViewModel`): alta con campo + botón, lista activas con
+  renombre inline (ícono lápiz → fila editable, check/cancelar) y
+  archivado con confirmación (`AlertDialog`, texto nombrando la
+  categoría), sección "Archivadas" de solo lectura debajo. Sin
+  "desarchivar" — no estaba pedido.
+- Entrada desde Inventario: ícono de menú nuevo en la `TopAppBar` de
+  `ProductListScreen` (`MoreVert` → "Categorías"), no un botón en el
+  inicio (CLAUDE.md sección 6).
+- Destino nuevo `JoyeriaDestination.Categories` en el `NavHost`.
+- `ESQUEMA.md` (tabla `category`) y `DECISIONES.md` (D-057) documentan
+  que `category.name` no tiene restricción de unicidad en la base, la
+  garantiza `CategoryRepository`, y que una futura importación (Fase 14)
+  tiene que validar igual — pedido explícito tuyo antes de codificar.
+
+### Archivos tocados
+
+Todos dentro de "Archivos permitidos" de `FASES.md`:
+`data/local/dao/CategoryDao.kt`, `data/repository/CategoryRepository.kt`,
+`ui/product/CategoryDropdown.kt`, `ui/product/list/ProductListScreen.kt`,
+`ui/product/list/ProductListViewModel.kt`,
+`ui/product/list/ProductListRoute.kt`,
+`ui/product/edit/ProductEditViewModel.kt`, `ui/product/category/**`
+(nuevo), `ui/navigation/JoyeriaDestination.kt`,
+`ui/navigation/JoyeriaNavHost.kt`, `strings.xml`,
+`app/src/test/java/**/data/local/CategoryDaoTest.kt` (nuevo),
+`app/src/test/java/**/data/repository/CategoryRepositoryTest.kt` (nuevo).
+Más `ESQUEMA.md` y `DECISIONES.md`, pedidos explícitamente por vos antes
+de codificar (nota de D-057), no están en la lista original de la fase
+pero tampoco son código: documentación de una decisión, igual que toda
+entrada nueva de `DECISIONES.md` en cualquier fase anterior.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | Build y tests pasan | `./gradlew assembleDebug testDebugUnitTest` | ✅ (225 tests, 0 fallos; eran 211) |
+| 2 | Agregar, renombrar y archivar funciona desde la app, con confirmación en el archivado | Manual, emulador `Medium_Phone_API_35` — ver capturas abajo | ✅ |
+| 3 | Ninguna ruta borra físicamente una categoría | `grep -rn "DELETE FROM category\|categoryDao.*delete" app/src/main` sin resultados; `CategoryManageViewModel` solo llama `add`/`rename`/`archive` | ✅ |
+| 4 | Las piezas de una categoría archivada siguen siendo encontrables y editables (Opción A) | Manual: pieza asignada a "Dijes", se archivó "Dijes", el filtro de Inventario y el dropdown de edición la siguen mostrando como "Dijes (archivada)" — ver capturas | ✅ |
+| 5 | Test de DAO con Room in-memory para `rename` y `archive` | `CategoryDaoTest` (9 tests) | ✅ |
+
+### Tests agregados
+
+`app/src/test/java/gt/marcos/joyeria/data/local/CategoryDaoTest.kt` (9):
+- `rename_changesTheNameAndLeavesArchivedUntouched`
+- `archive_withNoProductsAssigned_disappearsFromActiveAndSelectable`
+- `observeSelectable_includesAnArchivedCategoryWithAnActiveProductAssigned`
+- `observeSelectable_stopsIncludingAnArchivedCategory_onceItsLastProductIsReclassified`
+- `observeSelectable_stopsIncludingAnArchivedCategory_onceItsLastProductIsArchived`
+- `observeAll_includesActiveAndArchived_withArchivedLast`
+- `countActiveWithName_matchesIgnoringCaseAndSurroundingWhitespace`
+- `countActiveWithName_excludesTheCategoryItself_byExcludeId`
+- `countActiveWithName_ignoresAnArchivedCategoryWithTheSameName`
+
+`app/src/test/java/gt/marcos/joyeria/data/repository/CategoryRepositoryTest.kt` (5):
+- `add_withANameNotUsedByAnyActiveCategory_insertsIt`
+- `add_withTheNameOfAnActiveCategory_throwsAndDoesNotInsert`
+- `add_withTheNameOfAnArchivedCategory_insertsIt`
+- `rename_toItsOwnCurrentName_doesNotThrow`
+- `rename_toTheNameOfAnotherActiveCategory_throwsAndDoesNotRename`
+
+Cada nombre afirma una sola cosa y el cuerpo la ejercita completa (sección
+8 de `CLAUDE.md`) — nada de `...OrY...` que pruebe solo una rama.
+
+### Verificación manual (emulador `Medium_Phone_API_35`, §7.10 — lista nueva)
+
+Instalado `app-debug.apk`, ejercitada la pantalla nueva de punta a punta,
+entrando y saliendo varias veces:
+
+1. **Administrar:** Inventario → menú (⋮) → "Categorías" muestra las 5
+   semilla. Agregué "Dijes" (`fase09-06-added-dijes.png`) — aparece
+   ordenada alfabéticamente, campo se limpia solo.
+2. **Nombre duplicado rechazado:** renombrar "Dijes" a "Anillos" muestra
+   el campo en rojo con "Ya existe una categoría activa llamada
+   "Anillos"" (`fase09-14-duplicate-rename-error.png`) y **no** cambia el
+   nombre — confirmado volviendo a la lista.
+3. **Archivar con confirmación:** ícono de archivo en "Dijes" abre el
+   diálogo con el texto exacto diseñado, nombrando la categoría
+   (`fase09-33-archive-dialog.png`); confirmado, pasa a la sección
+   "Archivadas", sin iconos de acción (`fase09-34-dijes-archived.png`).
+4. **Opción A, el criterio que más importaba:** antes de archivar, asigné
+   "Dijes" a la pieza existente `XP-000001` y confirmé con el filtro de
+   Inventario que aparecía (`fase09-31-filtered-dijes-fixed.png`).
+   Después de archivar "Dijes": el filtro de Inventario la sigue
+   ofreciendo como "Dijes (archivada)" y, filtrando por ella, la pieza
+   sigue apareciendo (`fase09-36-product-still-found.png`); el dropdown
+   de `ProductEditScreen` muestra "Dijes (archivada)" como valor actual,
+   no un campo vacío (`fase09-37-product-edit-archived-cat.png`).
+5. **Alta rápida no ofrece archivadas:** los chips de categoría de
+   "Agregar pieza" muestran Anillos/Aretes/Cadenas/Juegos/Pulseras, sin
+   "Dijes" (`fase09-39-add-product.png`) — confirma que `CategoryChipRow`
+   se quedó en `observeActive()` a propósito.
+6. **Sin crash entrando/saliendo repetidas veces** de Categorías, de
+   vuelta a Inventario, al perfil de edición y a Home, en toda la sesión
+   de arriba.
+
+Capturas completas en `app/build/screenshots/fase09-*.png` (39 archivos;
+las intermedias son del propio proceso de apuntar coordenadas a mano en
+`adb shell input tap`, no hallazgos — las 9 listadas arriba son las que
+importan).
+
+### Suposiciones que tomé
+
+- Comparación de nombre duplicado: sin distinguir mayúsculas ni espacios
+  al borde (`LOWER(TRIM(name))`) — ya estaba en el plan, confirmado sin
+  objeción.
+- Sin "desarchivar" una categoría: `FASES.md` no lo pide y no lo agregué.
+
+### Lo que NO hice
+
+- No agregué índice único a `category.name` — decisión explícita (D-057),
+  pedida por vos en la nota previa al código.
+- No toqué `sale_item` ni agregué ningún snapshot de categoría — confirmado
+  que no hace falta.
+- No implementé "desarchivar".
+
+### Deuda técnica que dejé
+
+Ninguna nueva. La deuda de relojes y de nombres de test (Fase 15) no se
+tocó, como correspondía.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno. **Falta el tag** (`fase-09-ok`) — lo ponés vos.

@@ -13,6 +13,8 @@ sealed class JoyeriaDestination(val route: String) {
         fun createRoute(productId: Long) = "product_edit/$productId"
     }
     data object RegisterPurchase : JoyeriaDestination("register_purchase")
+    /** Administración de categorías (Fase 09), desde el menú de Inventario. */
+    data object Categories : JoyeriaDestination("categories")
     /**
      * `customerId` es opcional (Fase 08): sin él, "Vender" se comporta
      * exactamente igual que en Fase 06/07. Con él, la venta llega con esa

@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -44,6 +46,7 @@ import gt.marcos.joyeria.data.repository.Category
 import gt.marcos.joyeria.data.repository.ProductSummary
 import gt.marcos.joyeria.domain.pricing.PricingCalculator
 import gt.marcos.joyeria.ui.format.format
+import gt.marcos.joyeria.ui.product.displayName
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 
 /**
@@ -57,6 +60,7 @@ fun ProductListScreen(
     onQueryChange: (String) -> Unit,
     onCategorySelected: (Long?) -> Unit,
     onProductClick: (Long) -> Unit,
+    onManageCategoriesClick: () -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -69,6 +73,9 @@ fun ProductListScreen(
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back))
                     }
+                },
+                actions = {
+                    ProductListOverflowMenu(onManageCategoriesClick = onManageCategoriesClick)
                 },
             )
         },
@@ -121,8 +128,8 @@ private fun CategoryFilterDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = categories.find { it.id == selectedCategoryId }?.name
-        ?: stringResource(R.string.product_list_category_filter_all)
+    val selected = categories.find { it.id == selectedCategoryId }
+    val selectedName = selected?.let { it.displayName() } ?: stringResource(R.string.product_list_category_filter_all)
 
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
@@ -145,7 +152,7 @@ private fun CategoryFilterDropdown(
             )
             categories.forEach { category ->
                 DropdownMenuItem(
-                    text = { Text(category.name) },
+                    text = { Text(category.displayName()) },
                     onClick = {
                         onCategorySelected(category.id)
                         expanded = false
@@ -153,6 +160,28 @@ private fun CategoryFilterDropdown(
                 )
             }
         }
+    }
+}
+
+/**
+ * Único ítem hoy ("Categorías", Fase 09) -- administrar categorías es de
+ * baja frecuencia y vive donde ella ya está mirando categorías (el
+ * filtro), no como botón grande en el inicio (CLAUDE.md sección 6).
+ */
+@Composable
+private fun ProductListOverflowMenu(onManageCategoriesClick: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(onClick = { expanded = true }) {
+        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.product_list_menu))
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.product_list_manage_categories)) },
+            onClick = {
+                expanded = false
+                onManageCategoriesClick()
+            },
+        )
     }
 }
 
@@ -233,6 +262,7 @@ private fun ProductListScreenPreview() {
             onQueryChange = {},
             onCategorySelected = {},
             onProductClick = {},
+            onManageCategoriesClick = {},
             onBackClick = {},
         )
     }

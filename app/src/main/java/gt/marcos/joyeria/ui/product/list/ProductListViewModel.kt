@@ -19,6 +19,10 @@ import javax.inject.Inject
  * Único `StateFlow<UiState>` del listado (CLAUDE.md sección 5). Búsqueda
  * y filtro de categoría son reactivos: cambiar cualquiera de los dos
  * vuelve a consultar `ProductRepository` (Room ya notifica solo).
+ *
+ * El filtro usa `observeSelectable()`, no `observeActive()` (Fase 09): si
+ * una categoría se archiva con piezas todavía asignadas, el filtro tiene
+ * que seguir pudiendo encontrarlas, no solo el dropdown de edición.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -31,7 +35,7 @@ class ProductListViewModel @Inject constructor(
     private val selectedCategoryId = MutableStateFlow<Long?>(null)
 
     val uiState: StateFlow<ProductListUiState> =
-        combine(query, selectedCategoryId, categoryRepository.observeActive()) { q, categoryId, categories ->
+        combine(query, selectedCategoryId, categoryRepository.observeSelectable()) { q, categoryId, categories ->
             Triple(q, categoryId, categories)
         }
             .flatMapLatest { (q, categoryId, categories) ->

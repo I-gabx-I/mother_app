@@ -10,6 +10,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun ProductListRoute(
     onProductClick: (Long) -> Unit,
+    onManageCategoriesClick: () -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProductListViewModel = hiltViewModel(),
@@ -21,6 +22,7 @@ fun ProductListRoute(
         onQueryChange = viewModel::onQueryChanged,
         onCategorySelected = viewModel::onCategorySelected,
         onProductClick = onProductClick,
+        onManageCategoriesClick = onManageCategoriesClick,
         onBackClick = onBackClick,
         modifier = modifier,
     )

@@ -193,4 +193,23 @@
         <item quantity="one">Debe desde hace %1$d día</item>
         <item quantity="other">Debe desde hace %1$d días</item>
     </plurals>
+
+    <!-- Fase 09: categorías propias -->
+    <string name="category_archived_suffix">%1$s (archivada)</string>
+    <string name="product_list_menu">Más opciones</string>
+    <string name="product_list_manage_categories">Categorías</string>
+    <string name="category_manage_title">Categorías</string>
+    <string name="category_manage_new_category_label">Nueva categoría</string>
+    <string name="category_manage_add_button">Agregar</string>
+    <string name="category_manage_duplicate_name_error">Ya existe una categoría activa llamada \"%1$s\"</string>
+    <string name="category_manage_empty">Todavía no hay ninguna categoría.</string>
+    <string name="category_manage_archived_section_title">Archivadas</string>
+    <string name="category_manage_rename_button">Renombrar</string>
+    <string name="category_manage_rename_confirm">Guardar nombre</string>
+    <string name="category_manage_rename_cancel">Cancelar renombre</string>
+    <string name="category_manage_archive_button">Archivar</string>
+    <string name="category_manage_archive_confirm_title">¿Archivar esta categoría?</string>
+    <string name="category_manage_archive_confirm_message">"%1$s" ya no se va a ofrecer para piezas nuevas. Las piezas que ya la tengan asignada la van a seguir mostrando, marcada como archivada.</string>
+    <string name="category_manage_archive_confirm_confirm">Sí, archivar</string>
+    <string name="category_manage_archive_confirm_cancel">Cancelar</string>
 </resources>

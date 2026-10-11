@@ -10,6 +10,7 @@ import androidx.navigation.navArgument
 import gt.marcos.joyeria.ui.credit.CustomerProfileRoute
 import gt.marcos.joyeria.ui.credit.CustomersRoute
 import gt.marcos.joyeria.ui.product.add.AddProductRoute
+import gt.marcos.joyeria.ui.product.category.CategoryManageRoute
 import gt.marcos.joyeria.ui.product.edit.ProductEditRoute
 import gt.marcos.joyeria.ui.product.list.ProductListRoute
 import gt.marcos.joyeria.ui.purchase.RegisterPurchaseRoute
@@ -81,8 +82,12 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
                 onProductClick = { productId ->
                     navController.navigate(JoyeriaDestination.ProductEdit.createRoute(productId))
                 },
+                onManageCategoriesClick = { navController.navigate(JoyeriaDestination.Categories.route) },
                 onBackClick = { navController.popBackStack() },
             )
+        }
+        composable(JoyeriaDestination.Categories.route) {
+            CategoryManageRoute(onBackClick = { navController.popBackStack() })
         }
         composable(
             route = JoyeriaDestination.ProductEdit.route,

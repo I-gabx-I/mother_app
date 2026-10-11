@@ -32,8 +32,8 @@ fun CategoryDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = categories.find { it.id == selectedCategoryId }?.name
-        ?: stringResource(R.string.add_product_category_none)
+    val selected = categories.find { it.id == selectedCategoryId }
+    val selectedName = selected?.let { it.displayName() } ?: stringResource(R.string.add_product_category_none)
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -60,7 +60,7 @@ fun CategoryDropdown(
             )
             categories.forEach { category ->
                 DropdownMenuItem(
-                    text = { Text(category.name) },
+                    text = { Text(category.displayName()) },
                     onClick = {
                         onCategorySelected(category.id)
                         expanded = false
@@ -70,3 +70,13 @@ fun CategoryDropdown(
         }
     }
 }
+
+/**
+ * "Pulseras (archivada)" para una categoría archivada que sigue siendo
+ * seleccionable (Fase 09, Opción A: `CategoryRepository.observeSelectable`)
+ * -- ella entiende por qué una pieza vieja todavía la muestra, en vez de
+ * ver un nombre suelto sin ninguna marca.
+ */
+@Composable
+internal fun Category.displayName(): String =
+    if (archived) stringResource(R.string.category_archived_suffix, name) else name

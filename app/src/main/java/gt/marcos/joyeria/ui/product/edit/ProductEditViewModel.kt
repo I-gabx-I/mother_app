@@ -60,7 +60,11 @@ class ProductEditViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            categoryRepository.observeActive().collectLatest { categories ->
+            // observeSelectable(), no observeActive() (Fase 09): si la
+            // categoría de esta pieza se archivó, el dropdown tiene que
+            // seguir mostrándola -- si no, queda en blanco aunque
+            // category_id siga apuntando a ella.
+            categoryRepository.observeSelectable().collectLatest { categories ->
                 _uiState.update { it.copy(categories = categories) }
             }
         }

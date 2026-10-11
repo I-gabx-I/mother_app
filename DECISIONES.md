@@ -2853,6 +2853,72 @@ leer dentro de una transacción, **siempre** la `suspend`.
 
 ---
 
+## D-057 — Categorías propias: Opción A para archivadas, sin snapshot de nombre, y la unicidad vive en el repositorio, no en la base
+
+**Contexto:** Fase 09 (categorías propias) dejaba tres preguntas
+explícitamente sin decidir en `FASES.md`: qué pasa con los productos de
+una categoría archivada, si renombrar debía llevar snapshot como el
+dinero (D-002), y la regla de nombres duplicados. Las primeras dos se
+preguntaron al humano (`ESTADO.md`, "Fase 09 — Plan"); la tercera la
+decidió Claude Code, por ser reversible y no tocar datos de la usuaria.
+
+**Decisión:**
+1. **Categoría archivada con piezas asignadas (Opción A):** el producto
+   conserva su `category_id`. `CategoryDao.observeSelectable()` devuelve
+   las categorías activas más cualquier archivada que todavía tenga al
+   menos una pieza no archivada apuntándole; `CategoryDropdown` y el
+   filtro de Inventario la muestran con el sufijo "(archivada)". Cuando
+   la última pieza se reclasifica o se archiva, la categoría deja de
+   aparecer sola, sin ninguna marca extra que mantener.
+2. **Renombrar no lleva snapshot.** A diferencia de costo/precio (D-002),
+   `sale_item` nunca guardó nombre ni id de categoría — el problema que
+   los snapshots de dinero resuelven (una venta cerrada que cambia de
+   ganancia sola) no existe para el nombre de una categoría, porque no
+   hay ningún lugar en el esquema donde ese nombre viva fuera de
+   `category` misma. Renombrar actualiza lo que se ve en todos lados,
+   pasado incluido, sin que eso reescriba ningún número contable.
+3. **Nombres duplicados: únicos entre categorías activas, sin índice
+   único en la base.** La comparación ignora mayúsculas y espacios al
+   borde (`LOWER(TRIM(name))`). Una archivada puede compartir nombre con
+   una activa — no compiten por el mismo selector a la vez, así que un
+   índice único bloquearía también ese caso válido. La garantía la da
+   `CategoryRepository.add()`/`rename()`, consultando
+   `CategoryDao.countActiveWithName()` antes de escribir y lanzando
+   `CategoryNameAlreadyExistsException` (mismo patrón que
+   `CustomerHasPendingBalanceException`, D-039) si ya existe.
+4. **Administración:** pantalla nueva (`CategoryManageScreen`), a la que
+   se entra desde un menú nuevo en la `TopAppBar` de Inventario — no
+   desde el inicio (CLAUDE.md sección 6: dos acciones grandes, no un
+   tablero). Permite agregar, renombrar y archivar; no permite
+   desarchivar (no estaba pedido) ni borrar (D-006).
+
+**Por qué (la unicidad sin índice único es la parte no obvia, igual al
+patrón de D-050):** un invariante que una sola consulta puede garantizar
+sin bloquear el caso bueno (archivada + activa con el mismo nombre) no
+necesita una restricción de esquema más agresiva que ese invariante real.
+El costo de la alternativa (índice único) sería una migración por una
+regla que en realidad es más angosta que "único en toda la tabla".
+
+**Descartado:**
+- Opción B (category_id = null al archivar): destruye la clasificación
+  que ella hizo, sin forma de deshacerlo desde la app.
+- Opción C (bloquear el archivado mientras tenga piezas): la deja
+  trabada, obligándola a reclasificar a mano antes de poder archivar.
+- Columna de snapshot de categoría en `sale_item`: resolvería un
+  problema que no existe en este esquema (ver punto 2).
+- Índice único en `category.name`: bloquearía el caso válido de
+  archivada+activa con el mismo nombre (ver "Por qué").
+
+**Consecuencia — advertencia que queda escrita en `ESQUEMA.md`, tabla
+`category`:** cualquier escritura que no pase por `CategoryRepository`
+(una importación de respaldo, Fase 14 futura, que inserte categorías por
+velocidad o para restaurar ids exactos) puede crear duplicados sin que
+nada en la base lo impida. Esa fase, cuando llegue, tiene que validar los
+nombres que importa contra la misma regla, no asumir que la base la
+protege.
+
+---
+
 <!--
 ## D-00X — Título
 
