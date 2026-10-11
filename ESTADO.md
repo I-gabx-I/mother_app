@@ -8336,3 +8336,207 @@ tocó, como correspondía.
 ### Bloqueos / preguntas para el humano
 
 Ninguno. **Falta el tag** (`fase-09-ok`) — lo ponés vos.
+
+---
+
+## Fase 10 — Plan (antes de escribir código)
+
+Rama `fase/10-whatsapp`, abierta desde `main` (`fase-09-ok`). Las dos cosas
+que pediste tratar van primero, después el resto del diseño, y las dudas
+reales van todas juntas al final — nada de preguntar antes de tener el
+plan completo.
+
+### 1. El mensaje — propuesta de texto exacto
+
+Lo pensé como lo escribiría ella, no como lo escribiría una empresa.
+Diferencias concretas con un mensaje de cobranza: sin "estimado cliente",
+sin "saldo pendiente", sin "favor cancelar a la brevedad", sin mayúsculas
+de urgencia. Voseo (así habla Guatemala), sin presionar una fecha.
+
+**Propuesta** (`whatsapp_reminder_message`, dos marcadores — nombre y
+monto ya formateado con `Q`):
+
+> Hola %1$s, ¿cómo estás? Te escribo para recordarte que te quedó
+> pendiente %2$s de las piezas que llevaste. Si podés pasar a dejármelo
+> cuando te quede bien, te lo agradezco. ¡Que estés bien!
+
+Por qué este texto y no otro:
+- Empieza preguntando cómo está, como arrancaría un mensaje a una
+  conocida — no con el monto de entrada.
+- "Te quedó pendiente", no "tenés un saldo de" ni "adeudás": es como se
+  dice en una conversación, no en un recibo.
+- "Cuando te quede bien" en vez de una fecha límite: no es un cobro con
+  plazo, es un recordatorio entre personas que ya se conocen.
+- Cierra con algo amable, no con el monto ni con una instrucción.
+
+**No le puse emoji.** Una vendedora real probablemente le pondría al
+menos un 😊, pero no agrego emoji a un archivo por mi cuenta si no me lo
+pediste — es la regla que tengo por defecto. Si querés que lleve uno
+(o más de uno), decímelo y lo agrego exactamente donde digas.
+
+Esto es lo único que de verdad necesito que confirmes antes de tocar
+código (va en la tanda de preguntas del final, pero lo marco acá porque
+es el punto 1 que pediste tratar).
+
+### 2. Normalización de teléfono — formatos y qué pasa si falla
+
+**Algoritmo** (`util/WhatsAppLink.normalizePhone`, puro, sin Android):
+se descartan todos los caracteres que no son dígito (eso ya se come el
+`+`, los espacios, los guiones y los paréntesis solo) y después:
+
+| Dígitos resultantes | Condición | Resultado |
+|---|---|---|
+| 8 | — | se antepone `502` |
+| 11 | empieza con `502` | se usa tal cual |
+| 13 | empieza con `00502` | se le saca el `00` de adelante |
+| cualquier otro caso | — | `null` (no normalizable) |
+
+El resultado siempre es solo dígitos, sin `+` (formato que pide `wa.me`).
+
+**Formatos reales de Guatemala que cubre**, los cuatro de `FASES.md` más
+los que agrego porque son variaciones reales que puede escribir o pegar
+una clienta guatemalteca (todos dan el mismo resultado,
+`50255551234`):
+
+| Entrada | Por qué la cubro |
+|---|---|
+| `5555-1234` (FASES.md) | formato con guion, el más común al dictar un número |
+| `55551234` (FASES.md) | sin separador |
+| `+502 5555 1234` (FASES.md) | formato internacional con espacios |
+| `50255551234` (FASES.md) | formato internacional sin espacios |
+| `5555 1234` | espacio en vez de guion, tan común como el guion |
+| `+50255551234` | internacional sin ningún espacio |
+| `(502) 5555-1234` | estilo que copian algunos teléfonos al exportar contactos, aunque Guatemala no usa código de área real |
+| `00502 5555 1234` | prefijo de salida internacional `00`, el que usan algunos teléfonos en vez de `+` |
+
+**Qué pasa si no se puede normalizar — tu pregunta 2, ya decidido, no
+queda un botón muerto:** el botón **sí aparece** (la regla de "sin
+botón" es solo para campo vacío, no para campo con un valor raro — si no,
+un dato corrupto se vuelve indistinguible de "no tiene teléfono", que es
+justo el tipo de dato que D-050 dice que hay que distinguir explícito).
+Al tocarlo, si `normalizePhone` da `null`, se muestra un `Snackbar` local
+("No pudimos preparar el mensaje: revisá el teléfono de %1$s.",
+`whatsapp_reminder_invalid_phone`) en vez de abrir nada. No la mando a
+ninguna pantalla nueva: el lápiz de editar ya está arriba de este mismo
+perfil (B-09, Fase 08), a un toque.
+
+### 3. Revisión antes de enviar — confirmado, y cómo lo verifico
+
+El link `https://wa.me/<numero>?text=<mensaje>` (ACTION_VIEW) abre la
+pantalla de **WhatsApp**, no manda nada: WhatsApp precarga el texto en su
+propio cuadro de escritura, editable, y **ella tiene que tocar el botón
+de enviar de WhatsApp** para que salga. Nuestra app no tiene ningún paso
+de "enviar" propio -- abre el link y termina ahí. Es la misma mecánica
+que usa cualquier botón de "WhatsApp" de cualquier negocio.
+
+Cómo lo voy a verificar en el emulador (no tiene WhatsApp instalado, así
+que no voy a ver la conversación real, pero sí puedo confirmar la parte
+que depende de nuestro código): toco el botón, reviso con `adb logcat`
+que el `Intent` sale con la URL exacta esperada (teléfono y texto bien
+armados), y confirmo que algo la abre sin crash (el navegador, con la
+página de `wa.me`, va a mostrar el texto en la URL de forma legible —
+alcanza para confirmar que el texto que armamos es el correcto). Lo dejo
+documentado con captura al cerrar la fase, como pediste.
+
+### 4. Dónde van los botones, y por qué ahí
+
+- **"¿Quién me debe?" (`CustomersScreen`, `DebtRow`):** un ícono de
+  WhatsApp al lado de cada fila, con el teléfono y el saldo total que ya
+  tiene cargados `CustomerDebtSummary`. Es la pantalla que ella abre para
+  cobrar a varias clientas seguidas -- obligarla a entrar al perfil de
+  cada una para mandar un recordatorio es justo la fricción que esta fase
+  quiere sacar ("cobrar sin escribir el mensaje a mano", `FASES.md`).
+- **Perfil de clienta (`CustomerProfileScreen`):** el mismo botón, esta
+  vez con texto ("Recordar por WhatsApp"), al lado de "Saldo total" --
+  solo si `state.hasDebt` (ya existe esa condición, Fase 08).
+- **No lo puse en "Todas las clientas":** una clienta sin deuda no tiene
+  nada que recordarle. Ofrecer el botón ahí sería mostrar una acción que
+  no hace nada útil para el caso común de esa pestaña.
+- **Compartir estado de cuenta (entregable, sin WhatsApp específico):**
+  un botón aparte en el perfil, junto al de WhatsApp, que arma un texto
+  plano (clienta, cada venta con su fecha/total/saldo, saldo total al
+  final) y lo manda por `Intent.ACTION_SEND` (`text/plain`) con
+  `Intent.createChooser` -- cualquier app, no solo WhatsApp. Mismo
+  criterio de visibilidad que la sección de deuda (`state.hasDebt`): no
+  hay estado de cuenta que compartir si no tiene ventas a crédito
+  pendientes.
+
+Decisiones de detalle que tomo yo, sin preguntarte (reversibles, no
+tocan datos de la usuaria):
+- Ícono: `Icons.Default.Chat` -- no existe un ícono de WhatsApp en
+  Material Icons, y dibujar uno de marca es desproporcionado para un
+  botón. El texto al lado (D-020) hace el trabajo de decir qué es.
+  El de "compartir" usa el `Icons.Default.Share` estándar de Android.
+- El error de teléfono no normalizable usa un `Snackbar` local al propio
+  botón (`SnackbarHost` autocontenido, sin tocar el `Scaffold` de cada
+  pantalla) -- no un `Toast`: todo el resto de la app usa `Snackbar` para
+  avisos efímeros (`ProductEditScreen`, Fase 03/04), y un `Toast` sería
+  el primer mecanismo distinto sin ninguna razón real para serlo.
+
+### 5. Sin permisos nuevos
+
+Ni `ACTION_VIEW` sobre una URL `https://` ni `ACTION_SEND` de texto piden
+permiso de contactos ni de teléfono -- ninguno de los dos lee la agenda
+ni hace llamadas, solo arman un `Intent` implícito. `AndroidManifest.xml`
+no necesita tocarse (y no está en "Archivos permitidos" de esta fase).
+Cumple el criterio 4 sin que haga falta ningún cambio.
+
+### 6. Archivos que toca
+
+Dentro de "Archivos permitidos" de `FASES.md` (`ui/credit/**`,
+`util/WhatsAppLink.kt`, `strings.xml`):
+
+- `util/WhatsAppLink.kt` (nuevo): `normalizePhone(raw): String?`,
+  `buildReminderUrl(normalizedPhone, message): String` (URL-encodea con
+  `java.net.URLEncoder`, sin Android, testeable con JUnit4 puro).
+- `ui/credit/WhatsAppReminderButton.kt` (nuevo): botón + `Snackbar` local
+  + arma el `Intent` y lo lanza.
+- `ui/credit/ShareAccountStatementButton.kt` (nuevo): botón + arma el
+  texto plano + `Intent.ACTION_SEND`.
+- `ui/credit/CustomersScreen.kt`: ícono nuevo en `DebtRow`.
+- `ui/credit/CustomerProfileScreen.kt`: los dos botones nuevos junto a
+  "Saldo total".
+- `strings.xml`: `whatsapp_reminder_button`, `whatsapp_reminder_message`,
+  `whatsapp_reminder_invalid_phone`, `account_statement_share_button`,
+  más las claves del texto plano del estado de cuenta compartido.
+
+**Corrección de alcance, no decisión de diseño** (mismo tipo de ajuste
+que tuvieron Fase 05/06/07/09): la lista original no incluye ningún
+directorio de test, y el criterio 2 de esta fase es
+`[TESTS OBLIGATORIOS]`. Agrego `app/src/test/java/**/util/**` (para
+`WhatsAppLinkTest.kt`) y `app/src/test/java/**/ui/credit/**` (si hace
+falta alguno de UI state, aunque lo que más vale testear acá es
+`WhatsAppLink`, que es donde vive toda la lógica pura).
+
+### 7. Tests planeados
+
+`app/src/test/java/gt/marcos/joyeria/util/WhatsAppLinkTest.kt`, JUnit4
+puro (sin Robolectric: `normalizePhone`/`buildReminderUrl` no tocan
+Android, mismo criterio que `MoneyTest`):
+
+- `normalizePhone_eightDigits_prependsCountryCode`
+- `normalizePhone_elevenDigitsStartingWith502_isUsedAsIs`
+- `normalizePhone_thirteenDigitsWithDoubleZeroPrefix_stripsTheDoubleZero`
+- `normalizePhone_theFourFasesExamples_allNormalizeToTheSameResult` --
+  exactamente el criterio 2 de `FASES.md`, los cuatro juntos en un test.
+- `normalizePhone_additionalRealGuatemalanFormats_allNormalizeToTheSameResult`
+  -- los cuatro formatos adicionales de la tabla de arriba.
+- `normalizePhone_tooFewOrTooManyDigits_returnsNull`
+- `normalizePhone_nonForeignCountryCode_returnsNull` -- ej. un número de
+  11 dígitos que empieza con `1` (EE. UU.), no con `502`.
+- `buildReminderUrl_encodesAccentsEneAndNewlines` -- criterio 3 de
+  `FASES.md`: tildes, ñ y saltos de línea, URL-encodeados.
+
+### Dudas, todas juntas
+
+Una sola, y es la que de verdad importa:
+
+- **El texto del mensaje (punto 1).** ¿Lo dejo tal cual, le agrego
+  emoji, o lo cambiás vos? Es lo único de esta fase que no es reversible
+  sin costo real: lo va a leer una clienta de verdad, y si no suena a
+  ella, no se usa el botón -- exactamente lo que dijiste que querés
+  evitar. El resto del plan (formatos de teléfono, dónde van los
+  botones, qué pasa si el teléfono no normaliza) ya quedó decidido arriba
+  con su razón, no hace falta que lo confirmes punto por punto.
+
+**Paro acá. Empiezo a escribir código cuando confirmes el mensaje.**
