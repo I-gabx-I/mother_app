@@ -7967,3 +7967,218 @@ repositorio, no hay pantalla nueva ni lista nueva, y los dos llamadores
 afectados son cambios de una línea que el compilador verifica. La regla
 nueva de la sección 7.10 aplica a pantallas con lista, y acá no hay
 ninguna.
+
+---
+
+## Fase 09 — Plan (antes de escribir código)
+
+Rama `fase/09-categories` (abierta desde `main`, sobre `fase-08-ok`). Las
+dos preguntas que `FASES.md` dejaba explícitamente sin decidir ya las
+respondiste:
+
+- **Categoría archivada:** Opción A — el producto conserva su
+  `category_id`, el desplegable de edición y el filtro de Inventario la
+  siguen ofreciendo mientras haga falta, etiquetada "(archivada)".
+- **Renombrar no reescribe el pasado:** confirmado, y con un argumento más
+  fuerte que el mío — `sale_item` nunca guardó nombre ni id de categoría,
+  así que el problema que D-002 resuelve para dinero no existe acá. No se
+  agrega columna a `ESQUEMA.md`.
+
+Lo que sigue es el diseño concreto de esas dos decisiones más las partes
+que no estaban en duda (semilla, administración, nombres duplicados), con
+mi criterio aplicado directo donde la decisión es reversible — sin
+pararme a preguntar cada una por separado, como pediste. Las dudas que me
+quedan, si quedan, van todas juntas al final.
+
+### 1. Cómo se implementa la Opción A — una sola lista nueva, no una excepción por pantalla
+
+El problema real tiene dos síntomas (`CategoryDropdown` en
+`ProductEditScreen` queda vacío; el filtro de `ProductListScreen` no
+puede volver a seleccionar la categoría archivada) pero es un solo hueco:
+las dos pantallas alimentan su lista de categorías desde
+`CategoryRepository.observeActive()`, que por diseño (Fase 04) excluye
+cualquier `archived = true`.
+
+Agrego una query nueva en vez de parchar cada pantalla:
+
+```kotlin
+// CategoryDao
+@Query("""
+    SELECT * FROM category
+    WHERE archived = 0
+       OR id IN (SELECT DISTINCT category_id FROM product WHERE category_id IS NOT NULL AND archived = 0)
+    ORDER BY archived ASC, name ASC
+""")
+fun observeSelectable(): Flow<List<CategoryEntity>>
+```
+
+"Seleccionable" = toda categoría activa, más cualquier categoría
+archivada que **todavía tenga al menos una pieza no archivada
+apuntándole**. Una vez que la última pieza de una categoría archivada se
+reclasifica o se archiva ella misma, la categoría deja de aparecer en
+ningún lado — no hace falta una marca "forzar visible en este producto
+puntual", el criterio ya es exactamente el que la hace falta visible.
+
+`CategoryRepository.observeSelectable()` expone esto como
+`Flow<List<Category>>`, y `Category` (hoy `id`, `name`) gana un tercer
+campo `archived: Boolean` — es lo que la UI necesita para decidir si
+agrega el sufijo. `observeActive()` **se queda igual**, sin tocar: sigue
+siendo la que usa `CategoryChipRow` en alta rápida (Fase 03/D-026), donde
+no corresponde ofrecer una categoría archivada para una pieza nueva —
+archivar significa exactamente "no ofrezcas esto para lo nuevo".
+
+Consumidores que cambian de `observeActive()` a `observeSelectable()`:
+`ProductEditViewModel` (el dropdown de edición) y `ProductListViewModel`
+(el filtro de Inventario). `CategoryDropdown` y `CategoryFilterDropdown`
+(las dos en `ui/product/`) reciben `List<Category>` igual que hoy; el
+único cambio visual es el sufijo cuando `category.archived == true`,
+con un string nuevo (`category_archived_suffix`, `"%1$s (archivada)"`)
+en vez de concatenar texto a mano en el Composable.
+
+### 2. Dónde se administran: menú de Inventario → pantalla nueva
+
+`ProductListScreen` gana un ícono de menú (`Icons.Default.MoreVert`) en
+la `TopAppBar`, con un único item hoy: "Categorías". Lleva a un destino
+nuevo (`JoyeriaDestination.Categories`, ruta `"categories"`) —
+`CategoryManageScreen`, con su `CategoryManageViewModel`.
+
+Diseño de la pantalla:
+- Campo de texto + botón "Agregar" arriba.
+- Lista de categorías **activas**: nombre editable en el momento (ícono de
+  lápiz → el nombre se vuelve un `OutlinedTextField` en la misma fila,
+  "Guardar"/"Cancelar") y un ícono de archivo con confirmación
+  (`AlertDialog`, texto claro: "¿Archivar categoría?", "Las piezas que la
+  tengan asignada la van a seguir mostrando, marcada como archivada." —
+  cumple CLAUDE.md sección 6, confirmación con texto claro).
+- Sección "Archivadas" debajo, de solo lectura (nombre, sin acciones) —
+  existen para que ella vea que no se perdieron, no para seguir
+  operándolas. No hay "desarchivar": no lo pediste y no está en
+  `FASES.md`; si hace falta, es una fase o un bloqueo nuevo, no algo que
+  agrego por intuición.
+- Estado vacío si no hay ninguna categoría (no debería pasar nunca, por la
+  semilla, pero una base importada/corrupta sí podría llegar vacía).
+
+`CategoryRepository` gana `observeAll(): Flow<List<Category>>` (todas,
+sin filtrar por `archived`, ordenadas `archived ASC, name ASC`) para esta
+pantalla — distinta de `observeSelectable()`: acá quiero **todas**,
+incluida una categoría archivada sin ninguna pieza, porque es la pantalla
+de administración, no un selector.
+
+### 3. Nombres duplicados — mi decisión, no te la pregunto
+
+Regla: al agregar o renombrar, se rechaza un nombre que ya tenga una
+categoría **activa** (comparación sin distinguir mayúsculas/minúsculas ni
+espacios al borde — "pulseras" y "Pulseras " son el mismo nombre para
+ella). Una categoría archivada puede compartir nombre con una activa sin
+problema: no compiten por el mismo lugar en ningún selector a la vez.
+
+Sin índice único en la base — la razón ya estaba en `FASES.md`: con la
+regla de arriba, dos activas nunca pueden coincidir si la validación
+corre siempre antes de escribir, y una archivada+activa coincidiendo es
+un caso válido, no uno que un índice único podría distinguir sin bloquear
+también el caso bueno.
+
+Por qué decido esto en vez de preguntarlo: es reversible sin tocar datos
+(es una validación en `CategoryRepository.add/rename`, no en el esquema)
+y la alternativa obvia —permitir duplicados sin ningún aviso— es
+estrictamente peor para ella (dos "Pulseras" en el mismo desplegable, sin
+forma de saber cuál es cuál). Si en el uso real decidís que sí hace falta
+un índice único o que la comparación debería ser distinta, se ajusta sin
+migración.
+
+Mecanismo: mismo patrón que `CustomerHasPendingBalanceException`
+(`CustomerRepository.kt:42`, D-039) — `CategoryNameAlreadyExistsException`
+nueva en `CategoryRepository.kt`, `IllegalArgumentException`, con el
+nombre duplicado en el mensaje. `CategoryManageViewModel` la atrapa en
+`onAddClick()`/`onRenameConfirm()` y pone un error en el estado (texto en
+`strings.xml`, se limpia en el próximo intento) — no una excepción que
+suba hasta Compose.
+
+### 4. `CategoryDao` — diff completo
+
+```kotlin
+@Query("SELECT * FROM category ORDER BY archived ASC, name ASC")
+fun observeAll(): Flow<List<CategoryEntity>>
+
+@Query("""... observeSelectable, arriba ...""")
+fun observeSelectable(): Flow<List<CategoryEntity>>
+
+@Query("UPDATE category SET name = :name WHERE id = :id")
+suspend fun rename(id: Long, name: String)
+
+@Query("SELECT COUNT(*) FROM category WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) AND archived = 0 AND id != :excludeId")
+suspend fun countActiveWithName(name: String, excludeId: Long): Int
+```
+
+`excludeId` (`-1` cuando es un alta, el propio `id` cuando es un rename)
+evita que renombrar una categoría a su propio nombre sin cambios se
+rechace como "duplicado". `insert` y `archive` ya existen desde Fase 01,
+sin cambios.
+
+### 5. Semilla — sin tocar
+
+Las cinco categorías (`AppDatabase.SeedCallback`, Fase 01) se mantienen
+exactamente como están, sin ninguna marca. `ESQUEMA.md` ya lo dice así;
+no hay nada que cambiar ahí.
+
+### 6. Archivos que toca (dentro de "Archivos permitidos" de `FASES.md`)
+
+- `data/local/dao/CategoryDao.kt` — las cuatro queries de arriba.
+- `data/repository/CategoryRepository.kt` — `Category.archived`,
+  `observeAll`, `observeSelectable`, `add`, `rename`,
+  `CategoryNameAlreadyExistsException`.
+- `ui/product/CategoryDropdown.kt`, `ui/product/list/ProductListScreen.kt`
+  (sufijo "(archivada)", ítem de menú nuevo en la `TopAppBar`) —  dentro
+  de `ui/product/**`.
+- `ui/product/edit/ProductEditViewModel.kt`,
+  `ui/product/list/ProductListViewModel.kt` — cambian a
+  `observeSelectable()`.
+- `ui/product/category/` (paquete nuevo, dentro de `ui/product/**`):
+  `CategoryManageRoute.kt`, `CategoryManageScreen.kt`,
+  `CategoryManageUiState.kt`, `CategoryManageViewModel.kt`.
+- `ui/navigation/JoyeriaDestination.kt`, `ui/navigation/JoyeriaNavHost.kt`
+  — destino `Categories` y su entrada desde `ProductListScreen`.
+- `strings.xml` — todo el texto nuevo (menú, pantalla de administración,
+  confirmaciones, error de nombre duplicado, sufijo "(archivada)").
+
+No necesito tocar nada fuera de esta lista. No hay migración: la columna
+`archived` de `category` existe desde la v1 (Fase 01).
+
+### 7. Tests planeados
+
+- `CategoryDaoTest.kt` (nuevo, Room in-memory, Robolectric — D-012):
+  `rename` cambia el nombre y no toca `archived`; `archive` saca la fila
+  de `observeActive()` y de `observeSelectable()` **cuando no tiene
+  piezas**; `observeSelectable()` sí incluye una archivada con al menos
+  una pieza activa asignada, y deja de incluirla si esa pieza se
+  reclasifica o se archiva; `observeAll()` incluye activas y archivadas,
+  con las archivadas al final; `countActiveWithName` encuentra
+  coincidencia sin distinguir mayúsculas/espacios, ignora la propia fila
+  con `excludeId`, e ignora coincidencias contra una archivada.
+- `CategoryRepositoryTest.kt` (nuevo, mismo estilo que
+  `CustomerRepositoryTest.kt`): `add` con nombre duplicado (activo) lanza
+  `CategoryNameAlreadyExistsException` y no inserta fila; `add` con el
+  mismo nombre que una archivada sí inserta; `rename` al propio nombre
+  actual no lanza; `rename` al nombre de otra activa lanza.
+- Nombres de test con una sola afirmación por rama, no una conjunción que
+  solo prueba un lado (sección 8 de `CLAUDE.md`, la regla que motivó la
+  auditoría de la Fase 15) — ningún
+  `...filtersByXOrY...` que ejercite solo `X`.
+
+### 8. Verificación manual (antes de cerrar, sección 7.10)
+
+Agregar una categoría, renombrarla, archivarla con una pieza asignada y
+confirmar que esa pieza sigue siendo encontrable y editable (criterio 4
+de `FASES.md`) — entrar y salir de la pantalla de administración varias
+veces, como pide la regla de listas nueva.
+
+### Dudas, todas juntas
+
+Ninguna que bloquee el arranque — las dos que importaban ya las
+respondiste arriba, y el resto de las decisiones de diseño las tomé yo
+con su razón escrita en cada punto. Si alguna no te cierra, la señalás y
+la ajusto antes de tocar código; si no decís nada de una en particular,
+sigo con lo que quedó escrito acá.
+
+**Paro acá, como corresponde. Empiezo a escribir código cuando confirmes
+este plan.**
