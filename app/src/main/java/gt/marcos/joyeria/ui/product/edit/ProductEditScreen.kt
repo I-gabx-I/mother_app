@@ -30,16 +30,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.ui.format.MoneyTextField
+import gt.marcos.joyeria.ui.format.QuantityTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.product.CategoryDropdown
 
@@ -129,12 +128,10 @@ fun ProductEditScreen(
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    OutlinedTextField(
+                    QuantityTextField(
+                        label = stringResource(R.string.product_edit_quantity_label),
                         value = state.quantityText,
                         onValueChange = onQuantityChange,
-                        label = { Text(stringResource(R.string.product_edit_quantity_label)) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(

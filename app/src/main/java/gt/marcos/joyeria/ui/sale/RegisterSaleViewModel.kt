@@ -11,6 +11,7 @@ import gt.marcos.joyeria.data.repository.RegisterSaleInput
 import gt.marcos.joyeria.data.repository.SaleLineInput
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.usecase.RegisterSaleUseCase
+import gt.marcos.joyeria.ui.format.toEditableText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,16 +36,21 @@ class RegisterSaleViewModel @Inject constructor(
             productRepository.observeFiltered(query = "", categoryId = null).collectLatest { products ->
                 _uiState.update { state ->
                     // Si una pieza que ya está en el carrito cambió de
-                    // precio/costo/stock mientras tanto, la vista previa se
+                    // costo/stock mientras tanto, la vista previa se
                     // actualiza -- el snapshot real igual se toma de nuevo
                     // al confirmar (punto 1 del plan), esto es solo para
                     // que lo que ella ve en pantalla no quede desactualizado.
+                    //
+                    // `unitPriceText` NO se refresca a propósito (D-045): es
+                    // el precio que ella tecleó para esta venta. Pisarlo con
+                    // el precio de lista le borraría el número que acaba de
+                    // escribir, y este flujo se dispara con cualquier cambio
+                    // del catálogo.
                     val refreshedLines = state.lines.map { line ->
                         val fresh = products.find { it.id == line.productId } ?: return@map line
                         line.copy(
                             productName = fresh.name,
                             productUid = fresh.uid,
-                            unitPrice = fresh.salePrice,
                             unitCost = fresh.cost,
                             availableStock = fresh.stockQty,
                         )
@@ -101,7 +107,11 @@ class RegisterSaleViewModel @Inject constructor(
                         productId = product.id,
                         productName = product.name,
                         productUid = product.uid,
-                        unitPrice = product.salePrice,
+                        // El precio de lista, precargado y editable (D-045).
+                        // `toEditableText()` usa Locale.ROOT porque este texto
+                        // vuelve a entrar a `parseMoneyToCents` apenas ella
+                        // siga escribiendo (CLAUDE.md sección 5).
+                        unitPriceText = product.salePrice.toEditableText(),
                         unitCost = product.cost,
                         availableStock = product.stockQty,
                     ),
@@ -118,23 +128,31 @@ class RegisterSaleViewModel @Inject constructor(
         }
     }
 
+    /** `raw` ya viene filtrado por `MoneyTextField` (D-030): nunca hace falta sanitizarlo acá. */
+    fun onLinePriceChanged(index: Int, raw: String) {
+        _uiState.update { state ->
+            val newLines = state.lines.toMutableList()
+            newLines[index] = newLines[index].copy(unitPriceText = raw)
+            state.copy(lines = newLines)
+        }
+    }
+
     fun onRemoveLineClick(index: Int) {
         _uiState.update { state ->
             state.copy(lines = state.lines.toMutableList().apply { removeAt(index) })
         }
     }
 
-    /** `raw` ya viene filtrado por `MoneyTextField` (D-030): nunca hace falta sanitizarlo acá. */
-    fun onDiscountChanged(raw: String) {
-        _uiState.update { it.copy(discountText = raw) }
-    }
-
-    /** D-035: si la venta da ganancia cero o negativa, pide confirmación explícita antes de guardar. */
+    /**
+     * D-046: si **alguna línea** no deja ganancia, pide confirmación
+     * explícita antes de guardar, nombrando esa pieza y su monto. Evaluar
+     * sobre el total (D-035) dejaba pasar en silencio un collar rematado
+     * bajo costo cuando el resto de la venta lo tapaba.
+     */
     fun onConfirmClick() {
         val state = _uiState.value
-        val profit = state.profit
-        if (!state.canSave || profit == null) return
-        if (profit <= Money.ZERO) {
+        if (!state.canSave) return
+        if (state.lossLines.isNotEmpty()) {
             _uiState.update { it.copy(pendingLossConfirmation = true) }
         } else {
             save()
@@ -152,14 +170,14 @@ class RegisterSaleViewModel @Inject constructor(
 
     private fun save() {
         val state = _uiState.value
-        val discount = state.discount ?: return
 
         // Reconstruye las líneas desde cero en vez de confiar en canSave a
         // ciegas -- si alguna quedara incompleta igual, se aborta sin
         // guardar nada, sin `!!` (CLAUDE.md sección 5).
         val lines = state.lines.mapNotNull { line ->
             val qty = line.qty ?: return@mapNotNull null
-            SaleLineInput(productId = line.productId, qty = qty)
+            val unitPrice = line.unitPrice ?: return@mapNotNull null
+            SaleLineInput(productId = line.productId, qty = qty, unitPrice = unitPrice)
         }
         if (lines.size != state.lines.size) return
 
@@ -182,7 +200,10 @@ class RegisterSaleViewModel @Inject constructor(
             val result = registerSaleUseCase(
                 RegisterSaleInput(
                     soldAt = System.currentTimeMillis(),
-                    discount = discount,
+                    // D-047: el descuento general ya no existe en la app, pero
+                    // la columna sigue viva y sus fórmulas la siguen usando
+                    // para las ventas viejas. Las nuevas escriben cero.
+                    discount = Money.ZERO,
                     notes = null,
                     lines = lines,
                     credit = credit,

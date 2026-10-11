@@ -6431,3 +6431,972 @@ probada). Sin crashes en la verificación repetida
 vacío).
 
 Sin bloqueos nuevos. Fase 07 queda lista para el tag.
+
+---
+
+# Ronda de corrección — feedback de uso real (2026-10-10)
+
+Rama: `fix/feedback-usuaria`, abierta desde `main` en `559ee29`.
+**No es la Fase 08.** Es una ronda de corrección sobre lo ya construido,
+con el mismo formato que la ronda `fix-money-field` (D-030) que ya tiene
+precedente en este archivo: `CLAUDE.md` sección 7.1 ordena las fases, no
+prohíbe una corrección sobre fases cerradas, y esta no abre ninguna fase
+nueva de `FASES.md`.
+
+Origen: tres semanas de uso real con datos reales, en paralelo con el
+cuaderno. **Plan solamente — sin una línea de código escrita todavía**,
+esperando aprobación humana (pedido explícito).
+
+---
+
+## 0. Respuesta al pedido de corte: sí, hay que partirlo en dos
+
+**Propuesta: dos ramas, no una.** El corte no es por tamaño, es porque
+los puntos 1–4 y los puntos 5–6 son dos clases distintas de trabajo con
+dos rituales distintos en `CLAUDE.md`.
+
+### Rama A — esta (`fix/feedback-usuaria`): puntos 1, 2, 3 y 4
+
+Los cuatro caen sobre la misma pantalla y los mismos componentes
+compartidos:
+
+| Punto | Archivos que toca |
+|---|---|
+| 1 (campos numéricos) | `ui/format/`, `ui/sale/QuantityTextField.kt`, 3 pantallas |
+| 2 (insets) | `ui/sale/RegisterSaleScreen.kt` (`SaleBottomBar`) |
+| 3 (código en el selector) | `ui/sale/RegisterSaleScreen.kt` (`ProductPickRow`) |
+| 4 (precio por línea) | `RegisterSaleScreen/UiState/ViewModel`, `SaleModels`, `SaleRepository` |
+
+El punto 4 reescribe el centro de `RegisterSaleScreen` y de
+`RegisterSaleUiState`, y los puntos 1, 2 y 3 tocan la misma pantalla.
+Separarlos produce tres rondas de conflicto sobre los mismos tres
+archivos sin ganar nada a cambio. Además el punto 4 **depende** del
+punto 1: el precio editable por línea es un `MoneyTextField` nuevo
+dentro de cada fila del carrito, y eso vuelve crítico el defecto 1a
+(ver abajo) que hoy es solo cosmético.
+
+### Rama B — fase nueva en `FASES.md`: puntos 5 y 6
+
+No son correcciones: son funcionalidad nueva. Necesitan DAO nuevo
+(`rename` de categoría), pantalla nueva de administración, ruta nueva
+con argumento, y en el caso del punto 5 una decisión de datos que hoy
+no está tomada (si una venta de contado guarda `customer_id`).
+`CLAUDE.md` sección 7 pide que eso viva en una fase con "Archivos
+permitidos" y criterios de aceptación propios.
+
+**No hay conflicto con la sección 9** ("prohibido adelantar trabajo de
+fases futuras"): revisé `FASES.md` completo y ni las categorías propias
+ni vender desde el perfil de la clienta están en ninguna fase ni en
+"Ideas para después". No se está adelantando nada — hay que **agregarlas**
+como fase.
+
+**Decisión tuya, no la tomo:** la Fase 08 hoy es "Recordatorios y estado
+de cuenta por WhatsApp". Las opciones son (a) insertar estos dos puntos
+como Fase 08 y correr WhatsApp y todo lo demás un número, o (b)
+numerarla `Fase 08-bis` para no mover la numeración de fases ya
+documentadas en commits y tags. Prefiero (b): los tags `fase-NN-ok` son
+el índice de la auditoría, y renumerar fases futuras hace que `FASES.md`
+deje de coincidir con los tags que ya existen.
+
+---
+
+## 1. BUG — campos numéricos no unificados
+
+### Lo que encontré auditando TODAS las pantallas
+
+**Dinero: ya está unificado, no hay ninguna reimplementación local.**
+`MoneyTextField` (`ui/format/MoneyTextField.kt`) se usa en los 9 lugares
+que capturan dinero: `AddProductScreen:87,92`, `ProductEditScreen:115,120`,
+`RegisterPurchaseScreen:143,231`, `RegisterSaleScreen:131,244`,
+`AccountStatementScreen:115`. No hay ni un `OutlinedTextField` con
+`KeyboardType.Decimal` suelto en todo el proyecto.
+
+**Cantidades: ahí sí está el problema.** `QuantityTextField` se usa en
+**un solo lugar** (`RegisterSaleScreen:296`), y hay **tres
+reimplementaciones locales** con `OutlinedTextField` +
+`KeyboardType.Number` crudo, sin ninguna de las protecciones de D-030:
+
+| Archivo | Línea | Campo |
+|---|---|---|
+| `ui/product/add/AddProductScreen.kt` | 119 | cantidad inicial de la pieza |
+| `ui/product/edit/ProductEditScreen.kt` | 132 | stock |
+| `ui/purchase/RegisterPurchaseScreen.kt` | 223 | cantidad de la línea de compra |
+
+Las tres aceptan el cambio tal como viene y lo escriben al estado, sin
+el `TextFieldValue` ni el rechazo-por-tecla que `QuantityTextField` sí
+tiene (`QuantityTextField.kt:48-55`). Son exactamente la clase de campo
+que produjo D-030.
+
+Encima, `QuantityTextField` vive en `ui/sale/`, y su propio KDoc
+(`QuantityTextField.kt:31-33`) dice "si aparece un segundo caso de uso,
+se generaliza a `ui/format/` en ese momento". Hay tres.
+
+### Discrepancia con el reporte, y es importante
+
+**En Vender los tres campos numéricos ya usan los componentes
+compartidos.** El único `OutlinedTextField` crudo de esa pantalla es
+`RegisterSaleScreen:148`, que es la caja de búsqueda de texto — correcta
+así. O sea: *no puedo reproducir desde el código* un campo numérico
+reimplementado en Vender, que es donde ella reporta la falla.
+
+Encontré dos defectos reales en Vender que sí explican una falla de
+tipeo, y los voy a arreglar igual porque están mal por su cuenta:
+
+**1a. `itemsIndexed(state.lines)` en `RegisterSaleScreen:161` no tiene
+`key`.** Es la única lista de la app sin `key`: `RegisterSaleScreen:184`,
+`ProductListScreen`, `TodaySalesScreen`, `AccountStatementScreen` y
+`CustomersScreen` todas usan `key = { it.id }`. Sin `key`, el `remember`
+interno de `QuantityTextField` queda atado a la **posición** en la
+lista, no a la línea: al borrar o reordenar una línea, el
+`TextFieldValue` y la posición del cursor de una línea pasan a otro
+producto. El texto se re-sincroniza solo (`QuantityTextField.kt:44-46`),
+así que **no se ve como un número equivocado** — se ve como el cursor
+saltando y teclas que se pierden mientras escribe. Que es como se
+describe "el campo vuelve a fallar".
+
+**1b. El campo de descuento está dentro del `bottomBar`
+(`RegisterSaleScreen:244`), sin `imePadding()`.** Cuando lo toca, el
+teclado lo tapa: escribe a ciegas. Es la misma familia de causa que el
+punto 2. El punto 4 elimina ese campo, así que se va solo.
+
+### Plan
+
+1. Mover `QuantityTextField` de `ui/sale/` a `ui/format/`, con su
+   `isValidQuantityInputText`. Es el tercer consumidor: la condición que
+   su propio KDoc puso ya se cumplió.
+2. Reemplazar las tres reimplementaciones locales por `QuantityTextField`.
+3. Agregar `key = { it.productId }` al `itemsIndexed` del carrito.
+4. Regla nueva en `CLAUDE.md` (ver sección 7 de este plan).
+5. Tests: extender `MoneyInputTest` con los casos de
+   `isValidQuantityInputText` (hoy no tiene ninguno — vive en `ui/sale/`
+   y no hay test de ese archivo).
+
+### Bloqueo B-01 — qué falla exactamente en Vender
+
+Necesito el síntoma concreto antes de dar el punto 1 por cerrado: **qué
+teclea ella y qué aparece en pantalla.** Los arreglos 1a y 1b los hago
+con o sin respuesta porque están mal igual, pero si el síntoma es otro
+(un número que queda viejo, un campo que se vacía solo, el total que no
+cambia), ninguno de los dos es la causa y lo estaría cerrando con el bug
+vivo. **Es la segunda vez que este bug reaparece: cerrarlo por tercera
+vez sin el síntoma es cómo se llega a la cuarta.**
+
+---
+
+## 2. BUG — "Confirmar venta" tapado por la barra de navegación
+
+### Causa, confirmada en el código
+
+`MainActivity:17` llama `enableEdgeToEdge()`, así que la app dibuja por
+debajo de las barras del sistema. El `Scaffold` de Material 3 pasa los
+window insets **únicamente al `innerPadding` del contenido**; el slot
+`bottomBar` no recibe ninguno. `SaleBottomBar`
+(`RegisterSaleScreen:237-241`) tiene `.padding(16.dp)` y nada más, así
+que el botón de 56dp queda dentro del área de la barra de navegación.
+
+Por eso se comporta distinto en los dos modos: la barra de gestos ocupa
+~24dp (le roba parte del botón, "pelea" para tocarlo) y la de tres
+botones ~48dp (le roba casi todo, y ahí es donde le pega a Home).
+
+### Auditoría de TODAS las pantallas con acción al fondo
+
+**Solo `RegisterSaleScreen` está mal.** Todas las demás aplican
+`.padding(innerPadding)` sobre su contenedor raíz, y ese padding ya
+incluye el inset de la barra de navegación: `AddProductScreen` (Box),
+`ProductEditScreen` (Box), `RegisterPurchaseScreen` (Column),
+`AccountStatementScreen`, `ProductListScreen`, `TodaySalesScreen`,
+`HomeScreen`. El FAB de `CustomersScreen:90` lo posiciona el `Scaffold`,
+que sí aplica insets a ese slot.
+
+La diferencia es exactamente **`bottomBar` vs. contenido**: es el único
+lugar del proyecto donde se usó el slot `bottomBar`, y es el único que
+quedó sin insets. No es casualidad.
+
+### Plan
+
+Un solo modificador en `SaleBottomBar`:
+`Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))`.
+
+Por qué ese y no `.navigationBarsPadding().imePadding()`: los dos
+sumados **duplican** el padding cuando el teclado está abierto (el
+teclado ya cubre la barra de navegación). `safeDrawing` es la unión de
+barras del sistema, recorte de pantalla y teclado, así que da el
+**máximo** de los dos, que es lo correcto en los dos estados con una
+sola línea. Esto también resuelve 1b de paso.
+
+El `innerPadding` del contenido no se duplica: el `Scaffold` calcula el
+inset inferior del contenido a partir de la **altura medida** del
+`bottomBar`, que ahora incluye el padding.
+
+### Verificación (sección 7.10 de `CLAUDE.md`)
+
+Capturas en los dos modos, guardadas en `app/build/screenshots/`:
+
+- gestos: `adb shell cmd overlay enable com.android.internal.systemui.navbar.gestural`
+- tres botones: `adb shell cmd overlay enable com.android.internal.systemui.navbar.threebutton`
+
+Cuatro archivos: botón visible completo en cada modo, y cada modo con el
+teclado abierto editando una línea. `ESTADO.md` referencia las rutas
+relativas, no pega las imágenes.
+
+La regla 7.11 (mediciones en entorno en reposo) no aplica acá: no hay
+nada que cronometrar, es geometría.
+
+---
+
+## 3. BUG — el selector de Vender no muestra el código
+
+### Lo que encontré
+
+**La búsqueda por código ya funciona en Vender.**
+`RegisterSaleUiState:63` filtra
+`name.contains(query, ignoreCase = true) || uid.contains(query, ignoreCase = true)`,
+que es semánticamente lo mismo que el SQL de Inventario
+(`ProductDao:38`: `name LIKE '%' || :query || '%' OR uid LIKE '%' || :query || '%'`;
+`LIKE` en SQLite ignora mayúsculas para ASCII). No hay nada que arreglar
+ahí.
+
+**Lo que falta es mostrarlo.** `ProductPickRow`
+(`RegisterSaleScreen:314-349`) pinta foto, nombre, stock y precio — y no
+el `uid`, aunque `ProductSummary` ya lo trae. Inventario sí lo muestra
+(`FASES.md:205`). Entonces el código era un dato por el que ella podía
+buscar sin que la pantalla le dijera nunca que existía.
+
+Diferencia menor que documento y no arreglo: un `%` o `_` tecleado en
+Inventario funciona como comodín de SQL y en Vender es literal. No es un
+caso de uso real suyo.
+
+### Plan
+
+1. Mostrar el `uid` en `ProductPickRow`, con la misma disposición que la
+   fila de Inventario (`ProductListScreen`), que es el componente que
+   ella ya conoce — ese fue el criterio original de Fase 06 y sigue
+   valiendo.
+2. Agregar a `RegisterSaleUiStateTest` un caso que fije la búsqueda por
+   código (hoy no hay ninguno: la conducta existe sin test que la
+   proteja).
+3. Registrar la corrección del supuesto como **D-044** (ver abajo).
+
+### Corrección del supuesto de Fase 06 → D-044
+
+El supuesto está en este archivo, "Fase 06 — Plan", punto 3
+(líneas ~4995-5020), y en `FASES.md:376`. Hay que ser preciso sobre qué
+se corrige, porque el supuesto original tenía dos mitades y **solo una
+estaba equivocada**:
+
+- **Mitad que se sostiene:** la lista con fotos como camino visual. No
+  hay evidencia contra eso y no se toca.
+- **Mitad refutada:** "acordarse de un código (`XP-000042`) no es algo
+  que una persona haga rápido bajo presión (…) no es un dato que ella
+  maneje de memoria", y de ahí que el buscador fuera "el atajo para
+  cuando el catálogo crezca, no el camino principal". Tres semanas de
+  uso real dicen lo contrario: **ella busca por código como camino
+  principal.** El razonamiento confundió "no lo tiene de memoria" con
+  "no lo usa" — no necesita memorizarlo porque **el código está escrito
+  en la etiqueta de la pieza que tiene en la mano**. Leer no es
+  recordar.
+
+D-044 registra eso con la evidencia de uso real, y la consecuencia: el
+código deja de ser un dato oculto del selector, y el buscador deja de
+estar descrito como atajo secundario.
+
+---
+
+## 4. CAMBIO DE ESPECIFICACIÓN — precio editable por línea
+
+### 4.a — Confirmado: el modelo ya lo soporta, sin migración
+
+`sale_item.unit_price_cents` existe desde la v1 (`SaleItemEntity:43-44`,
+`ESQUEMA.md` tabla `sale_item`) y ya se escribe como snapshot por línea
+(`SaleRepository:119`). **No hace falta ninguna migración de Room para
+el punto 4.**
+
+Lo que hay que cambiar es de dónde sale ese valor:
+
+- `SaleLineInput` (`SaleModels.kt:6-9`) gana `unitPrice: Money`.
+- `SaleRepository.register()` usa ese precio para `unitPriceCents`
+  (`:119`) y para `totalCents` (`:78`), en vez de
+  `product.salePriceCents`.
+- El **costo** sigue leyéndose fresco del producto dentro de la
+  transacción (`:79`, `:120`). El costo nunca es editable en Vender.
+- `product.sale_price_cents` **no se toca**: el precio de lista del
+  inventario sigue cambiándose solo desde `ProductEditScreen`, y
+  `price_history` sigue significando lo que significaba.
+
+**Esto cambia un invariante documentado y hay que decirlo, no dejarlo
+pasar:** el KDoc de `SaleRepository:26-32` afirma que *todos* los
+snapshots se toman leyendo el producto fresco dentro de la transacción,
+citando D-002. A partir de este cambio eso vale para el uid, el nombre y
+el costo, pero **no para el precio**, que pasa a ser un dato de entrada
+de la pantalla. Si no se actualiza ese KDoc, queda una afirmación falsa
+en el archivo que justifica por qué la ganancia histórica es confiable.
+Va en D-045.
+
+### 4.b — `sale.discount_cents`: tres opciones, NO decido
+
+Primero el dato duro de cuánto está metido en lecturas, porque es lo que
+define el costo de cada opción:
+
+| Lugar | Uso |
+|---|---|
+| `PricingCalculator.saleProfit` / `saleBalance` | `(total - descuento) - X` |
+| `ESQUEMA.md:277-278` | define `gananciaDeVenta` y `saldoDeVenta` |
+| `SaleRepository:304` `toProfit()` | ganancia histórica de toda venta |
+| `SaleRepository:317` `toBalance()` | saldo de "¿Quién me debe?" |
+| `SaleModels.kt:45` `SaleSummary.net` | lo que cobró de verdad |
+| `SaleDao:22,75,93` | `PendingSaleRow`, ventas a crédito pendientes |
+| `AccountStatementScreen:182` | total de la venta en el estado de cuenta |
+| `TodaySalesScreen:132` | total del día |
+| `ESQUEMA.md:193` | `CREDIT` pasa a `PAID` con `total - descuento` |
+
+**No puedo ver cuántas ventas reales tienen descuento distinto de cero:**
+esos datos están en el teléfono de ella y no hay exportación hasta la
+Fase 12. O sea que el costo de la opción 2 es desconocido **e
+irreversible**.
+
+**Opción 1 — dejar la columna, escribir siempre cero. (La que
+recomiendo.)**
+- Costo: una columna que no se escribe más. `RegisterSaleViewModel` pasa
+  `Money.ZERO`; se borra el campo de la UI y `discountText`,
+  `discountExceedsSubtotal` de `RegisterSaleUiState`; dos strings de
+  `strings.xml` quedan sin uso.
+- Las ventas viejas **siguen leyéndose con su descuento real**: su
+  ganancia y su saldo no se mueven ni un centavo. Ninguna ruta de
+  lectura cambia.
+- Cumple `CLAUDE.md` 3.7 (el historial no se reescribe) y sección 4
+  (nada se borra de verdad).
+- Lo que cuesta de verdad: alguien que lea el esquema en seis meses ve
+  una columna que la app ya no escribe y tiene que ir a buscar por qué.
+  Se paga con una nota en `ESQUEMA.md` y la entrada en `DECISIONES.md`.
+
+**Opción 2 — eliminarla con migración v2→v3.**
+- Costo: migración nueva + su test; SQLite necesita recrear la tabla
+  `sale` entera (no hay `DROP COLUMN` confiable en las versiones que
+  cubre `minSdk 24`), con sus 3 índices y la clave foránea a `customer`.
+- **Destruye los descuentos reales de tres semanas.** Toda venta vieja
+  con descuento pasa a mostrar más ganancia de la que ella tuvo y, si es
+  a crédito, **un saldo mayor al que la clienta debe de verdad**. Eso es
+  un error de cobro, no un detalle de reporte.
+- Choca de frente con `CLAUDE.md` 3.7 y sección 4. **Yo esto no lo
+  recomiendo.**
+
+**Opción 3 — reinterpretarla como "ajuste de la venta" con signo.**
+- Costo: habría que permitir negativos y revisar cada una de las nueve
+  lecturas de arriba, porque hoy todas asumen que el descuento resta.
+- El problema real: el ajuste a nivel venta es justo lo que el punto 4
+  elimina por pedido de ella. Reinterpretar la columna reintroduce por
+  la puerta de atrás el concepto que estamos sacando, y encima deja dos
+  formas de cambiar el precio (por línea y por venta) que pueden
+  contradecirse.
+
+### 4.c — D-035 pasa a evaluarse por línea
+
+**El razonamiento original de D-035 no era una preferencia, era
+condicional — y las dos condiciones desaparecen con este cambio.** Sus
+dos argumentos para evaluar sobre el total fueron:
+
+1. *"El esquema no tiene con qué calcular una pérdida por línea real"*
+   — era cierto porque `discount_cents` vivía en `sale` y había que
+   inventar un reparto entre líneas que no se persistía. Con precio
+   editable por línea, la pérdida por línea sale de
+   `unit_price_cents - unit_cost_cents`, **dos columnas que sí se
+   persisten en `sale_item`**. El argumento se cae entero.
+2. *"No hay nada que ella pueda hacer distinto con un aviso por línea"*
+   — era cierto porque el descuento era único para toda la venta. Ahora
+   puede subirle el precio a ese collar y dejar los anillos como están.
+   El argumento se cae entero.
+
+Así que esto **no contradice** a D-035: es su propia lógica aplicada al
+esquema nuevo. Lo registro así en D-046, porque un auditor que lea
+D-035 y el código nuevo sin esa explicación va a creer que alguien
+ignoró una decisión aprobada.
+
+**Diseño del aviso:**
+- Disparador: **cualquier línea** con `(unitPrice - unitCost) * qty <= 0`.
+- En la fila, mientras teclea: aviso inmediato en el `supportingText` del
+  campo de precio, mismo mecanismo que ya usa la cantidad con
+  `exceedsStock` (`RegisterSaleScreen:300-304`).
+- En el diálogo de confirmación: **lista de cada línea en pérdida con su
+  nombre y su monto**, que es el pedido textual ("que diga en qué pieza
+  pierde y cuánto"). Se conserva la parte 1 de D-035 que no cambia: monto
+  exacto en quetzales, y un texto distinto para el caso de ganancia
+  exactamente cero.
+- Strings nuevos en `strings.xml` (ninguno hardcodeado).
+
+**Verificación de que lo por-línea no deja un hueco:** sin descuento de
+venta, la ganancia total es exactamente `Σ (unitPrice - unitCost) * qty`.
+Si todas las líneas dan positivo, la suma da positivo. Entonces el
+aviso por línea **cubre estrictamente más** que el aviso por total: no
+existe una venta con todas las líneas en ganancia y total en pérdida. No
+hay regresión, y por eso el aviso por total se puede retirar sin dejar
+un caso sin cubrir. (Con descuento de venta esto **no** era cierto —
+otra razón por la que D-035 decidió bien en su momento.)
+
+### 4.d — El precio editable es un `MoneyTextField`
+
+Sin excepciones, como se pidió. Consecuencia que conviene ver: cada fila
+del carrito pasa a tener **un `MoneyTextField` y un `QuantityTextField`
+dentro de un item de `LazyColumn`**. Eso vuelve el defecto 1a (el
+`itemsIndexed` sin `key`) **crítico en vez de cosmético**: con dos
+campos con estado interno por fila, pasarle el estado de una fila a otra
+al borrar una línea sí produce un precio visiblemente equivocado en la
+pieza equivocada. Por eso el punto 1 va en esta rama y antes que el 4.
+
+### 4.e — Lo demás que arrastra el cambio
+
+- `RegisterSaleUiState`: `SaleLineUiState` gana `unitPriceText: String`
+  (precargado con `Money.toEditableText()` del precio de lista al
+  agregar la pieza) y `unitPrice` pasa a derivarse de
+  `parseMoneyToCents`, con `null` = incompleto (criterio D-030).
+- `canSave` tiene que exigir que **toda** línea tenga un precio
+  completo, igual que hoy exige cantidad válida.
+- `net` se simplifica a `subtotal`, y `initialPaymentExceedsNet` (el
+  tope del abono inicial en una venta a crédito) pasa a medirse contra
+  el subtotal real.
+- `onProductSelected` hoy, si la pieza ya está en el carrito, suma 1 a
+  la cantidad (`RegisterSaleViewModel:91-96`). Eso **no cambia**, y el
+  precio ya tecleado de esa línea se conserva.
+
+### Tests (sección 8 — el punto 4 toca dinero, son obligatorios)
+
+- `PricingCalculator`: ganancia por línea con precio **mayor** al de
+  lista (el caso que motivó todo el cambio), menor, igual al costo
+  (ganancia cero exacta), y bajo el costo.
+- `RegisterSaleUiStateTest`: `canSave` falso con una línea sin precio
+  completo; aviso de pérdida en la línea correcta cuando otra línea da
+  ganancia; búsqueda por código (punto 3).
+- `SaleRepositoryTest`: que `unit_price_cents` guarde el precio
+  **tecleado** y no el del producto; que `total_cents` sea la suma de
+  los precios tecleados; que el **costo** siga saliendo del producto
+  fresco aunque el precio venga de la pantalla.
+- Migración: ninguna, por 4.a.
+
+---
+
+## 5. FUNCIÓN NUEVA — vender desde el perfil de una clienta (rama B)
+
+### Hallazgo que hay que resolver antes del flujo
+
+**Hoy no existe un "perfil de clienta" al que entrar si la clienta no
+debe nada.** `AccountStatementScreen` es lo más parecido a un perfil, y
+solo se llega por `onDebtClick` desde la pestaña "¿Quién me debe?"
+(`JoyeriaNavHost:38`). En la pestaña "Todas las clientas", tocar una
+fila abre el diálogo de **editar** (`CustomersScreen:263`), no un perfil.
+Y `observeAccountStatements` devuelve únicamente ventas `PENDING`
+(`SaleRepository:293`), así que una clienta al día tiene un perfil vacío.
+
+El punto 5 entonces son dos cosas, no una: **(i)** que el perfil exista y
+se pueda abrir para cualquier clienta, y **(ii)** el botón de vender
+adentro.
+
+### Flujo propuesto, sin duplicar lógica
+
+La pantalla de venta se reutiliza **tal cual**, sin una segunda pantalla
+ni un segundo ViewModel:
+
+1. La ruta `RegisterSale` pasa a aceptar un argumento opcional:
+   `register_sale?customerId={customerId}` (hoy `JoyeriaDestination:16`
+   no tiene argumentos).
+2. `RegisterSaleViewModel` lee ese argumento del `SavedStateHandle`; si
+   viene, preselecciona esa clienta.
+3. El selector Contado/Crédito **sigue intacto**: ella dijo "de contado o
+   a crédito", así que entrar desde el perfil no debe forzar crédito.
+4. "Vender a esta clienta" en el perfil navega a esa ruta con el id.
+
+Costo real: una ruta con argumento, una lectura de `SavedStateHandle`, un
+botón. Cero lógica de venta duplicada.
+
+### Decisión de datos que no está tomada (va como bloqueo de la rama B)
+
+Hoy una venta de contado guarda `customer_id = null` siempre
+(`SaleRepository:99`: `customerId = credit?.customerId`). Si ella le
+vende **de contado** a una clienta entrando desde su perfil, esa venta
+no queda asociada a la clienta, y entonces el perfil no la muestra — que
+es justo lo que ella quiere ver. El esquema lo permite
+(`SaleEntity:32`, nullable con índice). Pero cambiar eso toca el camino
+de contado, que es el que más usa. Se decide en la rama B, no acá.
+
+---
+
+## 6. FUNCIÓN NUEVA — categorías propias (rama B)
+
+### Estado actual
+
+- `CategoryEntity:11` **ya tiene `archived`**: no hace falta migración.
+- `CategoryDao:11-22` tiene `insert`, `observeActive`, `getById`,
+  `archive`. **No tiene `rename`.**
+- `CategoryRepository:19` expone **solo** `observeActive`: ni agregar, ni
+  archivar, ni renombrar llegan a `ui`.
+- Semilla de las 5 en `AppDatabase:80`:
+  `Anillos, Cadenas, Aretes, Pulseras, Juegos`.
+- `category.name` **no tiene índice único**: hoy nada impide dos
+  categorías con el mismo nombre.
+
+### Plan propuesto
+
+- `CategoryDao`: `rename` (`UPDATE category SET name = :name WHERE id = :id`).
+- `CategoryRepository`: `add`, `rename`, `archive`. Nunca `delete`
+  (D-006).
+- Las 5 actuales se mantienen como semilla, sin marca especial: una vez
+  creadas son categorías normales, renombrables y archivables como
+  cualquier otra. (Si querés que las 5 originales no se puedan archivar,
+  decímelo — es una regla distinta y habría que agregarle una columna.)
+
+**Dónde se administran:** desde Inventario (`ProductListScreen`), en el
+menú de la barra superior, **no** como un botón nuevo en el inicio. La
+sección 6 de `CLAUDE.md` dice que el inicio tiene dos acciones grandes y
+obvias y que no es un tablero; administrar categorías es una tarea de
+baja frecuencia y vive donde ella ya está mirando categorías (el filtro).
+
+### Qué pasa con los productos de una categoría archivada — 3 opciones, NO decido
+
+El problema concreto: `product.category_id` sigue apuntando a la
+categoría archivada, pero `observeActive()` la esconde. Entonces el
+`CategoryDropdown` de `ProductEditScreen` muestra vacío para esos
+productos, y el filtro de Inventario no puede volver a encontrarlos.
+
+- **Opción A (recomendada):** el producto conserva su `category_id`, y
+  tanto el desplegable como el filtro incluyen la categoría archivada
+  **solo cuando es el valor actual de ese producto**, mostrada como
+  "Pulseras (archivada)". No se pierde información, ella entiende por
+  qué aparece, y archivar significa "no la ofrezcas para piezas nuevas",
+  que es lo que ella espera.
+- **Opción B:** al archivar, los productos pasan a "sin categoría"
+  (`category_id = null`). Simple, pero **destruye** la clasificación que
+  ella hizo y es irreversible desde la app — contra el espíritu de la
+  sección 4.
+- **Opción C:** no permitir archivar mientras haya piezas usándola,
+  diciéndole cuántas son y dónde verlas. Honesto y sin pérdida, pero la
+  deja trabada: para archivar una categoría tendría que reclasificar a
+  mano cada pieza.
+
+**Regla de nombres a definir también:** ¿se permiten dos categorías con
+el mismo nombre?, ¿y renombrar una al nombre de otra existente? Hoy nada
+lo impide. Mi propuesta: rechazar el nombre duplicado entre categorías
+**activas**, con mensaje claro, y sin índice único en la base (una
+archivada puede repetir el nombre de una activa sin molestar a nadie).
+
+---
+
+## 7. Regla nueva para `CLAUDE.md` (punto 1)
+
+Propuesta de texto, para la **sección 5** (reglas de código), que es
+donde ya viven las reglas de `Locale.ROOT` y de los comentarios de
+bloque — es una regla de código, no de experiencia de uso:
+
+> - **Todo campo que capture dinero usa `MoneyTextField` y todo campo
+>   que capture una cantidad usa `QuantityTextField`, los dos en
+>   `ui/format/`.** Presentes y futuros. Prohibido construir un campo
+>   numérico local con `OutlinedTextField` + `KeyboardType.Number` o
+>   `KeyboardType.Decimal`, aunque sea "un solo campo simple": el
+>   mecanismo de esos componentes (`TextFieldValue`, y rechazar la tecla
+>   inválida sin nunca presentar un texto "corregido") es lo que arregló
+>   D-030, y un campo local no lo tiene. Si hace falta capturar un tipo
+>   numérico nuevo (un porcentaje, por ejemplo), se crea **un**
+>   componente compartido en `ui/format/` con el mismo mecanismo y se
+>   usa en todos lados, no uno por pantalla. Razón: este bug ya
+>   reapareció dos veces — la primera vez (D-030) porque el campo
+>   reformateaba lo que ella tecleaba, la segunda porque el arreglo se
+>   aplicó a los campos de dinero y quedaron tres campos de cantidad
+>   reimplementados a mano (`AddProductScreen`, `ProductEditScreen`,
+>   `RegisterPurchaseScreen`). Un componente compartido no puede
+>   quedarse a medio aplicar sin que se note.
+
+**Bloqueo B-03:** confirmame la sección (5 como propongo, o 6) y si el
+texto te sirve tal cual. Es un cambio a `CLAUDE.md`, que es el archivo
+autoridad: no lo edito sin tu visto bueno explícito.
+
+---
+
+## 8. Entradas de `DECISIONES.md` que deja esta rama
+
+La última es D-043, así que estas arrancan en D-044:
+
+| ID | Qué registra |
+|---|---|
+| D-044 | Corrección del supuesto de Fase 06: ella busca por código como camino principal (punto 3), con la evidencia de uso real |
+| D-045 | Precio editable por línea: `unit_price_cents` pasa a ser entrada de la pantalla, y qué se sigue leyendo fresco del producto (costo, uid, nombre) |
+| D-046 | Aviso de pérdida por línea: por qué no contradice a D-035 sino que es su misma lógica con el esquema nuevo |
+| D-047 | Qué se hace con `sale.discount_cents` (depende de tu respuesta a 4.b) |
+| D-048 | Campos numéricos: componentes compartidos obligatorios, regla nueva de `CLAUDE.md` |
+
+---
+
+## Bloqueos — esta rama no avanza sin estas respuestas
+
+Siguiendo la sección 10 de `CLAUDE.md`: **el silencio no es aprobación**,
+y esto aplica bloqueo por bloqueo.
+
+- **B-01 — Punto 1, qué falla en Vender.** Qué teclea ella y qué aparece
+  en pantalla. Sin eso, 1a y 1b se arreglan igual (están mal por su
+  cuenta) pero no puedo afirmar que el bug reportado quedó cerrado.
+- **B-02 — Punto 4.b, `sale.discount_cents`.** Opción 1, 2 o 3. Es la
+  única que bloquea código: `RegisterSaleViewModel.save()` no se puede
+  escribir sin saber qué manda en ese campo. Recomiendo la 1.
+- **B-03 — Punto 7, la regla nueva de `CLAUDE.md`.** Sección y texto.
+- **B-04 — Corte en dos ramas.** Si aceptás el corte, y si las fases
+  nuevas van como `08-bis` (mi propuesta) o renumerando.
+
+Lo que **no** está bloqueado y puedo empezar en cuanto apruebes el
+corte: puntos 1 (los arreglos 1a/1b y la unificación de los tres campos
+de cantidad), 2 y 3 completos.
+
+---
+
+# Ronda de corrección — ejecución (2026-10-10)
+
+Rama `fix/feedback-usuaria`. Las cuatro respuestas del humano a los bloqueos
+del plan de arriba llegaron y se aplicaron. **Puntos 1, 2, 3 y 4 hechos.**
+Puntos 5 y 6 quedan como fases nuevas en `FASES.md` (rama B), sin código.
+
+`./gradlew testDebugUnitTest assembleDebug`: **188 tests, 0 fallos**
+(eran 159 al cerrar Fase 07). Verificación manual en emulador sin crashes
+(`adb logcat -b crash` vacío tras el último fix).
+
+## Correcciones a lo que yo mismo había escrito en el plan
+
+Tres cosas del plan de arriba estaban mal y las corrigió el humano o la
+ejecución. Quedan acá porque son el tipo de error que conviene no repetir.
+
+1. **La numeración de fases.** Propuse `08-bis` argumentando que renumerar
+   desalinearía `FASES.md` de los tags existentes. Era incorrecto: los tags
+   van de `fase-00-ok` a `fase-07-ok` y **ninguna fase que se mueve tiene
+   tag**. Confundí "fases numeradas" con "fases con tag". Además había
+   precedente directo (D-022 renumeró las 05–12 al partir la Fase 04).
+   Se renumeró 08–13 → 10–15 (D-049).
+2. **"No hay ningún test de la búsqueda por código".** Falso: existía
+   `availableProducts_filtersByNameOrUid_caseInsensitive`. Pero ejercitaba
+   **solo la rama del nombre** — el nombre del test prometía una cobertura
+   que no tenía. Peor que no tener test, porque aparenta red donde no la
+   hay. Renombrado a `filtersByName...` y agregados cuatro casos reales de
+   búsqueda por código.
+3. **El `key` que agregué introdujo un crash.** Ver abajo, punto 1.
+
+## Punto 1 — campos numéricos (B-01)
+
+El humano confirmó que el síntoma le llegó de segunda mano y que no había
+que esperar por el detalle. Su hipótesis: lo que ella notó son las tres
+reimplementaciones de cantidad, porque "Agregar pieza" es la pantalla que
+más usa. Se arreglaron las tres **y** los dos defectos de Vender.
+
+- `QuantityTextField` movido de `ui/sale/` a `ui/format/`. Era el tercer
+  consumidor: la condición que su propio KDoc ponía ya se había cumplido.
+- Reemplazadas las tres reimplementaciones locales (`AddProductScreen:119`,
+  `ProductEditScreen:132`, `RegisterPurchaseScreen:223`), con sus imports
+  de `KeyboardOptions`/`KeyboardType` ya innecesarios.
+- `key` estable en el carrito de Vender.
+- Test nuevo `ui/format/QuantityInputTest.kt` (9 casos). `isValidQuantityInputText`
+  **no tenía ningún test**: el filtro de lo que entra a un campo de cantidad
+  estaba sin red, que es el mismo punto por donde entró D-030.
+
+**El `key` introdujo un crash, y es el hallazgo más útil de la ronda.**
+`IllegalArgumentException: Key "1" was already used` al agregar la primera
+pieza al carrito. El carrito y la lista de piezas disponibles son dos
+`items` del **mismo** `LazyColumn`: comparten el espacio de claves, y la
+misma pieza producía la clave repetida en los dos. Resuelto con prefijos
+(`"cart-"` / `"product-"`).
+
+Ni el compilador ni los 188 tests lo vieron. Lo encontró correr la app y
+tocar el botón — exactamente la clase de bug que la regla nueva describe.
+Traza completa en `app/build/logs/fix-feedback-crash.txt`.
+
+## Punto 2 — insets (verificado en los dos modos)
+
+Causa confirmada: el `Scaffold` de Material 3 aplica los window insets solo
+al `innerPadding` del contenido; el slot `bottomBar` no recibe ninguno, y
+`enableEdgeToEdge()` está activo. Vender era el único lugar del proyecto
+que usa `bottomBar`, y el único defectuoso.
+
+Arreglado con un solo modificador:
+`windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))`.
+No `.navigationBarsPadding().imePadding()`, que duplicarían el padding con
+el teclado abierto.
+
+Capturas (`app/build/screenshots/`):
+
+| Archivo | Qué muestra |
+|---|---|
+| `fix-insets-01-threebutton.png` | botón completo sobre la barra de tres botones |
+| `fix-insets-02-threebutton-keyboard.png` | tres botones + teclado abierto |
+| `fix-insets-03-gestural.png` | botón completo sobre la barra de gestos |
+| `fix-insets-04-gestural-keyboard.png` | gestos + teclado abierto |
+
+## Punto 3 — el código en el selector
+
+`ProductPickRow` muestra el `uid` con la misma disposición que la fila de
+Inventario. La búsqueda por código ya funcionaba y no se tocó; lo que
+faltaba era mostrarlo. Supuesto de Fase 06 corregido en D-044. Visible en
+`fix-insets-01-threebutton.png` (`XP-000001` bajo el nombre).
+
+## Punto 4 — precio editable por línea (B-02 aplicado)
+
+- `SaleLineInput` gana `unitPrice`. `SaleRepository` lo usa para
+  `unit_price_cents` y `total_cents`; el **costo** se sigue leyendo fresco
+  del producto. **Sin migración**: la columna existe desde la v1.
+- KDoc de `SaleRepository` corregido: afirmaba que *todos* los snapshots se
+  leen frescos, y eso ya no es cierto para el precio. Era una afirmación
+  falsa justo donde se justifica la confiabilidad de la ganancia histórica.
+- Precio negativo rechazado en el repositorio; precio cero permitido
+  (regalar una pieza es un caso real).
+- El refresco del catálogo **dejó de pisar** el precio tecleado.
+- `discount_cents`: columna de legado, documentada con advertencia explícita
+  en `ESQUEMA.md` (tabla `sale` y cálculos derivados). Las ventas nuevas
+  escriben cero, **las viejas conservan su valor y las fórmulas lo siguen
+  restando**. Hay un test que falla si alguien saca el término (D-047).
+- Aviso de pérdida por línea (D-046), en la fila mientras teclea y en el
+  diálogo nombrando cada pieza con su monto.
+
+Captura: `fix-sale-02-line-price-threebutton.png` — precio precargado
+editable, aviso rojo "Perdés Q9,375.01 en esta pieza", total y ganancia.
+
+## Observación que NO arreglé (fuera de alcance, decisión tuya)
+
+`MoneyTextField` no muestra el símbolo `Q` dentro del campo: en la captura
+el precio se lee `9000.00`, no `Q9,000.00`. La sección 6 de `CLAUDE.md`
+dice "los montos siempre con `Q` visible". **No es una regresión de esta
+ronda** — es el comportamiento de `MoneyTextField` desde Fase 03 y vale
+igual para los campos de costo y precio de "Agregar pieza". Pero ahora hay
+un campo de dinero más, en la pantalla que más usa, así que la brecha se
+nota más. Cambiarlo toca todas las pantallas a la vez; si querés, va como
+corrección aparte.
+
+## Qué queda sin hacer en esta rama
+
+- **B-01 sigue abierto como pregunta**, no como bloqueo: cuando la usuaria
+  dé el síntoma exacto, hay que contrastarlo con los cuatro defectos
+  arreglados. Si no coincide con ninguno, el bug sigue vivo.
+- Puntos 5 y 6: Fases 08 y 09 nuevas en `FASES.md`, **sin código**. La
+  Fase 08 tiene como criterio de aceptación explícito que "¿Quién me debe?"
+  siga filtrando por `status`/`type` y nunca por la presencia de
+  `customer_id`, con test — si no, toda venta de contado a una clienta
+  conocida se convertiría en una deuda inventada.
+- La Fase 09 no arranca sin dos decisiones: qué pasa con los productos de
+  una categoría archivada (tres opciones en el plan de arriba) y la regla
+  de nombres duplicados.
+
+Sin bloqueos nuevos para los puntos 1 a 4.
+
+---
+
+# Auditoría de nombres de test (2026-10-10)
+
+Pedida tras encontrar `availableProducts_filtersByNameOrUid_caseInsensitive`,
+que ejercitaba solo la rama del nombre. **Nada de esto está arreglado** —
+se reporta para que el humano decida qué entra y en qué orden.
+
+Alcance: **207 funciones de test** en `app/src/test` y `app/src/androidTest`.
+Método: filtrar nombres con conjunción (`Or`, `And`, `_and_`) o con
+afirmación de generalidad (`always`, `never`, `any`, `all`, `every`,
+`caseInsensitive`, `areInverses`, `ignores`), y leer el cuerpo de cada uno.
+**No** es una auditoría de la calidad de los tests: solo de si el nombre
+dice la verdad sobre lo que el cuerpo ejercita.
+
+Resultado: **6 nombres prometen más de lo que prueban.** Ninguno es un test
+roto — todos prueban algo real. El problema es la cobertura que aparentan y
+no tienen.
+
+## Alta — una rama del nombre no se ejercita, y el caso faltante importa
+
+**1. `PurchaseRepositoryTest:144` — `register_zeroOrNegativeProfit_triggersProfitAlert`**
+
+El nombre dice "cero **o** negativo". El cuerpo prueba un solo caso: costo
+nuevo 9000 contra precio 8000, o sea ganancia **negativa**. El caso de
+ganancia exactamente **cero** (costo nuevo igual al precio de venta) no se
+ejercita nunca.
+
+Por qué importa y no es cosmético: cero es **el borde de la condición**. Que
+la alerta salte en ganancia cero depende de que la comparación sea `<=` y no
+`<`, y hoy nada lo prueba. Si alguien cambia ese operador, los tests pasan
+igual. Es el mismo tipo de borde que D-015 cuida en otras funciones, y el
+mismo que D-046 acaba de tratar explícito en el aviso de pérdida por línea
+(donde sí hay test de ganancia exactamente cero).
+
+**Arreglo esperado:** partir en dos tests, no acortar el nombre.
+
+**2. `RegisterSaleUiStateTest:405` — `canSave_cashSale_ignoresCustomerAndInitialPayment`**
+
+El nombre afirma que la venta de contado **ignora** clienta y abono inicial.
+El cuerpo deja los dos en su valor por defecto (sin clienta, abono vacío) y
+verifica que `canSave` da `true`. Eso prueba que *funciona cuando no están*,
+que no es lo mismo que *los ignora*.
+
+La prueba real sería poner un abono inicial **que exceda el total** y una
+venta de contado, y ver que `canSave` sigue en `true` — porque `canSave`
+corta por `!isCredit ||` y nunca llega a evaluar
+`initialPaymentExceedsNet`. Hoy, si alguien rompiera ese cortocircuito, una
+venta de contado podría quedar bloqueada por un abono inicial que la
+pantalla ni siquiera muestra, y ningún test lo detectaría.
+
+Es además el caso de uso más frecuente de la app.
+
+## Media — afirmación general sostenida por un solo ejemplo
+
+**3. `MoneyInputTest:167` — `toEditableText_and_parseMoneyToCents_areInverses`**
+
+"Son inversas" es una afirmación sobre todo el dominio. El cuerpo prueba
+**un valor** (2050) y **una sola dirección**
+(`cents → texto → cents`). Faltan los casos que harían general la
+afirmación: cero, un monto sin centavos (`"80.00"`), uno con un solo dígito
+decimal, un monto grande, y la dirección `texto → cents → texto`.
+
+Es la función que precarga el precio editable en "Vender" (D-045), así que
+ahora corre en cada línea del carrito, no solo al abrir una pantalla de
+edición.
+
+**4. `MoneyTest:46` — `compareTo_ordersByCents`**
+
+"Ordena por centavos" como afirmación general; el cuerpo ejercita
+únicamente el operador `<` (tres veces). Nunca prueba `>`, `>=`, `<=`, ni
+compara montos negativos.
+
+El detalle que lo hace relevante: **el operador que usa el código de
+producción es `>`**, no `<` — `exceedsStock`, `initialPaymentExceedsNet` y
+el viejo `discountExceedsSubtotal` están todos escritos con `>`. O sea que
+el operador realmente usado en la app es el que no tiene test directo.
+(`compareTo` es uno solo y los operadores derivan de él, así que el riesgo
+real es bajo; pero el nombre afirma el orden completo y el cuerpo prueba un
+cuarto de él.)
+
+**5. `SaleRepositoryTest:457` — `observeCustomerDebts_everyRowHasPositiveBalance`**
+
+"Toda fila" con un `assertThat(debts.all { ... })` aplicado a una lista de
+**exactamente una fila**. El `all` sobre un solo elemento no prueba la
+propiedad que el nombre anuncia; el `hasSize(1)` de la línea anterior ya
+dice que hay una sola.
+
+El test en sí es correcto y el escenario está bien armado (mete a propósito
+una venta que queda `PAID` para verificar que no aparece). Solo que el
+nombre promete una invariante sobre el conjunto y el cuerpo verifica un
+caso.
+
+## Baja — el nombre exagera, el riesgo es chico
+
+**6. `PricingCalculatorTest:387` — `weightedAverageCost_totalQtyZeroOrLess_throwsInsteadOfSilentlyReturningZero`**
+
+"Cero **o menos**": el cuerpo prueba solo `0 + 0`. El caso de total
+negativo no se ejercita. Es discutible que sea alcanzable con datos reales
+(`ESQUEMA.md` dice que `stock_qty` nunca es negativo), pero el `require` de
+la función sí acepta ese camino y el nombre lo promete.
+
+## Dos de la ronda de hoy que caen en lo mismo, para no barrerlos bajo la alfombra
+
+- **`RegisterSaleUiStateTest:372` — `availableProducts_filtersByUid_caseInsensitive`**
+  (mío, de hoy): prueba una sola dirección — consulta en minúsculas contra
+  un `uid` en mayúsculas. No prueba la inversa. **El test original que
+  critiqué, `filtersByName_caseInsensitive`, tiene exactamente la misma
+  limitación**, así que al agregar el caso del código reproduje el patrón
+  en vez de corregirlo. En la práctica el `uid` siempre se genera en
+  mayúsculas, así que la dirección faltante no ocurre; igual el nombre
+  afirma la propiedad entera.
+- **`QuantityInputTest:34` — `quantityLargerThanAnyStock_isAllowed`** (mío,
+  de hoy): `isValidQuantityInputText` **no conoce el stock** — es un filtro
+  de formato puro. Hablar de "cualquier stock" en el nombre le atribuye a la
+  función un conocimiento que no tiene. El cuerpo prueba `"9999"`, que es lo
+  único que puede probar. El nombre honesto sería algo como
+  `manyDigits_isAllowed`, con el porqué en el comentario.
+
+## Lo que la auditoría NO encontró
+
+- Ningún `assertTrue(true)` ni test que no pueda fallar.
+- Ningún test cuyo cuerpo contradiga su nombre (todos prueban algo que el
+  nombre efectivamente afirma; el problema es siempre por defecto, nunca
+  por error).
+- Los nombres con `And` que revisé y **sí** cumplen: `archive_withPendingBalance_throwsAndDoesNotArchive`,
+  `archive_sets_archived_true_and_removes_it_from_the_active_query`,
+  `line_subtotalAndTotalCost_multiplyByQty`,
+  `register_stockZero_replacesCostDirectly_andMarksCycleStartInPriceHistory`,
+  `register_insertsPriceHistoryRow_withPurchaseIdNewCostAndCycleStartFalse`,
+  `suggestedPrice_roundingStepZeroOrNegative_returnsRawPriceWithoutCrash`
+  (este prueba el cero **y** el negativo, los dos),
+  `concurrent_calls_never_produce_duplicate_uids` (100 llamadas reales).
+
+## Sugerencia de orden, si se decide arreglarlo
+
+1 y 2 son los únicos que tapan un hueco de cobertura con consecuencia real
+(el borde de la alerta de ganancia, y el cortocircuito de `canSave` en la
+venta de contado). 3, 4 y 5 son deuda de precisión. 6 y los dos míos se
+resuelven renombrando, sin escribir ningún test nuevo.
+
+No toqué ninguno: queda a tu decisión si entra en esta rama, en una
+corrección aparte, o si parte se deja anotada y nada más.
+
+---
+
+## Nota — el símbolo `Q` dentro del campo editable queda para después (2026-10-10)
+
+Decidido por el humano al cerrar la ronda. Se deja **anotado, no
+arreglado**, con las dos razones, que importan más que la anotación:
+
+1. **La usuaria lleva tres semanas sin la `Q` y no lo reportó.** No le
+   molesta. Lo que sí reportó está arreglado en esta rama.
+2. **Meter un símbolo dentro de un campo editable es exactamente la clase
+   de transformación de texto que causó el bug original del cursor en
+   Fase 03** (D-030): el campo mostraba un `value` distinto del que ella
+   tecleó. Un prefijo `Q` dentro del `TextFieldValue` reintroduce esa
+   diferencia entre lo tecleado y lo mostrado, que es la causa raíz que
+   `MoneyTextField` existe para evitar.
+
+Si algún día se hace, **no es un cambio cosmético**: se hace con cuidado
+(por ejemplo con `prefix`/`leadingIcon` del `OutlinedTextField`, que no
+tocan el texto editable, nunca concatenando la `Q` al `value`) y con su
+propia verificación manual del cursor, en todos los campos de dinero a la
+vez. Afecta "Agregar pieza", "Editar pieza", "Registrar compra", "Vender"
+y el abono del estado de cuenta.
+
+## Arreglados de la auditoría (2026-10-10, mismo commit)
+
+Los dos de prioridad alta y los dos míos. **Los otros cuatro quedan sin
+tocar**, para una rama aparte: 3 (`areInverses`), 4 (`compareTo_ordersByCents`),
+5 (`everyRowHasPositiveBalance`) y 6 (`totalQtyZeroOrLess`).
+
+**1. `register_zeroOrNegativeProfit_triggersProfitAlert`** → partido en
+`register_negativeProfit_triggersProfitAlert` y
+`register_exactlyZeroProfit_triggersProfitAlert_notMarginWarning`. El caso
+nuevo fija dos cosas que el negativo no puede fijar: que la condición sea
+`profit <= Money.ZERO` y no `<`, y que con ganancia cero gane
+`PROFIT_ALERT` sobre `MARGIN_WARNING` — porque ahí el margen también es 0 bp
+y **las dos ramas del `when` califican a la vez**, así que lo único que
+decide es el orden (D-031).
+
+**2. `canSave_cashSale_ignoresCustomerAndInitialPayment`** → ahora pone los
+dos campos presentes y en el peor estado: sin clienta y con un abono de
+Q900.00 sobre un carrito de Q80.00. Afirma explícitamente que
+`initialPaymentExceedsNet` **está en `true`** y que `canSave` sigue en
+`true`; sin esa afirmación volvería a probar la ausencia en vez de la
+indiferencia. Se agregó `canSave_creditSale_withTheSameExcessivePayment_isFalse`
+como contraste: los mismos datos, cambiando solo el tipo de venta, sí
+bloquean — si no, "lo ignora" podría ser cierto por accidente.
+
+**3. `availableProducts_filtersByUid_caseInsensitive`** → renombrado a
+`..._regardlessOfQueryCase` y ejercita las tres formas en que ella puede
+teclear (`xp-`, `XP-`, `Xp-`). El nombre dice "el caso de la consulta"
+porque es lo único que puede variar: un `uid` en minúsculas no existe, y
+prometer insensibilidad en los dos lados sería prometer algo que el dato no
+permite probar.
+
+**4. `quantityLargerThanAnyStock_isAllowed`** → `manyDigits_areAllowed`. La
+función es un filtro de formato puro y no ve el inventario; el nombre viejo
+le atribuía un conocimiento que no tiene.
+
+### Los dos arreglos de prioridad alta se verificaron por mutación
+
+Un test que no puede fallar no es un test (sección 8), así que se comprobó
+que cada uno **detecta la regresión que dice proteger**:
+
+| Mutación en `main` | Resultado |
+|---|---|
+| `profit <= Money.ZERO` → `profit < Money.ZERO` | falla **solo** `register_exactlyZeroProfit_...`; el resto de `PurchaseRepositoryTest` pasa |
+| `canSave`: quitar el cortocircuito `!isCredit \|\|` | falla `canSave_cashSale_ignoresCustomerAndInitialPayment` |
+
+Las dos mutaciones se revirtieron; `git diff` sobre
+`PurchaseRepository.kt` quedó vacío.
+
+`./gradlew testDebugUnitTest assembleDebug`: **190 tests, 0 fallos**.
+
+### Inconsistencia que queda a propósito
+
+`availableProducts_filtersByName_caseInsensitive` conserva el nombre viejo y
+la misma limitación de una sola dirección. No está en los cuatro diferidos
+porque no apareció como hallazgo propio — lo mencioné solo como contexto del
+mío. Si se arregla el bloque de los cuatro, conviene incluirlo para que los
+dos tests hermanos no queden con criterios de nombre distintos.

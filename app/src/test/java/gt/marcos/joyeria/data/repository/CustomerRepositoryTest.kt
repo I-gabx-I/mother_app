@@ -90,7 +90,7 @@ class CustomerRepositoryTest {
                 soldAt = 1_000L,
                 discount = Money.ZERO,
                 notes = null,
-                lines = listOf(SaleLineInput(productId, qty = 1)),
+                lines = listOf(SaleLineInput(productId, qty = 1, unitPrice = Money(8000))),
                 credit = CreditSaleDetails(customerId = customerId, initialPayment = null),
             ),
         )
@@ -120,7 +120,7 @@ class CustomerRepositoryTest {
                 soldAt = 1_000L,
                 discount = Money.ZERO,
                 notes = null,
-                lines = listOf(SaleLineInput(productId, qty = 1)),
+                lines = listOf(SaleLineInput(productId, qty = 1, unitPrice = Money(8000))),
                 credit = CreditSaleDetails(customerId = customerId, initialPayment = Money(8000)),
             ),
         )

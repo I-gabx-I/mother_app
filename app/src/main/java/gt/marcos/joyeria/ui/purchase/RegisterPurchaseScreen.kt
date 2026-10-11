@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -38,13 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.PurchaseWarningLevel
 import gt.marcos.joyeria.data.repository.RegisterPurchaseResult
 import gt.marcos.joyeria.ui.format.MoneyTextField
+import gt.marcos.joyeria.ui.format.QuantityTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 import java.text.DateFormat
@@ -220,12 +219,10 @@ private fun PurchaseLineCard(
                 onProductSelected = onProductSelected,
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            QuantityTextField(
+                label = stringResource(R.string.purchase_line_qty_label),
                 value = line.qtyText,
                 onValueChange = onQtyChange,
-                label = { Text(stringResource(R.string.purchase_line_qty_label)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             MoneyTextField(

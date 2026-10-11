@@ -243,6 +243,63 @@ Jamás calcules ganancias históricas haciendo JOIN al precio actual del product
   necesitás mencionar un patrón de archivos en un comentario, escribilo sin
   que quede un `/` seguido de `*` (ejemplo: "los archivos de
   `domain/usecase`" en vez de "`domain/usecase/*.kt`").
+- **Todo campo que capture dinero usa `MoneyTextField` y todo campo que
+  capture una cantidad usa `QuantityTextField`, los dos en `ui/format/`.**
+  Presentes y futuros. Prohibido construir un campo numérico local con
+  `OutlinedTextField` + `KeyboardType.Number` o `KeyboardType.Decimal`,
+  aunque sea "un solo campo simple": el mecanismo de esos componentes
+  (`TextFieldValue`, y rechazar la tecla inválida sin nunca presentar un
+  texto "corregido") es lo que arregló D-030, y un campo local no lo
+  tiene. Si hace falta capturar un tipo numérico nuevo (un porcentaje,
+  por ejemplo), se crea **un** componente compartido en `ui/format/` con
+  el mismo mecanismo y se usa en todos lados, no uno por pantalla.
+  Razón: este bug ya reapareció dos veces — la primera vez (D-030)
+  porque el campo reformateaba lo que ella tecleaba, la segunda porque
+  el arreglo se aplicó a los campos de dinero y quedaron tres campos de
+  cantidad reimplementados a mano (`AddProductScreen`,
+  `ProductEditScreen`, `RegisterPurchaseScreen`). Un componente
+  compartido no puede quedarse a medio aplicar sin que se note. Ver
+  D-048 en `DECISIONES.md`.
+- **Toda lista de Compose (`items`, `itemsIndexed`) cuyas filas tengan
+  estado de entrada propio lleva `key` estable, derivada del dato y no
+  de la posición.** "Estado de entrada propio" es cualquier fila que
+  contenga un campo de texto, un `remember` interno, un check, un
+  desplegable abierto o un foco — en la práctica, toda fila con un
+  `MoneyTextField` o un `QuantityTextField` adentro.
+  **Qué pasa sin `key`:** Compose identifica cada fila por su
+  **posición** en la lista, no por el dato que muestra. El `remember`
+  interno del campo (su `TextFieldValue`: el texto *y* la posición del
+  cursor) queda atado a esa posición. Al borrar o reordenar una fila,
+  las que estaban más abajo se corren un lugar y **heredan el estado
+  interno de la fila que ocupaba antes ese lugar**: el cursor salta, una
+  tecla se pierde, y con dos campos por fila el valor de una pieza
+  aparece en la pieza equivocada. El texto se re-sincroniza solo cuando
+  el estado está izado al ViewModel, así que **el síntoma no es un
+  número visiblemente mal, es un campo que "se porta raro" mientras
+  ella escribe** — y eso es exactamente lo que no se puede reproducir
+  leyendo el diff. Es un bug invisible en revisión de código: solo
+  aparece usando la app, con las manos, borrando una línea del medio.
+  Visto en Fase 06 y encontrado recién en la ronda de corrección de
+  uso real (`itemsIndexed(state.lines)` en `RegisterSaleScreen` era la
+  única lista de la app sin `key`). Ver D-048 en `DECISIONES.md`.
+- **Dos `items`/`itemsIndexed` distintos dentro del MISMO `LazyColumn` o
+  `LazyRow` comparten un solo espacio de claves.** No son dos listas con
+  claves independientes: para Compose es una sola lista perezosa con
+  varias secciones, y **una clave repetida entre secciones es un crash**
+  (`IllegalArgumentException: Key "<x>" was already used`), no un aviso.
+  Esto no es obvio y va a volver a aparecer apenas una pantalla tenga dos
+  secciones sobre el mismo tipo de dato — un carrito y un catálogo, una
+  lista de pendientes y una de hechas, "recientes" y "todas" — porque el
+  caso natural es justo ese: **la misma entidad aparece en las dos
+  secciones, y su `id` es la clave obvia en ambas.** Por eso la clave
+  lleva **prefijo por sección**, siempre, aunque hoy haya una sola:
+  `"cart-${line.productId}"` y `"product-${it.id}"`, no `line.productId`
+  e `it.id` pelados. Agregar la segunda sección después no debería
+  obligar a acordarse de esto. Lo mismo vale para un `item { }` suelto si
+  alguna vez lleva `key`. Encontrado así: el `key` que se agregó para
+  cumplir la regla anterior rompió la app al agregar la primera pieza al
+  carrito — el compilador y los 188 tests unitarios lo dieron por bueno.
+  Ver D-048 en `DECISIONES.md`.
 - Nada de `!!`. Nada de `runBlocking` fuera de tests. Nada de `GlobalScope`.
 - Nada de `TODO()` ni stubs vacíos que compilen y mientan. Si algo no se implementó
   en esta fase, no existe en el código todavía.
@@ -359,6 +416,34 @@ se vuelve imposible y el proyecto se cae.
   falla con errores confusos en vez de un mensaje claro.
 - Comando de verificación: `./gradlew testDebugUnitTest`
 - Un test que no puede fallar no es un test. Prohibido `assertTrue(true)` y similares.
+- **El nombre de un test es una afirmación sobre lo que cubre, y vale
+  tanto como el cuerpo.** Quien audita, y quien decide si hace falta un
+  test nuevo, lee la lista de nombres — no los cuerpos uno por uno. Un
+  nombre que promete más de lo que el cuerpo ejercita es **peor que no
+  tener el test**: aparenta una red que no existe, y hace que nadie
+  escriba la que falta.
+  - **Si el nombre menciona dos ramas, el cuerpo tiene que ejercitar las
+    dos.** `zeroOrNegative` prueba el cero **y** el negativo;
+    `nameOrUid` prueba el nombre **y** el código; `xAndY` asegura `x`
+    **y** `y`. Si solo se prueba una, el nombre lleva solo esa.
+  - **Si el nombre afirma una propiedad general** (`siempre`, `nunca`,
+    `cualquiera`, `todos`, `son inversas`, `ignora X`), un solo ejemplo
+    no alcanza: o el cuerpo cubre los casos que hacen general a la
+    afirmación, o el nombre se baja al caso concreto que sí prueba.
+  - **Si el nombre dice que algo se ignora, el cuerpo tiene que poner ese
+    algo presente** y mostrar que no cambia el resultado. Dejarlo en su
+    valor por defecto no prueba que se ignore: prueba que funciona
+    cuando no está.
+  Razón: en la ronda de corrección de uso real (2026-10-10) apareció
+  `availableProducts_filtersByNameOrUid_caseInsensitive`, que ejercitaba
+  **solo la rama del nombre**. La búsqueda por código — la que la usuaria
+  de verdad usa — estaba sin ninguna red, y el nombre del test era
+  exactamente la razón por la que nadie lo había notado. La auditoría que
+  siguió encontró que no era un caso aislado (ver `ESTADO.md`, auditoría
+  de nombres de test). **Al renombrar o al partir un test, preferí partir
+  en dos tests antes que acortar el nombre:** el nombre acortado es
+  honesto, pero la rama que se cae del nombre se cae también de la
+  cobertura y nadie se entera.
 
 ---
 

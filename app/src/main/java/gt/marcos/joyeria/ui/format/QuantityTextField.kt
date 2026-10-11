@@ -1,4 +1,4 @@
-package gt.marcos.joyeria.ui.sale
+package gt.marcos.joyeria.ui.format
 
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField

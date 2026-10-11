@@ -431,7 +431,114 @@ fase agrega su DAO, repositorio y pantallas.
 
 ---
 
-## Fase 08 — Recordatorios y estado de cuenta por WhatsApp
+## Fase 08 — Perfil de clienta y venta desde ahí
+
+**Origen:** ronda de corrección de uso real (2026-10-10), punto 5. No salió
+de la planificación original: salió de tres semanas de uso con datos reales.
+Pedido textual de la usuaria: para venderle varias piezas a la misma persona
+hoy hay que ir pieza por pieza desde "Vender"; quiere entrar al perfil de la
+clienta y armar ahí la venta completa, de contado o a crédito.
+
+**Archivos permitidos:**
+`app/src/main/java/**/ui/credit/**`,
+`app/src/main/java/**/ui/navigation/JoyeriaDestination.kt`,
+`app/src/main/java/**/ui/navigation/JoyeriaNavHost.kt`,
+`app/src/main/java/**/ui/sale/RegisterSaleRoute.kt`,
+`app/src/main/java/**/ui/sale/RegisterSaleViewModel.kt`,
+`app/src/main/java/**/data/repository/SaleRepository.kt`,
+`app/src/main/java/**/data/repository/SaleModels.kt`,
+`app/src/main/java/**/data/local/dao/SaleDao.kt`,
+`app/src/test/java/**` (`[TESTS OBLIGATORIOS]`), `strings.xml`
+
+**Entregable:**
+- **El perfil de clienta existe y se abre para cualquier clienta**, no solo
+  para las que deben. Hoy `AccountStatementScreen` es lo más parecido a un
+  perfil y solo se llega desde la pestaña "¿Quién me debe?"; en "Todas las
+  clientas" tocar una fila abre el diálogo de editar. Además
+  `observeAccountStatements` devuelve solo ventas `PENDING`, así que una
+  clienta al día tiene un perfil vacío.
+- **Vender desde el perfil reutilizando la pantalla de venta existente**, sin
+  una segunda pantalla ni un segundo ViewModel: la ruta `RegisterSale` acepta
+  un argumento opcional `customerId`, el ViewModel lo lee del
+  `SavedStateHandle` y preselecciona esa clienta. El selector
+  Contado/Crédito sigue intacto — ella dijo "de contado o a crédito", así
+  que entrar desde el perfil no fuerza crédito.
+- **Una venta de contado puede quedar asociada a una clienta.** Hoy
+  `SaleRepository` graba `customer_id = credit?.customerId`, o sea `null`
+  siempre que no sea crédito, así que venderle de contado desde su perfil no
+  quedaría asociado a ella — justo lo que quiere ver. El esquema ya lo
+  permite (`sale.customer_id` es nullable y tiene índice): no hace falta
+  migración.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. El perfil de una clienta sin ninguna deuda se abre y muestra su historial,
+   no una pantalla vacía.
+3. Una venta de contado hecha desde el perfil queda con `customer_id` de esa
+   clienta, y aparece en su perfil.
+4. **"¿Quién me debe?" sigue filtrando por `status = PENDING` y por `type =
+   CREDIT`, nunca por la presencia de `customer_id`.** Test explícito: una
+   venta de contado con clienta asociada **no** aparece como deuda. Sin esto,
+   el cambio del punto anterior convertiría toda venta de contado a una
+   clienta conocida en una deuda inventada.
+5. Las ventas de contado sin clienta (el caso más común) siguen funcionando
+   exactamente igual, con `customer_id = null`.
+
+**Commit:** `fase-08: customer profile and selling from it` → tag `fase-08-ok`
+
+---
+
+## Fase 09 — Categorías propias
+
+**Origen:** ronda de corrección de uso real (2026-10-10), punto 6. Las 5
+categorías de la semilla no le alcanzan y no tiene forma de agregar ni
+corregir ninguna.
+
+**Archivos permitidos:**
+`app/src/main/java/**/data/local/dao/CategoryDao.kt`,
+`app/src/main/java/**/data/repository/CategoryRepository.kt`,
+`app/src/main/java/**/ui/product/**`,
+`app/src/main/java/**/ui/navigation/JoyeriaDestination.kt`,
+`app/src/main/java/**/ui/navigation/JoyeriaNavHost.kt`,
+`app/src/test/java/**`, `strings.xml`
+
+**Entregable:**
+- Las 5 categorías actuales **se mantienen** como semilla
+  (`Anillos, Cadenas, Aretes, Pulseras, Juegos`), sin marca especial: una vez
+  creadas son categorías normales.
+- Agregar categorías nuevas y renombrar las existentes. `CategoryDao` necesita
+  un `rename`; hoy no lo tiene. `CategoryRepository` hoy expone únicamente
+  `observeActive`.
+- **Nunca borrar: archivar** (D-006). `CategoryEntity` ya tiene la columna
+  `archived`, así que **no hace falta migración**.
+- Se administran desde Inventario, en el menú de la barra superior — no como
+  un botón nuevo en el inicio: la sección 6 de `CLAUDE.md` dice que el inicio
+  tiene dos acciones grandes y obvias y que no es un tablero.
+
+**A decidir antes de codificar (sin esto la fase no arranca):**
+- **Qué pasa con los productos de una categoría archivada.** El problema:
+  `product.category_id` sigue apuntando a ella pero `observeActive()` la
+  esconde, así que el desplegable de editar pieza queda vacío para esos
+  productos y el filtro de Inventario no los puede volver a encontrar. Tres
+  opciones, con su costo, en `ESTADO.md` (ronda de corrección, punto 6).
+- **Regla de nombres duplicados.** Hoy `category.name` no tiene índice único:
+  nada impide dos categorías con el mismo nombre, ni renombrar una al nombre
+  de otra.
+
+**Criterios de aceptación:**
+1. Build y tests pasan.
+2. Agregar, renombrar y archivar una categoría funciona desde la app, con
+   confirmación en el archivado (texto claro en español).
+3. Ninguna ruta borra físicamente una categoría.
+4. Las piezas de una categoría archivada siguen siendo encontrables y
+   editables, según la opción aprobada.
+5. Test de DAO con Room in-memory para `rename` y `archive`.
+
+**Commit:** `fase-09: custom categories` → tag `fase-09-ok`
+
+---
+
+## Fase 10 — Recordatorios y estado de cuenta por WhatsApp
 
 **Objetivo:** cobrar sin escribir el mensaje a mano. Sin backend.
 
@@ -449,11 +556,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test de que el mensaje se URL-encodea correctamente (tildes, ñ, saltos de línea).
 4. La app **no** pide permiso de contactos ni de teléfono.
 
-**Commit:** `fase-08: whatsapp reminders` → tag `fase-08-ok`
+**Commit:** `fase-10: whatsapp reminders` → tag `fase-10-ok`
 
 ---
 
-## Fase 09 — Reportes **[TESTS OBLIGATORIOS]**
+## Fase 11 — Reportes **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** responder las cuatro preguntas del negocio.
 
@@ -471,11 +578,11 @@ fase agrega su DAO, repositorio y pantallas.
 4. Test de que las ventas `CANCELLED` se excluyen de todos los reportes.
 5. Test de frontera de mes: una venta a las 23:59 del día 31 cuenta en ese mes y no en el siguiente (zona horaria de Guatemala).
 
-**Commit:** `fase-09: reports` → tag `fase-09-ok`
+**Commit:** `fase-11: reports` → tag `fase-11-ok`
 
 ---
 
-## Fase 10 — Catálogo compartible
+## Fase 12 — Catálogo compartible
 
 **Objetivo:** vender sin que la clienta vaya a la casa.
 
@@ -489,11 +596,11 @@ fase agrega su DAO, repositorio y pantallas.
 2. **[TESTS OBLIGATORIOS]** Test que verifica que el modelo de datos del catálogo no contiene campos de costo ni ganancia.
 3. Catálogo de 20 piezas se genera en menos de 5 segundos (medido y anotado en `ESTADO.md`).
 
-**Commit:** `fase-10: shareable catalog` → tag `fase-10-ok`
+**Commit:** `fase-12: shareable catalog` → tag `fase-12-ok`
 
 ---
 
-## Fase 11 — Códigos de barras
+## Fase 13 — Códigos de barras
 
 **Objetivo:** encontrar una pieza al instante escaneando su etiqueta.
 
@@ -509,11 +616,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test de round-trip: generar el código de `XP-000042` y decodificarlo devuelve `XP-000042`.
 4. Permiso de cámara solicitado solo al entrar al escáner, con explicación en español.
 
-**Commit:** `fase-11: barcode labels and scanning` → tag `fase-11-ok`
+**Commit:** `fase-13: barcode labels and scanning` → tag `fase-13-ok`
 
 ---
 
-## Fase 12 — Respaldo, exportar e importar **[TESTS OBLIGATORIOS]**
+## Fase 14 — Respaldo, exportar e importar **[TESTS OBLIGATORIOS]**
 
 **Objetivo:** que perder el teléfono no sea peor que perder el cuaderno.
 
@@ -529,11 +636,11 @@ fase agrega su DAO, repositorio y pantallas.
 3. Test: importar un archivo corrupto o de otra versión falla con mensaje claro y **deja la base intacta**.
 4. El CSV abre correctamente con tildes (UTF-8 con BOM).
 
-**Commit:** `fase-12: backup and export` → tag `fase-12-ok`
+**Commit:** `fase-14: backup and export` → tag `fase-14-ok`
 
 ---
 
-## Fase 13 — Pulido para la usuaria real
+## Fase 15 — Pulido para la usuaria real
 
 **Objetivo:** cerrar la brecha entre "funciona" y "ella lo usa".
 
@@ -551,7 +658,7 @@ fase agrega su DAO, repositorio y pantallas.
 3. Lista completa de strings de UI revisada y pegada en `ESTADO.md` para aprobación humana.
 4. Prueba con la usuaria real documentada: qué logró sola, dónde se trabó.
 
-**Commit:** `fase-13: usability polish` → tag `fase-13-ok`
+**Commit:** `fase-15: usability polish` → tag `fase-15-ok`
 
 ---
 

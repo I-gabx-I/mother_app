@@ -140,11 +140,37 @@ class PurchaseRepositoryTest {
         assertThat(result.lineWarnings.single().level).isEqualTo(PurchaseWarningLevel.MARGIN_WARNING)
     }
 
+    // Partido en dos (auditoría de nombres de test, 2026-10-10): antes era
+    // un solo `register_zeroOrNegativeProfit_triggersProfitAlert` que
+    // ejercitaba únicamente el caso negativo. El nombre prometía el borde
+    // de cero y nadie lo probaba (CLAUDE.md sección 8).
+
     @Test
-    fun register_zeroOrNegativeProfit_triggersProfitAlert() = runTest {
+    fun register_negativeProfit_triggersProfitAlert() = runTest {
+        // Costo nuevo 9000 sobre venta 8000: ganancia -1000.
         val productId = insertProduct(stockQty = 0, costCents = 4000, salePriceCents = 8000)
 
         val result = repository.register(purchase(productId, qty = 1, unitCostCents = 9000))
+
+        assertThat(result.lineWarnings).hasSize(1)
+        assertThat(result.lineWarnings.single().level).isEqualTo(PurchaseWarningLevel.PROFIT_ALERT)
+    }
+
+    @Test
+    fun register_exactlyZeroProfit_triggersProfitAlert_notMarginWarning() = runTest {
+        // El borde: costo nuevo 8000 igual a la venta 8000, ganancia
+        // exactamente Money.ZERO. Fija las DOS cosas que el caso negativo
+        // no puede fijar:
+        //   1. que la condición sea `profit <= Money.ZERO` y no `< `;
+        //   2. que gane PROFIT_ALERT sobre MARGIN_WARNING, porque con
+        //      ganancia cero el margen también es 0 bp (debajo del piso de
+        //      2500) y las dos ramas del `when` califican a la vez -- lo
+        //      que decide es el orden, y el orden tiene que ser este
+        //      (D-031: nunca los dos avisos para la misma línea, y el más
+        //      grave manda).
+        val productId = insertProduct(stockQty = 0, costCents = 4000, salePriceCents = 8000)
+
+        val result = repository.register(purchase(productId, qty = 1, unitCostCents = 8000))
 
         assertThat(result.lineWarnings).hasSize(1)
         assertThat(result.lineWarnings.single().level).isEqualTo(PurchaseWarningLevel.PROFIT_ALERT)

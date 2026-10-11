@@ -6,11 +6,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -47,6 +52,7 @@ import gt.marcos.joyeria.data.repository.ProductSummary
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.ui.customer.CustomerPickerDropdown
 import gt.marcos.joyeria.ui.format.MoneyTextField
+import gt.marcos.joyeria.ui.format.QuantityTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 
@@ -61,8 +67,8 @@ fun RegisterSaleScreen(
     onQueryChange: (String) -> Unit,
     onProductSelected: (Long) -> Unit,
     onLineQtyChange: (index: Int, raw: String) -> Unit,
+    onLinePriceChange: (index: Int, raw: String) -> Unit,
     onRemoveLineClick: (index: Int) -> Unit,
-    onDiscountChange: (String) -> Unit,
     onConfirmClick: () -> Unit,
     onLossConfirmed: () -> Unit,
     onLossDialogDismissed: () -> Unit,
@@ -87,7 +93,7 @@ fun RegisterSaleScreen(
             )
         },
         bottomBar = {
-            SaleBottomBar(state = state, onDiscountChange = onDiscountChange, onConfirmClick = onConfirmClick)
+            SaleBottomBar(state = state, onConfirmClick = onConfirmClick)
         },
     ) { innerPadding ->
         LazyColumn(
@@ -158,10 +164,23 @@ fun RegisterSaleScreen(
                 item {
                     Text(stringResource(R.string.sale_cart_title), style = MaterialTheme.typography.titleMedium)
                 }
-                itemsIndexed(state.lines) { index, line ->
+                // `key` por producto: cada fila del carrito tiene campos con
+                // estado de entrada propio, y sin `key` ese estado queda atado a
+                // la posición en la lista (ver CLAUDE.md sección 5 y D-048).
+                //
+                // El prefijo "cart-" no es decorativo: el carrito y la lista de
+                // piezas disponibles son dos `items` del MISMO `LazyColumn`, así
+                // que **comparten el espacio de claves**. Con `line.productId`
+                // pelado, la misma pieza en el carrito y en la lista de abajo
+                // producían la clave repetida y Compose tiraba
+                // `IllegalArgumentException: Key "1" was already used` al
+                // agregar la primera pieza. Encontrado corriendo la app, no por
+                // los tests ni por el compilador (D-048).
+                itemsIndexed(state.lines, key = { _, line -> "cart-${line.productId}" }) { index, line ->
                     CartLineRow(
                         line = line,
                         onQtyChange = { raw -> onLineQtyChange(index, raw) },
+                        onPriceChange = { raw -> onLinePriceChange(index, raw) },
                         onRemoveClick = { onRemoveLineClick(index) },
                     )
                 }
@@ -181,7 +200,7 @@ fun RegisterSaleScreen(
                     )
                 }
             } else {
-                items(state.availableProducts, key = { it.id }) { product ->
+                items(state.availableProducts, key = { "product-${it.id}" }) { product ->
                     ProductPickRow(product = product, onClick = { onProductSelected(product.id) })
                 }
             }
@@ -189,18 +208,32 @@ fun RegisterSaleScreen(
     }
 
     if (state.pendingLossConfirmation) {
-        val profit = state.profit
         AlertDialog(
             onDismissRequest = onLossDialogDismissed,
             title = { Text(stringResource(R.string.sale_confirm_dialog_title)) },
             text = {
-                Text(
-                    if (profit == Money.ZERO) {
-                        stringResource(R.string.sale_confirm_zero_profit_warning)
-                    } else {
-                        stringResource(R.string.sale_confirm_loss_warning, Money(-(profit?.cents ?: 0L)).format())
-                    },
-                )
+                // D-046: una línea por pieza en pérdida, con su monto. Antes
+                // era un solo texto sobre el total de la venta, que no decía
+                // en qué pieza estaba el problema -- y con precio por pieza,
+                // saber cuál es lo único que le permite arreglarlo.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.sale_confirm_loss_lines_intro))
+                    state.lossLines.forEach { line ->
+                        val lineProfit = line.profit ?: Money.ZERO
+                        Text(
+                            text = if (lineProfit == Money.ZERO) {
+                                stringResource(R.string.sale_confirm_zero_profit_line, line.productName)
+                            } else {
+                                stringResource(
+                                    R.string.sale_confirm_loss_line,
+                                    line.productName,
+                                    Money(-lineProfit.cents).format(),
+                                )
+                            },
+                        )
+                    }
+                    Text(stringResource(R.string.sale_confirm_loss_lines_question))
+                }
             },
             confirmButton = {
                 TextButton(onClick = onLossConfirmed) {
@@ -231,37 +264,40 @@ fun RegisterSaleScreen(
 @Composable
 private fun SaleBottomBar(
     state: RegisterSaleUiState,
-    onDiscountChange: (String) -> Unit,
     onConfirmClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            // El `Scaffold` de Material 3 aplica los window insets SOLO al
+            // `innerPadding` del contenido; el slot `bottomBar` no recibe
+            // ninguno. Con `enableEdgeToEdge()` activo (MainActivity) eso
+            // dejaba el botón "Confirmar venta" debajo de la barra de
+            // navegación -- la usuaria le pegaba al botón de inicio del
+            // teléfono en vez de confirmar la venta.
+            //
+            // `safeDrawing` es la unión de barras del sistema, recorte de
+            // pantalla y teclado, así que da el MÁXIMO de los dos casos con
+            // un solo modificador. Sumar `.navigationBarsPadding()` y
+            // `.imePadding()` sería incorrecto: con el teclado abierto se
+            // duplicaría el padding, porque el teclado ya cubre la barra de
+            // navegación.
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        MoneyTextField(
-            label = stringResource(R.string.sale_discount_label),
-            value = state.discountText,
-            onValueChange = onDiscountChange,
-        )
-        if (state.discountExceedsSubtotal) {
+        // El campo de descuento se eliminó (D-047): lo reemplazó el precio
+        // editable de cada línea, que puede subir y bajar. Un descuento solo
+        // podía restar.
+        //
+        // Sin un subtotal completo (alguna línea a medio escribir) no hay un
+        // Total real que mostrar: afirmar un número parcial sería un cálculo
+        // que no corresponde a nada que ella haya terminado de elegir (mismo
+        // espíritu que D-015/D-030).
+        state.subtotal?.let { subtotal ->
             Text(
-                text = stringResource(R.string.sale_discount_exceeds_subtotal),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        // Sin piezas en el carrito, o con un descuento que ya no tiene
-        // sentido (mayor al subtotal), no hay un Total real que mostrar --
-        // "Total: -Q500.00" sería un número inventado, la venta ni siquiera
-        // se puede guardar en ese estado (mismo espíritu que D-015/D-030:
-        // no afirmar un cálculo que no corresponde a nada que ella haya
-        // elegido).
-        if (state.lines.isNotEmpty() && !state.discountExceedsSubtotal) {
-            Text(
-                text = stringResource(R.string.sale_total_label, (state.subtotal - (state.discount ?: Money.ZERO)).format()),
+                text = stringResource(R.string.sale_total_label, subtotal.format()),
                 style = MaterialTheme.typography.bodyLarge,
             )
             state.profit?.let { profit ->
@@ -283,29 +319,66 @@ private fun SaleBottomBar(
 }
 
 @Composable
-private fun CartLineRow(line: SaleLineUiState, onQtyChange: (String) -> Unit, onRemoveClick: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(line.productName, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                line.subtotal.format(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun CartLineRow(
+    line: SaleLineUiState,
+    onQtyChange: (String) -> Unit,
+    onPriceChange: (String) -> Unit,
+    onRemoveClick: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(line.productName, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    line.productUid,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                line.subtotal?.let { subtotal ->
+                    Text(
+                        subtotal.format(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            QuantityTextField(
+                label = stringResource(R.string.sale_line_qty_label),
+                value = line.qtyText,
+                onValueChange = onQtyChange,
+                supportingText = if (line.exceedsStock) {
+                    stringResource(R.string.sale_line_stock_warning, line.availableStock)
+                } else {
+                    null
+                },
+                modifier = Modifier.width(120.dp),
             )
+            IconButton(onClick = onRemoveClick) {
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.sale_line_remove))
+            }
         }
-        QuantityTextField(
-            label = stringResource(R.string.sale_line_qty_label),
-            value = line.qtyText,
-            onValueChange = onQtyChange,
-            supportingText = if (line.exceedsStock) {
-                stringResource(R.string.sale_line_stock_warning, line.availableStock)
-            } else {
-                null
-            },
-            modifier = Modifier.width(120.dp),
+        // D-045: el precio de esta venta, precargado con el de lista y
+        // editable hacia arriba o hacia abajo. `MoneyTextField` sin
+        // excepciones (CLAUDE.md sección 5).
+        MoneyTextField(
+            label = stringResource(R.string.sale_line_price_label),
+            value = line.unitPriceText,
+            onValueChange = onPriceChange,
         )
-        IconButton(onClick = onRemoveClick) {
-            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.sale_line_remove))
+        // D-046: el aviso de pérdida, en la pieza misma y mientras teclea --
+        // no solo en el diálogo al final. Es el momento en que todavía puede
+        // corregir el precio.
+        if (line.isLoss) {
+            val lineProfit = line.profit ?: Money.ZERO
+            Text(
+                text = if (lineProfit == Money.ZERO) {
+                    stringResource(R.string.sale_line_zero_profit_warning)
+                } else {
+                    stringResource(R.string.sale_line_loss_warning, Money(-lineProfit.cents).format())
+                },
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }
@@ -339,6 +412,16 @@ private fun ProductPickRow(product: ProductSummary, onClick: () -> Unit) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(product.name, style = MaterialTheme.typography.bodyLarge)
+            // D-044: ella busca la pieza por su código, no por el nombre --
+            // el código está impreso en la etiqueta que tiene en la mano, no
+            // lo tiene que recordar. Misma disposición que la fila de
+            // Inventario (`ProductListScreen.ProductRow`), que es el
+            // componente que ya conoce.
+            Text(
+                product.uid,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 stringResource(R.string.product_list_stock, product.stockQty),
                 style = MaterialTheme.typography.bodyMedium,
@@ -370,8 +453,8 @@ private fun RegisterSaleScreenPreview() {
             onQueryChange = {},
             onProductSelected = {},
             onLineQtyChange = { _, _ -> },
+            onLinePriceChange = { _, _ -> },
             onRemoveLineClick = {},
-            onDiscountChange = {},
             onConfirmClick = {},
             onLossConfirmed = {},
             onLossDialogDismissed = {},

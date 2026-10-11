@@ -162,8 +162,8 @@ class SaleRepositoryTest {
                     discount = Money.ZERO,
                     notes = null,
                     lines = listOf(
-                        SaleLineInput(productId, qty = 1),
-                        SaleLineInput(productId, qty = 1),
+                        SaleLineInput(productId, qty = 1, unitPrice = Money(8000)),
+                        SaleLineInput(productId, qty = 1, unitPrice = Money(8000)),
                     ),
                 ),
             )
@@ -195,8 +195,8 @@ class SaleRepositoryTest {
                     discount = Money.ZERO,
                     notes = null,
                     lines = listOf(
-                        SaleLineInput(productId, qty = 1),
-                        SaleLineInput(missingProductId, qty = 1),
+                        SaleLineInput(productId, qty = 1, unitPrice = Money(8000)),
+                        SaleLineInput(missingProductId, qty = 1, unitPrice = Money(8000)),
                     ),
                 ),
             )
@@ -497,22 +497,146 @@ class SaleRepositoryTest {
             ),
         )
 
-    private fun sale(productId: Long, qty: Int, soldAt: Long = 1_000L) = RegisterSaleInput(
+    private fun sale(
+        productId: Long,
+        qty: Int,
+        soldAt: Long = 1_000L,
+        unitPrice: Money = Money(8000),
+    ) = RegisterSaleInput(
         soldAt = soldAt,
         discount = Money.ZERO,
         notes = null,
-        lines = listOf(SaleLineInput(productId, qty)),
+        lines = listOf(SaleLineInput(productId, qty, unitPrice)),
     )
 
     private suspend fun insertCustomer(name: String): Long =
         db.customerDao().insert(CustomerEntity(name = name, phone = null, notes = null, createdAt = 0L))
 
-    private fun creditSale(productId: Long, customerId: Long, qty: Int, initialPayment: Money?, soldAt: Long = 1_000L) =
+    private fun creditSale(
+        productId: Long,
+        customerId: Long,
+        qty: Int,
+        initialPayment: Money?,
+        soldAt: Long = 1_000L,
+        unitPrice: Money = Money(8000),
+    ) =
         RegisterSaleInput(
             soldAt = soldAt,
             discount = Money.ZERO,
             notes = null,
-            lines = listOf(SaleLineInput(productId, qty)),
+            lines = listOf(SaleLineInput(productId, qty, unitPrice)),
             credit = CreditSaleDetails(customerId = customerId, initialPayment = initialPayment),
         )
+
+    // --- D-045: el precio de la línea es dato de entrada, el costo no ---
+
+    @Test
+    fun register_storesTypedPrice_notTheProductListPrice() = runTest {
+        // El caso que motivó todo el cambio: vende MÁS CARO que la lista.
+        // Un descuento no podía representar esto, solo restar.
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        val result = repository.register(sale(productId, qty = 1, unitPrice = Money(10000)))
+
+        val items = db.saleItemDao().getForSale(result.saleId)
+        assertThat(items).hasSize(1)
+        assertThat(items.first().unitPriceCents).isEqualTo(10000L)
+        // El precio de lista del inventario NO se toca.
+        assertThat(checkNotNull(db.productDao().getById(productId)).salePriceCents).isEqualTo(8000L)
+    }
+
+    @Test
+    fun register_totalIsSumOfTypedPrices_notListPrices() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        val result = repository.register(sale(productId, qty = 3, unitPrice = Money(9000)))
+
+        val sale = checkNotNull(db.saleDao().getById(result.saleId))
+        assertThat(sale.totalCents).isEqualTo(27000L)
+        // El costo total sigue saliendo del producto fresco, no de la pantalla.
+        assertThat(sale.totalCostCents).isEqualTo(12000L)
+    }
+
+    @Test
+    fun register_costSnapshotComesFromProduct_evenWhenPriceComesFromScreen() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4500, salePriceCents = 8000)
+
+        val result = repository.register(sale(productId, qty = 1, unitPrice = Money(3000)))
+
+        val item = db.saleItemDao().getForSale(result.saleId).first()
+        // Precio: el tecleado. Costo: el del inventario, intacto.
+        assertThat(item.unitPriceCents).isEqualTo(3000L)
+        assertThat(item.unitCostCents).isEqualTo(4500L)
+    }
+
+    @Test
+    fun register_priceBelowCost_isAllowed_andProfitIsNegative() = runTest {
+        // Rematar bajo costo es legítimo: la pantalla ya le avisó y ella
+        // confirmó. El repositorio no lo bloquea (D-015: una ganancia
+        // negativa es un resultado correcto, no un error).
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        val result = repository.register(sale(productId, qty = 1, unitPrice = Money(3000)))
+
+        val detail = checkNotNull(repository.getDetail(result.saleId))
+        assertThat(detail.profit).isEqualTo(Money(-1000))
+    }
+
+    @Test
+    fun register_zeroPrice_isAllowed() = runTest {
+        // Regalar una pieza: precio cero es un caso real, no un error.
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        val result = repository.register(sale(productId, qty = 1, unitPrice = Money.ZERO))
+
+        assertThat(checkNotNull(db.saleDao().getById(result.saleId)).totalCents).isEqualTo(0L)
+    }
+
+    @Test
+    fun register_negativePrice_isRejected() = runTest {
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+
+        var threw = false
+        try {
+            repository.register(sale(productId, qty = 1, unitPrice = Money(-100)))
+        } catch (e: IllegalArgumentException) {
+            threw = true
+        }
+
+        assertThat(threw).isTrue()
+        // Nada se aplicó: el stock quedó intacto.
+        assertThat(checkNotNull(db.productDao().getById(productId)).stockQty).isEqualTo(5)
+    }
+
+    // --- D-047: la columna de descuento es legado y las ventas nuevas
+    // escriben cero, pero las viejas conservan su valor y sus cuentas lo
+    // siguen usando. ---
+
+    @Test
+    fun register_withLegacyDiscount_stillSubtractsItFromProfitAndBalance() = runTest {
+        // Simula una venta vieja (antes de D-047) con descuento real: la
+        // fórmula tiene que seguir restándolo. Si alguien saca el término
+        // de `saleProfit`/`saleBalance`, este test falla -- es la red que
+        // protege la ganancia histórica y el saldo de las clientas.
+        val productId = insertProduct(stockQty = 5, costCents = 4000, salePriceCents = 8000)
+        val customerId = insertCustomer("Doña María")
+
+        val result = repository.register(
+            RegisterSaleInput(
+                soldAt = 1_000L,
+                discount = Money(1000),
+                notes = null,
+                lines = listOf(SaleLineInput(productId, qty = 1, unitPrice = Money(8000))),
+                credit = CreditSaleDetails(customerId = customerId, initialPayment = null),
+            ),
+        )
+
+        val detail = checkNotNull(repository.getDetail(result.saleId))
+        // (8000 - 1000) - 4000
+        assertThat(detail.profit).isEqualTo(Money(3000))
+
+        val statement = repository.observeAccountStatements(customerId).first().first()
+        // (8000 - 1000) - 0 abonado
+        assertThat(statement.balance).isEqualTo(Money(7000))
+    }
 }

@@ -3,9 +3,16 @@ package gt.marcos.joyeria.data.repository
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.domain.pricing.PricingCalculator
 
+/**
+ * `unitPrice` es el precio que la usuaria tecleó para **esta** línea, no el
+ * precio de lista del producto (D-045). Llega precargado con el precio de
+ * lista y ella lo puede mover hacia arriba o hacia abajo: a veces vende más
+ * caro que la lista, y un descuento solo podía restar.
+ */
 data class SaleLineInput(
     val productId: Long,
     val qty: Int,
+    val unitPrice: Money,
 )
 
 /**
@@ -15,6 +22,14 @@ data class SaleLineInput(
  */
 data class RegisterSaleInput(
     val soldAt: Long,
+    /**
+     * **Legado (D-047): las ventas nuevas mandan siempre `Money.ZERO`.** El
+     * descuento general se eliminó de la app y lo reemplazó el precio
+     * editable por línea. El parámetro y la columna se conservan porque las
+     * ventas viejas tienen descuentos reales y sus fórmulas de ganancia y
+     * saldo los siguen usando -- ver la advertencia de `discount_cents` en
+     * `ESQUEMA.md`.
+     */
     val discount: Money,
     val notes: String?,
     val lines: List<SaleLineInput>,

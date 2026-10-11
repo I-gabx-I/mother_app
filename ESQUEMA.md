@@ -114,8 +114,8 @@ Notas:
 Se inserta una fila cada vez que cambia costo o precio. Sirve para responder
 "¿por qué ganaba más antes con este anillo?", y con `purchase_id`/`cycle_start`
 también para reconstruir el reporte de "ganancia por ciclo de compra"
-(Fase 09, futura) sin tener que inferir después cuándo empezó cada ciclo —
-ver D-033 en `DECISIONES.md` sobre por qué esto no se pudo diferir a Fase 09.
+(Fase 11, futura) sin tener que inferir después cuándo empezó cada ciclo —
+ver D-033 en `DECISIONES.md` sobre por qué esto no se pudo diferir a lo que entonces era la Fase 09 (hoy Fase 11, renumerada en D-049).
 
 Índice nuevo: `purchase_id`.
 
@@ -182,7 +182,7 @@ Si `extra_cost_cents = 0`, que es el caso normal, el costo real es simplemente
 | `status` | String | `PAID` \| `PENDING` \| `CANCELLED` |
 | `total_cents` | Long | suma de las líneas, calculada al guardar |
 | `total_cost_cents` | Long | **snapshot** del costo total, para la ganancia histórica |
-| `discount_cents` | Long | default `0` |
+| `discount_cents` | Long | default `0`. **Columna de legado — leer la advertencia de abajo antes de tocarla.** |
 | `notes` | String? | |
 | `cancelled_at` | Long? | |
 | `cancel_reason` | String? | |
@@ -191,6 +191,35 @@ Si `extra_cost_cents = 0`, que es el caso normal, el costo real es simplemente
 
 Una venta `CASH` nace `PAID`. Una venta `CREDIT` nace `PENDING` y pasa a `PAID`
 cuando la suma de abonos alcanza `total_cents - discount_cents`.
+
+### ⚠️ `discount_cents` es una columna de legado y SIGUE EN USO
+
+El descuento general sobre la venta **se eliminó de la app** en la ronda de
+corrección de uso real (2026-10-10, D-047): lo reemplazó el **precio editable
+por línea**, porque un descuento solo puede restar y la usuaria a veces vende
+**más caro** que el precio de lista. La columna **no se eliminó de la base**.
+
+**Las ventas nuevas escriben `0`. Las ventas viejas conservan su valor real.**
+
+**Prohibido sacar `discount_cents` de los cálculos "porque ya no se usa".**
+Las fórmulas no cambian y siguen siendo exactamente estas:
+
+```
+gananciaDeVenta = (total_cents - discount_cents) - total_cost_cents
+saldoDeVenta    = (total_cents - discount_cents) - Σ payment.amount_cents
+```
+
+Qué pasa si alguien las "simplifica" quitando el término:
+
+- Toda venta vieja con descuento pasaría a mostrar **más ganancia de la que
+  ella tuvo** — el historial se reescribiría solo, que es justo lo que
+  `CLAUDE.md` 3.7 prohíbe.
+- Peor: en una venta a crédito el saldo quedaría **mayor al que la clienta
+  debe de verdad**. Eso no es un detalle de reporte, es un **error de cobro**
+  contra una persona real.
+
+Como las ventas nuevas escriben `0`, el término suma cero para ellas: dejarlo
+no cuesta nada y sacarlo rompe el pasado. Por eso se queda.
 
 ---
 
@@ -278,6 +307,12 @@ gananciaDeVenta    = (total_cents - discount_cents) - total_cost_cents
 saldoDeVenta       = (total_cents - discount_cents) - Σ payment.amount_cents
 ```
 
+`discount_cents` es una **columna de legado que sigue en uso**: las ventas
+nuevas escriben `0`, las viejas conservan su descuento real, y el término
+**no se puede quitar** de estas dos fórmulas sin reescribir el historial e
+inflar los saldos de las clientas. Ver la advertencia completa en la tabla
+`sale`, arriba.
+
 Todos llevan test unitario, incluyendo los casos `cost_cents = 0` y
 `sale_price_cents = 0` (las dos divisiones posibles): no se divide entre cero,
 se devuelve un resultado explícito, no un crash ni un `NaN`.
@@ -288,7 +323,7 @@ arriba del costo tras una compra (`weightedAverageCost`) multiplica el
 centavo de más por todo el `stock_qty`, no solo por lo comprado, y el
 sesgo se acumula compra tras compra sin autocorregirse. El error es
 siempre hacia arriba (nunca subestima) y en la práctica son centavos,
-pero cualquier reporte que muestre este cálculo (Fase 09, futura)
+pero cualquier reporte que muestre este cálculo (Fase 11, futura)
 tiene que saber que no es un número exacto — ver D-029 en
 `DECISIONES.md` para el ejemplo numérico y el test que lo mide.
 

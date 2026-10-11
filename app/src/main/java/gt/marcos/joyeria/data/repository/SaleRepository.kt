@@ -23,13 +23,26 @@ import javax.inject.Inject
 
 /**
  * Registra una venta (al contado o a crédito, Fase 07) y la anula (Fase 06).
- * Los snapshots de `sale_item` (`product_uid_snapshot`/`product_name_snapshot`/
- * `unit_price_cents`/`unit_cost_cents`) se toman leyendo cada producto
- * **fresco desde `ProductDao`, dentro de la misma transacción** que
- * inserta la venta -- nunca desde un valor que ya venía cacheado en el
- * `ViewModel` -- para que nada escrito después pueda cambiar lo que
- * quedó guardado (D-002). Mismo patrón que `PurchaseRepository`
- * (Fase 05) ya usa para leer el costo/stock real antes de recalcular.
+ *
+ * **Snapshots de `sale_item` -- dos orígenes distintos, a propósito (D-045):**
+ *
+ * - `product_uid_snapshot`, `product_name_snapshot` y `unit_cost_cents` se
+ *   toman leyendo cada producto **fresco desde `ProductDao`, dentro de la
+ *   misma transacción** que inserta la venta -- nunca desde un valor que
+ *   venía cacheado en el `ViewModel` -- para que nada escrito después pueda
+ *   cambiar lo que quedó guardado (D-002). Mismo patrón que
+ *   `PurchaseRepository` (Fase 05) ya usa para leer el costo/stock real
+ *   antes de recalcular.
+ * - `unit_price_cents` **NO**: es el precio que la usuaria tecleó en esa
+ *   línea (`SaleLineInput.unitPrice`), y por eso llega como dato de entrada.
+ *   Leerlo fresco del producto sería exactamente el bug: le pisaría el
+ *   precio que ella eligió para esta venta con el precio de lista del
+ *   inventario. El precio de lista (`product.sale_price_cents`) **no se
+ *   toca** acá: lo cambia solamente la pantalla de editar pieza, que es la
+ *   que alimenta `price_history`.
+ *
+ * El costo nunca es editable en la pantalla de vender: es el dato que hace
+ * confiable la ganancia histórica, y tiene que salir del inventario.
  *
  * `payment` es una entidad hija de `sale` (una venta tiene muchos abonos,
  * el saldo/estado de una venta es lo que decide si un abono entra o no) --
@@ -72,11 +85,23 @@ class SaleRepository @Inject constructor(
             check(line.qty <= product.stockQty) {
                 "No hay suficiente stock de ${product.uid}: pidió ${line.qty}, hay ${product.stockQty}"
             }
-            product to line.qty
+            // Un precio de cero es legítimo (regalar una pieza, y el aviso de
+            // pérdida ya se lo dice antes de confirmar); uno negativo no
+            // existe como caso de uso y significaría cobrar al revés. El
+            // campo de la pantalla no puede producirlo -- su filtro no acepta
+            // el signo -- así que si llega acá es un error de quien llama y
+            // hay que enterarse, no persistirlo (mismo criterio que D-015).
+            require(line.unitPrice.cents >= 0L) {
+                "El precio de la línea de ${product.uid} es negativo " +
+                    "(${line.unitPrice.cents} centavos) -- no se puede vender a un precio bajo cero"
+            }
+            product to line
         }
 
-        val totalCents = items.sumOf { (product, qty) -> product.salePriceCents * qty }
-        val totalCostCents = items.sumOf { (product, qty) -> product.costCents * qty }
+        // El total sale de los precios **tecleados**, no del precio de lista
+        // (D-045). El costo sigue saliendo del producto fresco.
+        val totalCents = items.sumOf { (_, line) -> line.unitPrice.cents * line.qty }
+        val totalCostCents = items.sumOf { (product, line) -> product.costCents * line.qty }
 
         // D-042: `credit == null` es el camino de Fase 06 sin ningún cambio
         // (CASH/PAID/sin clienta). `credit != null` nace SIEMPRE PENDING
@@ -109,21 +134,21 @@ class SaleRepository @Inject constructor(
         )
 
         saleItemDao.insertAll(
-            items.map { (product, qty) ->
+            items.map { (product, line) ->
                 SaleItemEntity(
                     saleId = saleId,
                     productId = product.id,
                     productUidSnapshot = product.uid,
                     productNameSnapshot = product.name,
-                    qty = qty,
-                    unitPriceCents = product.salePriceCents,
+                    qty = line.qty,
+                    unitPriceCents = line.unitPrice.cents,
                     unitCostCents = product.costCents,
                 )
             },
         )
 
-        items.forEach { (product, qty) ->
-            productDao.update(product.copy(stockQty = product.stockQty - qty))
+        items.forEach { (product, line) ->
+            productDao.update(product.copy(stockQty = product.stockQty - line.qty))
         }
 
         val initialPayment = credit?.initialPayment

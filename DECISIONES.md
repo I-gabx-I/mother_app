@@ -2205,6 +2205,320 @@ fase.
 
 ---
 
+## D-044 — Corrección de un supuesto de Fase 06: ella busca por código, y el código tiene que verse
+
+**Contexto:** ronda de corrección de uso real (2026-10-10), punto 3. Tres
+semanas de uso con datos reales, en paralelo con el cuaderno. El selector
+de piezas de "Vender" mostraba foto, nombre, stock y precio, pero **no el
+código** (`uid`), aunque `ProductSummary` ya lo traía y la fila de
+Inventario sí lo muestra.
+
+**Supuesto original que se corrige** (`ESTADO.md`, "Fase 06 — Plan", punto
+3, y `FASES.md` en el entregable de esa fase): se decidió que la lista con
+fotos era el camino principal y el buscador "el atajo para cuando el
+catálogo crezca", argumentando que "acordarse de un nombre exacto o un
+código (`XP-000042`) no es algo que una persona haga rápido bajo presión
+(…) no es un dato que ella maneje de memoria".
+
+**Decisión:** el supuesto tenía dos mitades y **solo una estaba
+equivocada**.
+
+1. **Se sostiene:** la lista con fotos. No hay evidencia en contra y no se
+   toca. Reconocer una pieza a simple vista sigue siendo lo que ella hace
+   con el cuaderno físico.
+2. **Se corrige:** el código no es un dato oculto. `ProductPickRow` ahora
+   lo muestra, con la misma disposición que la fila de Inventario, y el
+   buscador deja de estar descrito como atajo secundario: **buscar por
+   código es un camino principal**.
+
+**Por qué:** el razonamiento original confundió "no lo tiene de memoria"
+con "no lo usa". **No necesita memorizarlo porque el código está escrito
+en la etiqueta de la pieza que tiene en la mano.** Leer no es recordar.
+La premisa de "escribir bajo presión es propenso a error" era correcta
+como tal, pero no aplicaba al caso real: ella no reconstruye el código de
+memoria, lo copia de lo que está mirando.
+
+**Consecuencia:** la búsqueda por código en "Vender" **ya funcionaba**
+(`RegisterSaleUiState` filtraba por nombre o `uid`, equivalente al SQL de
+Inventario); no hizo falta cambiarla. Pero el único test que la cubría se
+llamaba `availableProducts_filtersByNameOrUid_caseInsensitive` y
+**ejercitaba solo la rama del nombre**: el nombre del test prometía una
+cobertura que no tenía. Se renombró a `filtersByName...` y se agregaron
+cuatro casos reales de búsqueda por código (completo, solo dígitos,
+minúsculas, y que una pieza agotada no reaparezca por buscar su código).
+
+---
+
+## D-045 — El precio de venta pasa a ser editable por línea, y por eso deja de leerse fresco del producto
+
+**Contexto:** ronda de corrección de uso real (2026-10-10), punto 4. Pedido
+de la usuaria, en sus palabras: **un descuento solo puede restar, y a veces
+ella vende MÁS CARO que el precio de lista.** El descuento general sobre la
+venta no puede representar eso; un precio editable por pieza hace las dos
+cosas.
+
+**Decisión:** `sale_item.unit_price_cents` pasa a ser el precio que ella
+tecleó en esa línea. `SaleLineInput` gana `unitPrice: Money`, y
+`SaleRepository.register()` lo usa para `unit_price_cents` y para
+`total_cents`.
+
+**No hizo falta ninguna migración:** la columna existe desde la v1 y ya
+guardaba el precio como snapshot por línea. Lo único que cambió es de dónde
+sale el valor.
+
+**Lo que NO cambia:**
+- El **costo** (`unit_cost_cents`) se sigue leyendo fresco del producto
+  dentro de la transacción. Nunca es editable en "Vender": es el dato que
+  hace confiable la ganancia histórica.
+- `product.sale_price_cents` (el precio de lista del inventario) no se
+  toca. Lo cambia solo la pantalla de editar pieza, que es la que alimenta
+  `price_history`.
+- El refresco del catálogo en el ViewModel **dejó de pisar** el precio de
+  la línea: ese flujo se dispara con cualquier cambio del catálogo, y
+  sobrescribir `unitPriceText` le borraría el número que acaba de escribir.
+
+**Por qué importa decirlo explícitamente:** el KDoc de `SaleRepository`
+afirmaba que **todos** los snapshots de `sale_item` se toman leyendo el
+producto fresco dentro de la transacción, citando D-002. Después de este
+cambio eso es cierto para el uid, el nombre y el costo, y **falso para el
+precio**. Dejarlo sin corregir habría dejado una afirmación falsa
+exactamente en el comentario que justifica por qué la ganancia histórica
+es confiable — peor que no tener comentario. El KDoc ahora distingue los
+dos orígenes y dice por qué.
+
+**Descartado:** leer el precio fresco del producto y aplicarle un ajuste
+guardado aparte. Reintroduce por otra puerta el concepto de "ajuste sobre
+el precio" que este cambio elimina, y deja dos números que pueden
+contradecirse.
+
+**Consecuencia:** un precio vacío **no es cero**. A diferencia del
+descuento y del abono inicial (opcionales, donde vacío = `Money.ZERO`),
+una venta sin precio no es una venta regalada: es una venta a medio
+escribir. `SaleLineUiState.unitPrice` cae en `null` y bloquea el guardado.
+Un precio de cero tecleado explícitamente sí es válido (regalar una
+pieza); uno negativo se rechaza en el repositorio.
+
+---
+
+## D-046 — El aviso de pérdida pasa a evaluarse por línea: la lógica de D-035 aplicada al esquema nuevo
+
+**Contexto:** ronda de corrección de uso real (2026-10-10), punto 4. Con
+precio editable por pieza, ella puede rematar un collar bajo costo y no
+enterarse porque el total de la venta da positivo.
+
+**Decisión:** el aviso se dispara cuando **cualquier línea** tiene
+ganancia `<= 0`, y nombra cada pieza en pérdida con su monto. Aparece dos
+veces: en la fila misma mientras teclea (es el momento en que todavía
+puede corregir el precio) y en el diálogo de confirmación, listando una
+línea por pieza.
+
+**Por qué esto NO contradice a D-035:** D-035 decidió evaluar sobre el
+total, y lo hizo bien **para el esquema que existía entonces**. Sus dos
+argumentos eran condicionales, y los dos desaparecen con este cambio:
+
+1. *"El esquema no tiene con qué calcular una pérdida por línea real"* —
+   era cierto porque `discount_cents` vivía en `sale`, a nivel de venta, y
+   cualquier pérdida por línea habría requerido inventar un reparto del
+   descuento que no se persistía en ningún lado. Ahora la pérdida por línea
+   sale de `unit_price_cents - unit_cost_cents`: **dos columnas que sí se
+   persisten en `sale_item`**. El aviso y el dato guardado siguen sin poder
+   divergir, que era el criterio real de D-035.
+2. *"No hay nada que ella pueda hacer distinto con un aviso por línea"* —
+   era cierto porque el descuento era único para toda la venta: no existía
+   forma de aplicarle un descuento menor solo al collar. Ahora sí puede
+   subirle el precio a esa línea sola. El aviso habilita una acción
+   concreta, que es lo que `CLAUDE.md` sección 6 pide de un aviso.
+
+**Por qué no deja un hueco al retirar el aviso sobre el total:** sin
+descuento de venta, la ganancia total es exactamente
+`Σ (precio - costo) * cantidad`. Si todas las líneas dan positivo, la suma
+da positivo: **no existe una venta con todas las líneas en ganancia y
+total en pérdida.** El aviso por línea cubre estrictamente más que el
+aviso por total. Con descuento de venta esto no era cierto — otra razón
+por la que D-035 decidió bien en su momento. Hay un test que fija esta
+relación (`perLineWarningCoversMoreThanTotalWarning...`).
+
+**Se conserva de D-035:** el monto exacto en quetzales, nunca una etiqueta
+genérica, y un texto distinto para el caso de ganancia exactamente cero
+(donde "perder Q0.00" no dice nada real).
+
+**Detalle de borde:** una línea con cantidad vacía da ganancia cero por
+multiplicar por cero, y eso **no** se cuenta como pérdida — es una línea a
+medio escribir. Avisarle de una pérdida inexistente mientras teclea sería
+ruido. Hay test.
+
+---
+
+## D-047 — `sale.discount_cents` queda como columna de legado: se conserva, se escribe en cero, y SIGUE usándose en los cálculos
+
+**Contexto:** ronda de corrección de uso real (2026-10-10), punto 4. Al
+eliminar el descuento general de la app había que decidir qué hacer con la
+columna, que ya tiene **datos reales de tres semanas de uso**.
+
+**Decisión:** la columna se conserva. Las ventas nuevas escriben `0`; las
+viejas conservan su valor real. **Las fórmulas no cambian:**
+
+```
+gananciaDeVenta = (total_cents - discount_cents) - total_cost_cents
+saldoDeVenta    = (total_cents - discount_cents) - Σ payment.amount_cents
+```
+
+**Prohibido sacar `discount_cents` de esas fórmulas "porque ya no se
+usa".** Está escrito como advertencia en `ESQUEMA.md`, en la tabla `sale` y
+junto a los cálculos derivados, y hay un test
+(`register_withLegacyDiscount_stillSubtractsItFromProfitAndBalance`) que
+falla si alguien quita el término.
+
+**Por qué:** si se quitara, toda venta vieja con descuento pasaría a
+mostrar **más ganancia de la que ella tuvo** — el historial se reescribiría
+solo, que es exactamente lo que `CLAUDE.md` 3.7 prohíbe. Y en una venta a
+crédito el saldo quedaría **mayor al que la clienta debe de verdad**: eso
+no es un detalle de reporte, es un **error de cobro contra una persona
+real**. Como las ventas nuevas escriben `0`, el término suma cero para
+ellas: dejarlo no cuesta nada y sacarlo rompe el pasado.
+
+**Descartado — eliminar la columna con una migración v2→v3:** SQLite
+necesitaría recrear la tabla `sale` entera con sus 3 índices y su clave
+foránea, y destruiría los descuentos reales ya guardados, con las dos
+consecuencias de arriba. Además **no se puede saber desde el repositorio
+cuántas ventas tienen descuento distinto de cero**: esos datos están en el
+teléfono de la usuaria y no hay exportación hasta la fase de respaldo. El
+costo de esa opción es desconocido **e irreversible**.
+
+**Descartado — reinterpretarla como "ajuste de la venta" con signo:**
+reintroduce a nivel venta el concepto que el punto 4 elimina, obliga a
+revisar las nueve lecturas que hoy asumen que el descuento resta, y deja
+dos formas de cambiar el precio (por línea y por venta) que pueden
+contradecirse.
+
+---
+
+## D-048 — Campos numéricos compartidos obligatorios, y `key` estable en toda lista de Compose con estado de entrada
+
+**Contexto:** ronda de corrección de uso real (2026-10-10), punto 1. **Es
+la segunda vez que el bug del campo numérico reaparece.** La primera fue
+D-030 (el campo reformateaba lo que ella tecleaba). Esta vez el arreglo de
+D-030 se había aplicado solo a los campos de dinero.
+
+**Hallazgos de la auditoría de todas las pantallas:**
+- **Dinero: ya estaba unificado.** `MoneyTextField` en los 9 lugares que
+  capturan dinero, ni un `OutlinedTextField` con `KeyboardType.Decimal`
+  suelto.
+- **Cantidades: tres reimplementaciones locales** sin ninguna protección de
+  D-030 — `AddProductScreen`, `ProductEditScreen`,
+  `RegisterPurchaseScreen`. `QuantityTextField` se usaba en un solo lugar y
+  vivía en `ui/sale/`, con un KDoc que decía "si aparece un segundo caso de
+  uso, se generaliza a `ui/format/`". Había tres.
+- **`itemsIndexed(state.lines)` en `RegisterSaleScreen` era la única lista
+  de la app sin `key`.**
+
+**Decisión — dos reglas nuevas en `CLAUDE.md` sección 5:**
+
+1. Todo campo de dinero usa `MoneyTextField` y todo campo de cantidad usa
+   `QuantityTextField`, ambos en `ui/format/`. Prohibido construir un campo
+   numérico local. Un tipo numérico nuevo se resuelve con **un** componente
+   compartido, no uno por pantalla.
+2. Toda lista de Compose cuyas filas tengan estado de entrada propio lleva
+   `key` estable derivada del dato, con la explicación de qué pasa sin
+   ella: el `remember` del campo queda atado a la **posición**, y al borrar
+   o reordenar una fila el estado interno (texto y cursor) pasa a otro
+   producto. **El síntoma no es un número visiblemente mal, es un campo que
+   "se porta raro" mientras ella escribe** — invisible en revisión de
+   código, solo aparece usando la app.
+
+**Regla 3, que salió de romper la app con la regla 2: dos `items`
+distintos dentro del mismo `LazyColumn` comparten un solo espacio de
+claves.**
+
+El `key` que se agregó para cumplir la regla 2 **introdujo un crash**
+(`IllegalArgumentException: Key "1" was already used`) al agregar la
+primera pieza al carrito. Causa: el carrito y la lista de piezas
+disponibles son dos `items` del **mismo** `LazyColumn`. No son dos listas
+con claves independientes — para Compose es una sola lista perezosa con
+varias secciones — así que `line.productId` en el carrito e `it.id` en el
+catálogo chocaban en cuanto la misma pieza aparecía en las dos.
+
+**Esto se generaliza más allá del carrito, y por eso la regla lo dice así
+en `CLAUDE.md`:** va a volver a aparecer apenas cualquier pantalla tenga
+dos secciones sobre el mismo tipo de dato — pendientes y hechas,
+"recientes" y "todas", seleccionados y disponibles. El caso natural es
+justo el que rompe: **la misma entidad en las dos secciones, y su `id`
+como la clave obvia en ambas.** Y rompe fuerte: una clave repetida entre
+secciones es una excepción que tira la app, no un aviso ni una fila mal
+dibujada.
+
+**Decisión:** la clave lleva **prefijo por sección siempre**, aunque hoy
+la pantalla tenga una sola (`"cart-${line.productId}"`,
+`"product-${it.id}"`). Agregar la segunda sección meses después no debería
+depender de que alguien se acuerde de este detalle; el costo de poner el
+prefijo desde el principio es cero.
+
+**Descartado:** poner el prefijo solo cuando hay dos secciones. Es
+exactamente la regla que falla por omisión — nadie revisa las claves de la
+sección vieja al agregar una nueva, y el crash aparece en el teléfono de
+la usuaria, no en el build.
+
+**Lo importante del episodio:** ni el compilador ni los 188 tests
+unitarios lo detectaron. Lo encontró correr la app en el emulador y tocar
+el botón. Es la misma clase de bug que la regla 2 describe, y la mejor
+evidencia de por qué `CLAUDE.md` sección 7.10 pide verificación manual con
+capturas y no solo un build verde.
+
+---
+
+## D-049 — Renumeración de fases: las 08–13 pasan a 10–15, y entran dos fases nuevas nacidas del uso real
+
+**Contexto:** ronda de corrección de uso real (2026-10-10), puntos 5 y 6.
+Vender desde el perfil de la clienta y categorías propias son
+**funcionalidad nueva**, no corrección: necesitan DAO nuevo, pantallas
+nuevas, una ruta con argumento y una decisión de datos no tomada. La
+sección 7 de `CLAUDE.md` pide que eso viva en una fase con "Archivos
+permitidos" y criterios propios.
+
+**No hubo conflicto con la sección 9** ("prohibido adelantar trabajo de
+fases futuras"): ninguno de los dos estaba en `FASES.md`, ni como fase ni
+como "Idea para después". No se adelantó nada — hubo que **agregarlas**.
+
+**Decisión:**
+- **Fase 08 (nueva)** — Perfil de clienta y venta desde ahí.
+- **Fase 09 (nueva)** — Categorías propias.
+- Las fases 08–13 anteriores corren dos números: **10–15**.
+
+| Antes | Ahora | Fase |
+|---|---|---|
+| 08 | **10** | Recordatorios y estado de cuenta por WhatsApp |
+| 09 | **11** | Reportes |
+| 10 | **12** | Catálogo compartible |
+| 11 | **13** | Códigos de barras |
+| 12 | **14** | Respaldo, exportar e importar |
+| 13 | **15** | Pulido para la usuaria real |
+
+**Por qué renumerar y no usar un "08-bis":** los tags que existen van de
+`fase-00-ok` a `fase-07-ok`, y **ninguna de las fases que se mueven tiene
+tag**. Renumerar no rompe nada de lo ya auditado. Hay precedente directo:
+**D-022** renumeró las fases 05–12 al partir la Fase 04 original, sin
+consecuencias.
+
+(El plan inicial de esta ronda propuso `08-bis` con el argumento de que
+renumerar desalinearía `FASES.md` de los tags existentes. El argumento era
+incorrecto: confundía "fases numeradas" con "fases con tag". Queda
+registrado para que no se repita.)
+
+**Por qué dos fases y no una:** vender desde el perfil de la clienta y
+administrar categorías no tienen ninguna relación entre sí. Meterlas
+juntas repetiría el error que D-022 corrigió al partir la Fase 04
+original.
+
+**Consecuencia:** las referencias a fases futuras en `ESQUEMA.md` se
+actualizaron (las tres menciones a "Fase 09" como la de reportes ahora
+dicen Fase 11). **Las entradas anteriores de este archivo no se
+reescriben**: el cuerpo de una decisión es el registro de lo que se decidió
+en su momento, y cambiarlo falsearía el historial. Para traducir una
+mención vieja, usar la tabla de arriba — D-033, por ejemplo, discute
+diferir unas columnas a "Fase 09", que es la fase de reportes, hoy Fase 11.
+
+---
+
 <!--
 ## D-00X — Título
 
