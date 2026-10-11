@@ -281,7 +281,19 @@ Estas son requisitos, no sugerencias estéticas.
 6. Agregás una entrada a `DECISIONES.md` si tomaste alguna decisión de diseño.
 7. Commit con el mensaje exacto de la fase y tag.
 8. **Parás. No empezás la siguiente fase sin autorización del humano.**
-9. **Todo análisis, resumen o hallazgo que me pidas lo escribís en un `.md` del repo antes de imprimirlo en consola. La consola se pierde, el archivo se audita.**
+9. **Todo análisis, resumen o hallazgo que me pidas lo escribís en un `.md`
+   del repo antes de imprimirlo en consola. La consola se pierde, el archivo
+   se audita.** El destino por defecto es **`ESTADO.md`**, que es la bitácora
+   única: abrir un `.md` nuevo por cada análisis dispersa el registro y
+   vuelve imposible la auditoría descrita al final de esta sección (un modelo
+   leyendo `ESTADO.md` y el diff del tag).
+   **Única excepción: un documento que sea una política permanente, que se
+   consulta sola y es independiente de la fase en que se escribió.** Esos van
+   en `docs/` (ej. `docs/PERMISOS.md`), no en la raíz y no embutidos en
+   `ESTADO.md`. La prueba para distinguir: si dentro de tres meses alguien lo
+   va a abrir a propósito para saber **cómo se decide** algo, es política y va
+   en `docs/`; si es el registro de **qué pasó** en una fase, va en `ESTADO.md`.
+   Un análisis puntual que no pasa esa prueba no estrena archivo.
 10. **Logs y capturas de una verificación manual (emulador, dispositivo)
     se guardan dentro del proyecto, en `app/build/logs/` y
     `app/build/screenshots/` — nunca en `%TEMP%` ni en un directorio fuera
@@ -303,6 +315,17 @@ Estas son requisitos, no sugerencias estéticas.
     nada. Un resultado que "pasa" el criterio por casualidad, tomado en
     condiciones degradadas, no es evidencia — es ruido que coincidió con
     lo esperado.
+12. **Todo build se corre con la herramienta `Bash` y `./gradlew`. No con
+    PowerShell.** Razón: las reglas de permisos de
+    `.claude/settings.local.json` usan el prefijo `Bash(./gradlew:*)`, que
+    aplica únicamente a esa herramienta. El mismo comando lanzado por
+    PowerShell pide aprobación manual una por una, y la sintaxis del prefijo
+    `PowerShell(...)` **no está verificada en este entorno**. Si algún día un
+    build necesita PowerShell de verdad, se verifica primero con
+    `/permissions`, se registra la decisión en `DECISIONES.md` y recién
+    entonces se usa — no se asume que el prefijo funciona. Esto deja de
+    depender de la costumbre: antes solo estaba implícito en que los comandos
+    de `FASES.md` se escriben como `./gradlew`. Ver `docs/PERMISOS.md`.
 
 ### Git
 
