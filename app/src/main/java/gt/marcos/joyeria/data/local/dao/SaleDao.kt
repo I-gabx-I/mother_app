@@ -157,4 +157,13 @@ interface SaleDao {
      */
     @Query("SELECT MIN(sold_at) FROM sale WHERE type = 'CASH' AND customer_id IS NOT NULL")
     fun observeFirstNamedCashSaleDate(): Flow<Long?>
+
+    // "Capital recuperado" (Fase 11, ESTADO.md "Fase 11 -- Plan" punto 5):
+    // costo de TODO lo que ya se vendió, de siempre, no acotado al mes --
+    // responde "cuánto de lo que compré ya volvió" frente al capital
+    // todavía guardado en inventario (ProductDao.observeInventorySnapshot).
+    // Excluye CANCELLED, igual que observeBetween (D-050: condición propia,
+    // no heredada de otro archivo).
+    @Query("SELECT COALESCE(SUM(total_cost_cents), 0) FROM sale WHERE status != 'CANCELLED'")
+    fun observeTotalRecoveredCost(): Flow<Long>
 }

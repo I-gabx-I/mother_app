@@ -222,4 +222,33 @@
     <string name="account_statement_share_header">Estado de cuenta de %1$s</string>
     <string name="account_statement_share_line">%1$s — Total: %2$s — Saldo: %3$s</string>
     <string name="account_statement_share_total">Saldo total: %1$s</string>
+
+    <!-- Fase 11: reportes -->
+    <string name="home_reports">Reportes</string>
+    <string name="reports_title">Reportes</string>
+    <string name="reports_month_previous">Mes anterior</string>
+    <string name="reports_month_next">Mes siguiente</string>
+    <string name="reports_profit_positive">Ganaste %1$s este mes</string>
+    <string name="reports_profit_negative">Perdiste %1$s este mes</string>
+    <string name="reports_comparison_more">%1$s más que %2$s</string>
+    <string name="reports_comparison_less">%1$s menos que %2$s</string>
+    <string name="reports_comparison_same">Igual que %1$s</string>
+    <string name="reports_top_qty_title">Lo que más se vendió</string>
+    <string name="reports_top_profit_title">Lo que más ganancia dejó</string>
+    <string name="reports_top_empty">Todavía no vendiste nada este mes.</string>
+    <string name="reports_top_qty_line">%1$d vendidas</string>
+    <string name="reports_top_discount_marker">*</string>
+    <string name="reports_top_discount_caveat">* Alguna de estas ventas tuvo un descuento de hace tiempo — la ganancia puede ser un poco más alta que la real.</string>
+    <string name="reports_now_section_title">Ahora mismo</string>
+    <string name="reports_alerts_low_stock_title">Bajo stock</string>
+    <string name="reports_alerts_low_stock_empty">Ninguna pieza está por quedarse sin stock.</string>
+    <string name="reports_alerts_low_stock_line">Quedan %1$d</string>
+    <string name="reports_alerts_stale_title">Piezas que no se mueven</string>
+    <string name="reports_alerts_stale_empty">Ninguna pieza lleva demasiado tiempo sin venderse.</string>
+    <string name="reports_alerts_stale_line">Hace %1$d días que no se vende</string>
+    <string name="reports_alerts_stale_total">En total tenés %1$s guardados en piezas que no se venden</string>
+    <string name="reports_inventory_title">Tu inventario ahora</string>
+    <string name="reports_inventory_invested">Tenés %1$s guardados en piezas que todavía no vendiste</string>
+    <string name="reports_inventory_recovered">Ya recuperaste %1$s</string>
+    <string name="reports_inventory_recovered_subtitle">Es lo que gastaste comprando las piezas que ya vendiste</string>
 </resources>

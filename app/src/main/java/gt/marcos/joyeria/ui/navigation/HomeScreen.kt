@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.People
@@ -46,6 +47,7 @@ fun HomeScreen(
     onRegisterPurchaseClick: () -> Unit,
     onTodaySalesClick: () -> Unit,
     onCustomersClick: () -> Unit,
+    onReportsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier) { innerPadding ->
@@ -117,6 +119,15 @@ fun HomeScreen(
                 Icon(Icons.Default.People, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.home_customers))
             }
+            TextButton(
+                onClick = onReportsClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(stringResource(R.string.home_reports))
+            }
         }
     }
 }
@@ -129,6 +140,7 @@ fun HomeRoute(
     onRegisterPurchaseClick: () -> Unit,
     onTodaySalesClick: () -> Unit,
     onCustomersClick: () -> Unit,
+    onReportsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     HomeScreen(
@@ -138,6 +150,7 @@ fun HomeRoute(
         onRegisterPurchaseClick = onRegisterPurchaseClick,
         onTodaySalesClick = onTodaySalesClick,
         onCustomersClick = onCustomersClick,
+        onReportsClick = onReportsClick,
         modifier = modifier,
     )
 }
@@ -153,6 +166,7 @@ private fun HomeScreenPreview() {
             onRegisterPurchaseClick = {},
             onTodaySalesClick = {},
             onCustomersClick = {},
+            onReportsClick = {},
         )
     }
 }

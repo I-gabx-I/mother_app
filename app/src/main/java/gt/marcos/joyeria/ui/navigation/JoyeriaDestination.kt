@@ -39,4 +39,6 @@ sealed class JoyeriaDestination(val route: String) {
         const val ARG_CUSTOMER_ID = "customerId"
         fun createRoute(customerId: Long) = "customer_profile/$customerId"
     }
+    /** Reportes (Fase 11), enlace chico desde el inicio -- no una de las dos acciones grandes (CLAUDE.md sección 6). */
+    data object Reports : JoyeriaDestination("reports")
 }

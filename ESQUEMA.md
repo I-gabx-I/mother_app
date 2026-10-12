@@ -370,9 +370,17 @@ gananciaUnitaria   = sale_price_cents - cost_cents                    // Long, c
 margenSobreVenta   = gananciaUnitaria * 10000 / sale_price_cents      // Int, puntos básicos
 recargoSobreCosto  = gananciaUnitaria * 10000 / cost_cents            // Int, puntos básicos
 valorInventario    = Σ (stock_qty * cost_cents) de productos no archivados
+capitalRecuperado  = Σ total_cost_cents de toda venta con status != 'CANCELLED', de siempre   // Fase 11
 gananciaDeVenta    = (total_cents - discount_cents) - total_cost_cents
 saldoDeVenta       = (total_cents - discount_cents) - Σ payment.amount_cents
 ```
+
+**`capitalRecuperado` (Fase 11, reportes):** el costo de todo lo que ya
+salió del inventario y se convirtió en venta, sin acotar a ningún mes —
+es la cifra que, junto a `valorInventario`, responde "cuánto de lo que
+alguna vez compré ya volvió, contra cuánto sigue guardado en el
+estante". Acotarlo a un mes respondería una pregunta distinta (ya cubierta
+por `gananciaDeVenta` sumada sobre el mes) y rompería esa comparación.
 
 `discount_cents` es una **columna de legado que sigue en uso**: las ventas
 nuevas escriben `0`, las viejas conservan su descuento real, y el término

@@ -14,6 +14,7 @@ import gt.marcos.joyeria.ui.product.category.CategoryManageRoute
 import gt.marcos.joyeria.ui.product.edit.ProductEditRoute
 import gt.marcos.joyeria.ui.product.list.ProductListRoute
 import gt.marcos.joyeria.ui.purchase.RegisterPurchaseRoute
+import gt.marcos.joyeria.ui.reports.ReportsRoute
 import gt.marcos.joyeria.ui.sale.RegisterSaleRoute
 import gt.marcos.joyeria.ui.sale.TodaySalesRoute
 
@@ -32,7 +33,11 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
                 onRegisterPurchaseClick = { navController.navigate(JoyeriaDestination.RegisterPurchase.route) },
                 onTodaySalesClick = { navController.navigate(JoyeriaDestination.TodaySales.route) },
                 onCustomersClick = { navController.navigate(JoyeriaDestination.Customers.route) },
+                onReportsClick = { navController.navigate(JoyeriaDestination.Reports.route) },
             )
+        }
+        composable(JoyeriaDestination.Reports.route) {
+            ReportsRoute(onBackClick = { navController.popBackStack() })
         }
         composable(JoyeriaDestination.Customers.route) {
             CustomersRoute(

@@ -9058,3 +9058,167 @@ confirmes punto por punto, pero si algo no te cierra, decímelo antes de
 que empiece a escribir código.
 
 **Paro acá.**
+
+---
+
+## Fase 11 — Reportes
+
+**Inicio:** 2026-10-11
+**Cierre:** 2026-10-11
+**Commit:** (pendiente, un solo commit, sin tag todavía — paro antes del tag)
+
+### Qué se hizo
+
+Aprobaste la lista de archivos y las tres decisiones tal cual. Implementado
+según el plan, con los dos agregados que pediste antes de arrancar:
+
+- `domain/reports/ReportMonth.kt` (nuevo): `ReportMonth` (`Comparable`,
+  para que "mes siguiente" sepa si llegaría a un mes futuro) y
+  `ReportDates` (`monthOf`/`bounds`/`previous`/`next`), fijado a
+  `America/Guatemala` con `java.util.Calendar`/`TimeZone`, nunca a la zona
+  del dispositivo. Ninguna función lee el reloj.
+- `data/local/dao/ProductDao.kt`: `observeInventorySnapshot()`, base única
+  de los tres reportes de "ahora mismo".
+- `data/local/dao/SaleDao.kt`: `observeTotalRecoveredCost()`.
+- `data/local/dao/SaleItemDao.kt`: `observeProductSalesAggregate()`, con
+  `discountedLineCount` -- el agregado nuevo que pediste para marcar en
+  pantalla, no solo en el código, la fila de "top 5 por ganancia" que
+  viene de una venta con descuento legado (D-047).
+- `data/repository/AppSettingRepository.kt`: `getStaleStockDays()`,
+  `getLowStockThreshold()`.
+- `data/repository/ReportModels.kt`, `ReportRepository.kt` (nuevos):
+  `observeMonthlyReport(month)` (ganancia, comparación, top 5 x2) y
+  `observeInventoryReport(now, staleStockDays, lowStockThreshold)`
+  (capital invertido/recuperado, piezas estancadas, bajo stock).
+- `ui/reports/` (nuevo): `ReportsScreen`/`ViewModel`/`UiState`/`Route`.
+  Dos bloques ("Este mes" / "Ahora mismo"), orden de la sección 4 del
+  plan. El marcador de descuento (`possiblyInflatedByDiscount`) se ve
+  **solo** en la lista "por ganancia" (nunca en "por cantidad", que no
+  depende del descuento) como un `*` por fila más una leyenda compartida
+  debajo, una sola vez, si hay al menos una fila marcada.
+- `ui/navigation/`: enlace "Reportes" en `HomeScreen` (enlace chico,
+  no una de las dos acciones grandes), destino nuevo en `JoyeriaNavHost`.
+- `ESQUEMA.md`: fórmula de `capitalRecuperado` documentada junto a
+  `valorInventario`, con la misma nota que `InventoryReport` trae en su
+  propio KDoc sobre por qué `capitalInvertido` no es exacto al centavo
+  (D-029) y por qué eso no se le muestra a ella.
+- `strings.xml`: todo el texto nuevo, sin la palabra "capital" en
+  ningún lado, sin ningún porcentaje.
+
+### Archivos tocados
+
+Exactamente la lista aprobada en el plan (sección 8), ninguno fuera de
+ella.
+
+### Criterios de aceptación
+
+| # | Criterio | Cómo se verificó | Resultado |
+|---|---|---|---|
+| 1 | Build y tests pasan | `./gradlew assembleDebug testDebugUnitTest` | ✅ (251 tests, 0 fallos; eran 234) |
+| 2 | Agregación mensual con dataset fijo, calculado a mano | `ReportRepositoryTest.observeMonthlyReport_withAFixedDataset_matchesTheHandCalculatedProfit` | ✅ |
+| 3 | Ganancias solo desde snapshots de `sale_item`, nunca `product` en vivo | `ReportRepositoryTest.observeMonthlyReport_profitIgnoresProductChangesAfterTheSale` | ✅ |
+| 4 | `CANCELLED` excluida de todos los reportes | `observeMonthlyReport_excludesCancelledSales` y `observeInventoryReport_recoveredCostExcludesCancelledSales` (dos tests, dos consultas distintas) | ✅ |
+| 5 | Frontera de mes, hora de Guatemala: 23:59 del 31 cuenta en ese mes, no en el siguiente | `ReportDatesTest` (puro) + `ReportRepositoryTest.observeMonthlyReport_saleAtLastInstantOfOctober_isIncludedInOctober` / `..._saleAtFirstInstantOfNovember_isIncludedInNovemberNotOctober` (integración completa, no solo la función pura) | ✅ |
+
+### Tests agregados
+
+`domain/reports/ReportDatesTest.kt` (7, JUnit4 puro): `bounds_...`,
+`monthOf_saleAt2359Guatemala31st_belongsToThatMonth`,
+`monthOf_saleAt0000GuatemalaFirst_belongsToTheNextMonth`,
+`previous_and_next_areInversesAcrossAYearBoundary`,
+`previous_and_next_areInversesWithinTheSameYear`,
+`reportMonth_comparesByYearThenByMonth`,
+`reportMonth_monthOutOfRange_throws`.
+
+`data/repository/ReportRepositoryTest.kt` (10, Robolectric, contra
+`SaleRepository` real): los cinco de la tabla de arriba más
+`observeProductSalesAggregate_topFiveByQtyAndByProfit_withAFixedDataset`,
+`observeProductSalesAggregate_marksOnlyRowsFromADiscountedSale` (el
+pedido nuevo del punto 1), `observeInventoryReport_staleCapital_
+excludesProductsWithZeroStock`, `observeInventoryReport_lowStock_
+includesProductsWithExactlyZeroStock`.
+
+### Verificación contra la base real (pedida explícitamente, punto 2 de tu mensaje)
+
+Emulador `Medium_Phone_API_35`, con datos reales de sesiones anteriores
+(no datos inventados para la ocasión). Pantalla "Reportes" abierta en
+octubre de 2026 (el mes que trae por defecto):
+
+| Número en pantalla | Texto exacto |
+|---|---|
+| Ganancia de octubre | "Perdiste Q9,375.01 este mes" |
+| Comparación | "Q9,375.01 más que Septiembre de 2026" |
+| Capital invertido | "Tenés Q18,375.01 guardados en piezas que todavía no vendiste" |
+| Capital recuperado | "Ya recuperaste Q55,125.03" |
+
+Saqué la base del dispositivo (`adb exec-out run-as ... cat databases/
+joyeria.db{,-wal,-shm}` -- `adb shell ... > archivo` corrompe el binario
+en este entorno, tuve que cambiar a `exec-out`) y corrí `sqlite3` directo,
+con una consulta propia que **no** reutiliza `ReportDates` ni
+`ReportRepository`: límites de mes calculados a mano con `strftime` sobre
+`'2026-10-01 06:00:00'`/`'2026-11-01 06:00:00'` (06:00 UTC = 00:00
+Guatemala, `UTC-6` fijo) y la fórmula de `ESQUEMA.md` escrita de nuevo,
+literal:
+
+```sql
+SELECT SUM(total_cents - discount_cents - total_cost_cents)
+FROM sale
+WHERE status != 'CANCELLED'
+  AND sold_at >= strftime('%s','2026-10-01 06:00:00') * 1000
+  AND sold_at <  strftime('%s','2026-11-01 06:00:00') * 1000;
+```
+
+Resultado: **-937501 centavos = -Q9,375.01**, mismo mes en septiembre dio
+**-1875002 centavos = -Q18,750.02** (diferencia Q9,375.01, mismo signo que
+"más que" en pantalla). `capitalRecuperado` (`SUM(total_cost_cents)`
+sobre toda venta no `CANCELLED`, de siempre) dio **5512503 centavos =
+Q55,125.03**. `capitalInvertido` (`SUM(stock_qty*cost_cents)` sobre
+productos activos) dio **1837501 centavos = Q18,375.01**.
+
+**Los cuatro números coinciden exactos, sin ningún centavo de
+diferencia, con lo que mostró la pantalla.** No hubo hallazgo que
+corregir. El dataset real tenía cinco ventas (dos `CANCELLED`, una
+`PAID` y una `PENDING` en septiembre, una `PAID` en octubre) y una sola
+pieza activa -- chico, pero real, y alcanzó para ejercitar la exclusión
+de `CANCELLED`, la frontera de mes (la única venta de octubre quedó del
+lado correcto) y la suma de las tres ventas vivas para
+`capitalRecuperado`.
+
+Capturas en `app/build/screenshots/fase11-*.png`; consultas y
+resultado completo en `app/build/logs/joyeria-fase11-verify.db` (copia
+de la base real al momento de la verificación, para quien quiera
+repetir la consulta).
+
+### Verificación manual adicional
+
+- Navegación de mes: "mes anterior" desde octubre mostró septiembre
+  correctamente (ganancia, comparación contra agosto -- que no tiene
+  ventas, da "Q18,750.02 menos que Agosto de 2026" -- y top-5
+  recalculado a "2 vendidas"). El bloque "Ahora mismo" **no se movió**
+  al cambiar de mes (captura `fase11-06-previous-month.png`),
+  confirmando que es independiente del selector, como pedía el diseño.
+- La flecha "mes siguiente" aparece deshabilitada (más clara) estando
+  en octubre, el mes real de hoy.
+- Toda la pantalla se ve completa sin recortes, scrolleada de punta a
+  punta (`fase11-05-scrolled.png`).
+
+### Suposiciones que tomé
+
+- Ninguna nueva más allá de las ya decididas en el plan.
+
+### Lo que NO hice
+
+- No agregué "ganancia por ciclo de compra" (mencionada como posibilidad
+  futura en `ESQUEMA.md` desde Fase 05): no está en el entregable de esta
+  fase, agregarla habría sido adelantar trabajo no pedido.
+- No agregué un umbral configurable distinto para "capital estancado" vs.
+  "bajo stock" más allá de las dos claves que ya existían en
+  `app_setting` desde Fase 01.
+
+### Deuda técnica que dejé
+
+Ninguna nueva.
+
+### Bloqueos / preguntas para el humano
+
+Ninguno. **Falta el tag** (`fase-11-ok`) — lo ponés vos.

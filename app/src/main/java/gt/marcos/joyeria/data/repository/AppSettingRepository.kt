@@ -37,4 +37,20 @@ class AppSettingRepository @Inject constructor(
             "app_setting.${AppSettingKeys.MIN_MARGIN_BP} no existe; ¿se sembró/migró la base de datos?"
         }.toInt()
     }
+
+    /** Días sin venderse para que una pieza cuente como "capital estancado" (Fase 11). */
+    suspend fun getStaleStockDays(): Int {
+        val raw = appSettingDao.getValue(AppSettingKeys.STALE_STOCK_DAYS)
+        return checkNotNull(raw) {
+            "app_setting.${AppSettingKeys.STALE_STOCK_DAYS} no existe; ¿se sembró la base de datos?"
+        }.toInt()
+    }
+
+    /** Stock en o por debajo del cual se avisa "bajo stock" (Fase 11). */
+    suspend fun getLowStockThreshold(): Int {
+        val raw = appSettingDao.getValue(AppSettingKeys.LOW_STOCK_THRESHOLD)
+        return checkNotNull(raw) {
+            "app_setting.${AppSettingKeys.LOW_STOCK_THRESHOLD} no existe; ¿se sembró la base de datos?"
+        }.toInt()
+    }
 }
