@@ -8682,3 +8682,379 @@ Ninguna nueva.
 ### Bloqueos / preguntas para el humano
 
 Ninguno. **Falta el tag** (`fase-10-ok`) — lo ponés vos.
+
+---
+
+## Fase 11 — Plan (antes de escribir código)
+
+Rama `fase/11-reports`, abierta desde `main` (`fase-10-ok`). Vos mismo lo
+dijiste: esta fase no captura datos nuevos, interpreta los que ya existen.
+Nada de lo de acá escribe en la base — todo es lectura. Reviso los tres
+puntos que pediste, después la pregunta de diseño, después el resto, y las
+dudas reales van todas juntas al final.
+
+### 0. Algo que encontré antes de poder armar "Archivos permitidos": `FASES.md` no tiene esa sección para esta fase
+
+Todas las fases anteriores (00 a 10) tienen una línea **"Archivos
+permitidos"** explícita. La Fase 11, tal como está escrita hoy en
+`FASES.md`, no tiene ninguna — va directo de "Entregable" a "Criterios de
+aceptación". No es un glob incompleto que corregir (lo que pasó en Fase
+05/06/07/09, siempre sobre una lista que sí existía); acá no hay lista
+de la cual partir.
+
+CLAUDE.md sección 7 dice "Solo tocás los archivos listados en 'Archivos
+permitidos' de la fase. Si necesitás tocar otro, parás." No puedo cumplir
+esa regla con una lista que no existe, así que no la invento en silencio:
+propongo una abajo (sección 6), con su razón archivo por archivo, y la
+dejo como el único bloqueo real de este plan. El resto del plan asume que
+se aprueba tal cual o con tus ajustes.
+
+### 1. Ganancia solo desde snapshots, nunca `product` en vivo (tu punto 1 / criterio 3)
+
+Ya está resuelto por el diseño que ya existe, no hace falta inventar
+nada nuevo — pero vale explicar **por qué** para que el test de esta
+fase pruebe lo que de verdad importa:
+
+- `sale.total_cents`, `sale.discount_cents` y `sale.total_cost_cents` son
+  los tres snapshots de la venta (Fase 06, `SaleRepository.register()`
+  los calcula leyendo `product` **una sola vez, dentro de la
+  transacción**, y después nunca se vuelven a tocar). `gananciaDeVenta`
+  (`ESQUEMA.md`) es una resta de esos tres campos — `PricingCalculator
+  .saleProfit`, ya escrito y testeado desde Fase 06 — y no necesita
+  ningún `JOIN` a `product`.
+- "Ganancia del mes" (esta fase) sale de sumar `saleProfit` sobre las
+  ventas del mes -- reutilizando `SaleDao.observeBetween()`, que ya
+  existe (Fase 06, "Ventas de hoy") y **ya excluye `CANCELLED` a nivel
+  de SQL**. No hace falta una consulta nueva para este número: cambiar
+  los límites de un día a un mes es todo lo que pide.
+- "Top 5" (piezas más vendidas / por ganancia) sí necesita una consulta
+  nueva, porque ahí sí hace falta agrupar por pieza, y esa suma no
+  existe en ningún lado todavía. Para eso uso `sale_item` de verdad
+  (`product_uid_snapshot`, `product_name_snapshot`, `unit_price_cents`,
+  `unit_cost_cents`, `qty`), `JOIN sale` solo para el rango de fecha y
+  `status != 'CANCELLED'` -- nunca `JOIN product`. El nombre que se
+  muestra es el snapshot, no el nombre actual: si ella le cambia el
+  nombre a una pieza el mes que viene, el top-5 de este mes sigue
+  diciendo el nombre que tenía cuando se vendió.
+
+**Advertencia que dejo escrita, no un bug a arreglar:** "top 5 por
+ganancia" suma `(unit_price_cents - unit_cost_cents) * qty` por línea,
+que **no resta `discount_cents`** (el descuento histórico era de toda
+la venta, no de una línea — `ESQUEMA.md` ya lo dice así). Para una venta
+vieja con descuento real, esa pieza puntual se va a ver con un poquito
+más de ganancia en el top-5 de lo que en realidad dejó esa venta
+completa. El número que SÍ es exacto siempre, con descuento o sin él, es
+"Ganancia del mes" (usa `sale.discount_cents` completo). Las ventas
+nuevas escriben descuento `0` (D-047), así que esto se achica solo con
+el tiempo y no vale la pena resolverlo con una regla de reparto
+inventada para un puñado de filas viejas.
+
+**El test que de verdad prueba el criterio 3** (siguiendo el mismo
+patrón que ya usó Fase 06, criterio 2): registrar una venta, generar el
+reporte del mes, **cambiar `cost_cents`/`sale_price_cents` del producto
+directo por `ProductDao`**, volver a generar el reporte, y verificar que
+no cambió ni un centavo. Probar "de dónde sale el número" importa menos
+que probar "qué no lo puede cambiar".
+
+### 2. `valorInventario` no es exacto — ¿se lo decimos a ella? (tu punto 2)
+
+**No, en la pantalla no.** Sí, en el código y acá.
+
+Razón: el sesgo es sistemático hacia arriba (D-029, nunca la subestima)
+y en la práctica son centavos acumulados sobre compras con promedio
+ponderado -- la propia nota de `ESQUEMA.md` ya lo dice así. Ella no
+puede hacer nada con un aviso de "este número no es exacto al
+centavo": no hay ninguna acción que tomar, ningún campo que corregir.
+Mostrárselo igual no es honestidad, es trasladarle una preocupación
+técnica que no le sirve para nada y que **sí** le puede sembrar
+desconfianza en un número que en el 99% de los casos es correcto al
+centavo (cuando nunca hubo una compra con stock mezclado). Es exactamente
+el mismo argumento que ya usó CLAUDE.md sección 6 para "cero jerga":
+explicarle de más no es más transparente, es peor comunicación.
+
+Lo que si tiene que pasar es que el código lo sepa: `InventoryReport`
+(sección 6) documenta en su propio KDoc que `capitalInvertido` hereda la
+imprecisión de D-029, para que quien toque esto después no asuma que es
+un `Long` exacto y, por ejemplo, lo use para cuadrar contra otra fuente.
+
+### 3. Frontera de mes y zona horaria de Guatemala (tu punto 3 / criterio 5)
+
+**El problema real que encontré, no inventado:** `TodaySalesViewModel
+.todayBounds()` (Fase 06) usa `Calendar.getInstance()` sin zona horaria
+explícita -- toma la del dispositivo. Funciona hoy porque el teléfono de
+la usuaria está en horario de Guatemala, pero es un supuesto implícito,
+no una garantía, y el propio comentario del código ya avisaba: *"el
+ajuste fino de zona horaria para reportes es tarea explícita de Fase
+09"* (la renumeración de D-049 convirtió esa "Fase 09" en esta Fase 11).
+Llegó el momento de resolverlo.
+
+**Decisión: fijar `America/Guatemala` explícito, no seguir confiando en
+la zona del dispositivo.** Guatemala no usa horario de verano (es
+`UTC-6` todo el año, sin excepción, desde 2006) así que no hay
+ambigüedad de "qué pasa en el cambio de horario" que resolver -- un
+dato a favor de que esto sea simple.
+
+**Por qué no `java.time` (`ZoneId`, `LocalDate`, etc.):** son API 26+.
+El proyecto tiene `minSdk = 24` (CLAUDE.md sección 2: *"no nos obliga a
+desugaring agresivo"*, a propósito) y no hay
+`coreLibraryDesugaring` configurado (`app/build.gradle.kts`, verificado
+antes de escribir esto). Usarlas rompería en un teléfono real con
+Android 7/7.1 -- justo el tipo de teléfono viejo que `minSdk 24` existe
+para cubrir (`CLAUDE.md` sección 2). Uso `java.util.Calendar` +
+`TimeZone.getTimeZone("America/Guatemala")` en su lugar: mismas clases
+que ya usa `TodaySalesViewModel`, disponibles desde API 1, cero
+dependencia nueva.
+
+**Dónde vive esto — `domain/reports/ReportMonth.kt` (nuevo), puro, sin
+Android:**
+
+```kotlin
+data class ReportMonth(val year: Int, val month: Int) // month: 1-12
+
+object ReportDates {
+    val GUATEMALA_ZONE: TimeZone = TimeZone.getTimeZone("America/Guatemala")
+
+    fun monthOf(epochMillis: Long, zone: TimeZone = GUATEMALA_ZONE): ReportMonth
+    fun bounds(month: ReportMonth, zone: TimeZone = GUATEMALA_ZONE): Pair<Long, Long> // [start, end)
+    fun previous(month: ReportMonth): ReportMonth
+    fun next(month: ReportMonth): ReportMonth
+}
+```
+
+Ni `monthOf` ni `bounds` leen el reloj -- reciben `epochMillis` de quien
+llama (mismo criterio que D-055: el repositorio/dominio no lee
+`System.currentTimeMillis()`, lo recibe). El `ViewModel` de la pantalla
+es quien manda "ahora" la primera vez, para abrir en el mes actual.
+
+**El test del criterio 5, literal:** una venta con `sold_at` en
+"31 de [cualquier mes con 31 días] 23:59:59 hora de Guatemala" tiene que
+aparecer en el reporte de ese mes y **no** en el del mes siguiente, y una
+venta a "1 de [mes siguiente] 00:00:00 hora de Guatemala" tiene que
+aparecer en el siguiente y no en este. Dos tests, no uno (sección 8 de
+`CLAUDE.md`: "si el nombre afirma una propiedad general, un solo ejemplo
+no alcanza" -- acá son dos límites distintos, cada uno con su caso).
+
+### 4. Pregunta de diseño: orden de los reportes y cómo se leen (tu pregunta)
+
+Los cinco reportes de `FASES.md` no son del mismo tipo. Tres son del
+**mes** (ganancia, top 5) y dos son de **ahora mismo** (inventario,
+capital estancado, bajo stock son tres pero dos conceptos: "cuánto tengo
+guardado" y "qué necesita atención"). Mezclarlos en una sola lista larga
+sería pedirle a alguien que no es contadora que separe sola qué número
+es de cuándo. Propongo separar la pantalla en dos bloques con encabezado
+propio, y dentro de cada uno, un orden pensado por lo que ella necesita
+*hacer* con el número, no por el orden en que aparecen en `FASES.md`:
+
+**Bloque "Este mes" (con flechas para ir a meses anteriores):**
+1. **Ganancia del mes** -- primero, grande, es la pregunta que la trae a
+   esta pantalla. Nada de "margen" ni "%": *"Ganaste Q2,450.00 este
+   mes"* (o *"Perdiste Q320.00 este mes"* si tocó, sin suavizarlo). Abajo,
+   la comparación en quetzales, no en porcentaje -- un número negativo
+   de golpe ("agosto: Q1,980.00; +Q470.00 que agosto") comunica más que
+   "23.7% más", que es exactamente el tipo de abstracción que un estado
+   financiero le exige a alguien que nunca leyó uno.
+2. **Lo que más se vende** (los dos top-5) -- al final de este bloque,
+   no al principio: es interesante, no accionable todavía con el dato
+   solo. Lista simple, "1. Anillo corazón dorado -- 4 vendidas".
+
+**Bloque "Ahora mismo" (no se mueve con el mes, siempre es hoy):**
+1. **Alertas primero, antes que el inventario general** -- son las que
+   le dicen qué hacer hoy: "Bajo stock" (lista corta, "Te quedan 2 de
+   Anillo X") y "Piezas que no se mueven" (capital estancado, con el
+   umbral real de `stale_stock_days`, no un "90" fijo en el texto: *"Esta
+   pieza lleva 94 días sin venderse"*).
+2. **Tu inventario ahora** -- al final, es el más abstracto de los
+   cinco y el que más cuesta explicar sin jerga. Nunca la palabra
+   "capital": *"Tenés Q10,000.00 guardados en piezas que todavía no
+   vendiste"* (invertido) y, debajo, con una aclaración de una línea en
+   vez de asumir que el concepto se entiende solo: *"Ya recuperaste
+   Q8,000.00 — es lo que gastaste comprando las piezas que ya
+   vendiste."* (recuperado).
+
+**Por qué este orden y no el de `FASES.md`:** el de `FASES.md` es una
+lista de alcance (qué construir), no una decisión de qué mirar primero
+-- nunca pretendió serlo. El orden de pantalla es una decisión de
+producto que a la fase le toca tomar, y la tomo con un solo criterio:
+lo que ella necesita saber primero es "¿cómo me fue?", después "¿qué
+tengo que hacer?", después "¿cómo estoy parada?", y al final "¿qué
+anduvo bien?". Ese es el orden de arriba.
+
+### 5. "Capital recuperado" — qué significa exactamente (no estaba definido en ningún lado)
+
+`ESQUEMA.md` define `valorInventario` pero no "capital recuperado" --
+es una fórmula nueva de esta fase, la defino acá:
+
+```
+capitalInvertido  = Σ (stock_qty × cost_cents) de productos no archivados   // = valorInventario, ya definido
+capitalRecuperado = Σ total_cost_cents de TODAS las ventas no CANCELLED, de siempre
+```
+
+No está acotado al mes: es "de toda la vida de la pieza", a propósito
+-- es el costo de todo lo que ya salió de su inventario y se convirtió
+en venta, sin importar cuándo. Acotarlo al mes actual respondería una
+pregunta distinta ("¿cuánto recuperé este mes?", que ya está cubierta
+por "Ganancia del mes" en otra forma) y perdería la comparación que
+estas dos cifras juntas quieren mostrar: cuánto de lo que alguna vez
+compró ya volvió, contra cuánto sigue guardado en el estante.
+
+Agrego esta fórmula a `ESQUEMA.md`, sección "Cálculos derivados", al
+lado de `valorInventario` -- mismo tipo de nota que dejó D-029, no una
+tabla ni columna nueva (se calcula, no se persiste).
+
+### 6. Diseño de datos — DAOs, repositorio, sin migración
+
+**Sin cambios de esquema.** Las tres tablas que esta fase lee
+(`product`, `sale`, `sale_item`) y las dos claves de `app_setting`
+(`stale_stock_days`, `low_stock_threshold`) ya existen desde la v1/v2.
+Cero `Migration` nueva.
+
+**`AppSettingRepository`** (ya existe, Fase 03) gana dos métodos, mismo
+patrón que `getMinMarginBp()`:
+```kotlin
+suspend fun getStaleStockDays(): Int
+suspend fun getLowStockThreshold(): Int
+```
+
+**`ProductDao`** gana una consulta nueva, base para los tres reportes
+de "ahora mismo" (capital invertido, capital estancado, bajo stock --
+una sola consulta, tres lecturas distintas en Kotlin, no tres consultas
+casi iguales):
+```kotlin
+data class ProductInventorySnapshotRow(
+    val id: Long, val uid: String, val name: String,
+    val costCents: Long, val stockQty: Int, val createdAt: Long,
+    val lastSaleAt: Long?,   // subconsulta, excluye CANCELLED
+)
+
+@Query("""
+    SELECT product.id, product.uid, product.name, product.cost_cents AS costCents,
+           product.stock_qty AS stockQty, product.created_at AS createdAt,
+           (SELECT MAX(sale.sold_at) FROM sale INNER JOIN sale_item ON sale_item.sale_id = sale.id
+            WHERE sale_item.product_id = product.id AND sale.status != 'CANCELLED') AS lastSaleAt
+    FROM product
+    WHERE archived = 0
+""")
+fun observeInventorySnapshot(): Flow<List<ProductInventorySnapshotRow>>
+```
+`stock_qty = 0` entra igual (aporta `0` a `capitalInvertido` sin
+filtro aparte) pero se excluye de "capital estancado" en Kotlin (no hay
+capital guardado en algo que ya no tengo). "Bajo stock" sí incluye el
+`0` -- quedarse sin piezas es la alerta más urgente, no una que se
+filtra por quedar exactamente en cero.
+
+**`SaleDao`** gana una consulta de agregado:
+```kotlin
+@Query("SELECT COALESCE(SUM(total_cost_cents), 0) FROM sale WHERE status != 'CANCELLED'")
+fun observeTotalRecoveredCost(): Flow<Long>
+```
+
+**`SaleItemDao`** gana la consulta de "Top 5" (una sola, las dos listas
+salen de ordenarla distinto en Kotlin):
+```kotlin
+data class ProductSalesAggregateRow(
+    val productUid: String, val productName: String,
+    val totalQty: Int, val totalProfitCents: Long,
+)
+
+@Query("""
+    SELECT sale_item.product_uid_snapshot AS productUid,
+           sale_item.product_name_snapshot AS productName,
+           SUM(sale_item.qty) AS totalQty,
+           SUM((sale_item.unit_price_cents - sale_item.unit_cost_cents) * sale_item.qty) AS totalProfitCents
+    FROM sale_item
+    INNER JOIN sale ON sale.id = sale_item.sale_id
+    WHERE sale.sold_at >= :startMillis AND sale.sold_at < :endMillis AND sale.status != 'CANCELLED'
+    GROUP BY sale_item.product_uid_snapshot, sale_item.product_name_snapshot
+""")
+fun observeProductSalesAggregate(startMillis: Long, endMillis: Long): Flow<List<ProductSalesAggregateRow>>
+```
+
+**`ReportRepository`** (nuevo, `data/repository/`, mismo patrón que
+`SaleRepository`: inyecta DAOs de varias tablas directo, sin pasar por
+otros repositorios, porque la consulta ya cruza tablas):
+```kotlin
+class ReportRepository @Inject constructor(
+    private val saleDao: SaleDao,
+    private val saleItemDao: SaleItemDao,
+    private val productDao: ProductDao,
+    private val appSettingRepository: AppSettingRepository,
+) {
+    fun observeMonthlyReport(month: ReportMonth): Flow<MonthlyReport>
+    fun observeInventoryReport(now: Long): Flow<InventoryReport>
+}
+```
+`observeMonthlyReport` combina `observeBetween` del mes actual, del mes
+anterior (para la comparación) y `observeProductSalesAggregate` del mes
+actual. `observeInventoryReport` combina `observeInventorySnapshot` y
+`observeTotalRecoveredCost`, y lee `staleStockDays`/`lowStockThreshold`
+una vez (no son reactivos: no hay pantalla hoy que los cambie).
+
+`MonthlyReport`/`InventoryReport` y sus tipos de línea van en
+`data/repository/ReportModels.kt` (mismo patrón que `SaleModels.kt`).
+
+### 7. UI y navegación
+
+`ui/reports/` (nuevo): `ReportsScreen`/`ViewModel`/`UiState`/`Route`,
+una sola pantalla con los dos bloques de la sección 4, flechas
+"mes anterior"/"mes siguiente" (la de "siguiente" deshabilitada si ya
+está en el mes actual -- no tiene sentido mostrar un mes futuro vacío).
+
+Entrada: enlace chico nuevo en `HomeScreen` ("Reportes", `Icons.Default
+.Assessment`), mismo tratamiento que "Inventario"/"Clientes" -- no es
+una de las dos acciones grandes (CLAUDE.md sección 6). Destino nuevo
+`JoyeriaDestination.Reports` en el `NavHost`.
+
+### 8. Archivos que toca — mi propuesta para la sección faltante de `FASES.md` (bloqueo B-01)
+
+- `app/src/main/java/**/domain/reports/**` (nuevo)
+- `app/src/main/java/**/ui/reports/**` (nuevo)
+- `app/src/main/java/**/ui/navigation/**` (enlace en `HomeScreen`, destino en `NavHost`)
+- `app/src/main/java/**/data/repository/ReportRepository.kt`, `ReportModels.kt` (nuevos)
+- `app/src/main/java/**/data/repository/AppSettingRepository.kt` (dos métodos nuevos)
+- `app/src/main/java/**/data/local/dao/ProductDao.kt`, `SaleDao.kt`, `SaleItemDao.kt` (consultas nuevas, sin tocar entidades ni migraciones)
+- `app/src/main/res/values/strings.xml`
+- `app/src/test/java/**/domain/reports/**`, `app/src/test/java/**/data/**` (`[TESTS OBLIGATORIOS]`)
+- `ESQUEMA.md` (fórmula de "capital recuperado", sección 5 de este plan -- documentación de un cálculo derivado, mismo tipo de toque que D-029 ya hizo)
+
+### 9. Tests planeados
+
+`domain/reports/ReportDatesTest.kt` (JUnit4 puro, sin Robolectric):
+- `bounds_returnsFirstAndLastInstantOfTheMonthInGuatemalaTime`
+- `monthOf_saleAt2359Guatemala31st_belongsToThatMonth` y
+  `monthOf_saleAt0000GuatemalaFirst_belongsToTheNextMonth` (dos tests,
+  no uno -- sección 8 de `CLAUDE.md`, ver punto 3 arriba)
+- `previous_and_next_areInverses` (diciembre → enero de año siguiente,
+  caso de borde de cambio de año)
+
+`data/repository/ReportRepositoryTest.kt` (Robolectric, Room in-memory,
+mismo estilo que `SaleRepositoryTest`):
+- `observeMonthlyReport_withAFixedDataset_matchesTheHandCalculatedProfit`
+  -- criterio 2, dataset fijo documentado en el test.
+- `observeMonthlyReport_profitIgnoresProductChangesAfterTheSale` --
+  criterio 3, el test descrito en la sección 1 de arriba.
+- `observeMonthlyReport_excludesCancelledSales` y
+  `observeInventoryReport_recoveredCostExcludesCancelledSales` -- dos
+  tests, no uno: "todos los reportes" (criterio 4) son varias consultas
+  distintas, cada una tiene que probar su propia exclusión, no alcanza
+  con probarla una vez y asumir que las demás heredan la garantía.
+- `observeInventoryReport_staleCapital_excludesProductsWithZeroStock`
+- `observeInventoryReport_lowStock_includesProductsWithExactlyZeroStock`
+- `observeProductSalesAggregate_topFiveByQtyAndByProfit_withAFixedDataset`
+
+### Dudas, todas juntas
+
+- **B-01 (el único bloqueo real) -- sección 0 y 8.** `FASES.md` no
+  tiene "Archivos permitidos" para esta fase. Propuse una lista con su
+  razón; decime si la aprobás tal cual, la ajustás, o preferís que
+  primero la agregue a `FASES.md` como corrección de documentación
+  (mismo criterio que los relojes/tests pendientes de Fase 15) antes de
+  tocar código.
+
+Todo lo demás de este plan (qué significa "capital recuperado", el
+orden de la pantalla, no mostrarle a ella la imprecisión de
+`valorInventario`, zona horaria fija en vez de la del dispositivo) ya
+quedó decidido arriba con su razón escrita -- no hace falta que lo
+confirmes punto por punto, pero si algo no te cierra, decímelo antes de
+que empiece a escribir código.
+
+**Paro acá.**
