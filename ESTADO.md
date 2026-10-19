@@ -9222,3 +9222,570 @@ Ninguna nueva.
 ### Bloqueos / preguntas para el humano
 
 Ninguno. **Falta el tag** (`fase-11-ok`) — lo ponés vos.
+
+
+---
+
+# Ronda de diseño — Identidad visual — Plan (2026-10-19)
+
+Rama `design/visual-identity`, abierta desde `main` (`fase-11-ok`, árbol limpio).
+**Esto es solo el plan. No se tocó código, ni recursos, ni `CLAUDE.md`.**
+Nada se aplica hasta que apruebes la propuesta. Las dudas reales van todas
+juntas en la sección 9.
+
+---
+
+## 0. Las skills que tengo disponibles (lo que preguntaste)
+
+**No hay una `frontend-design` ni nada equivalente para Android/Compose.**
+Lo más cercano es `artifact-design`, y no sirve para esto: es una guía para
+páginas HTML publicadas como Artifacts (tokens CSS, layout web), no para
+Jetpack Compose. Lo que sigue en este plan sale de mi criterio de diseño
+más lo que ya está medido en el código, no de una skill especializada.
+Quiero que lo sepas para que sepas cuánto peso darle: es una propuesta, no
+una receta validada.
+
+| Skill | ¿Sirve para esta ronda? |
+|---|---|
+| `artifact-design`, `artifact-capabilities`, `artifact-diagramming` | No. Páginas web publicadas. Podría armar una **maqueta HTML de la paleta** para que la veas en color antes de aprobar (ver sección 9, pregunta 4) |
+| `dataviz` | No hoy (Reportes no tiene gráficos). Si una fase futura agrega uno, su validador de paleta sirve |
+| `run` | **Sí, en la verificación**: lanzar la app y ver el cambio andando |
+| `code-review`, `simplify` | Sí, al cerrar la rama, sobre el diff |
+| `claude-in-chrome`, `built-in-browser`, `computer-use` | No (no hay web que manejar) |
+| `docx`, `pdf`, `pptx`, `xlsx`, `docs`, `google-workspace`, `morning`, `deep-research`, `import-memory`, `skill-creator` | No |
+| `update-config`, `fewer-permission-prompts`, `keybindings-help`, `loop`, `schedule`, `init`, `security-review`, `plugin-authoring`, `claude-api` | No para esta ronda |
+
+---
+
+## 1. Qué hay hoy, verificado en el código
+
+Todo lo de esta sección lo leí en el repo hoy; no es de memoria. Lo que
+todavía hay que confirmar en el emulador está marcado como tal.
+
+**1.1. El tema es el de la plantilla de Android Studio, y ni siquiera se usa.**
+`ui/theme/Theme.kt` tiene `dynamicColor = true`: en Android 12 o más nuevo la
+app toma los colores **del fondo de pantalla del teléfono**, no de ningún
+diseño nuestro. La paleta morada de `Color.kt` solo se ve en Android 11 o
+menos. Es decir: **mientras `dynamicColor` esté prendido, ninguna identidad
+visual es posible**, y además la app se vería distinta en cada teléfono. Es
+el primer cambio de la ronda. `res/values/colors.xml` conserva los
+`purple_*`/`teal_*` de la plantilla (sin uso) y `themes.xml` hereda de
+`android:Theme.Material.Light.NoActionBar` (ventana clara fija; con el tema
+oscuro del teléfono puede haber un destello claro al abrir — a verificar).
+
+**1.2. Tipografía: solo `bodyLarge` y `bodyMedium` se subieron a 18sp.** El
+resto son los defaults de Material 3. Lo que eso implica, y **a confirmar en
+el emulador antes de afirmarlo** (paso 0):
+
+- Los textos de `Button`/`TextButton`/`OutlinedButton` salen en `labelLarge`
+  (14sp por default de Material 3) salvo que la pantalla pase un `style`
+  explícito. `HomeScreen` lo pasa en las dos acciones grandes (`titleMedium`,
+  16sp) pero **no en los 5 enlaces** (Inventario, Ventas de hoy, Registrar
+  compra, Clientes, Reportes). `TextButton` se usa en 10 archivos.
+- `bodySmall` (12sp) se usa 1 vez; `labelMedium`/`labelSmall` (12/11sp) los
+  usan los chips, campos y dropdowns por dentro.
+
+Si se confirma, hoy hay texto que **la usuaria lee** por debajo de los 18sp
+de `CLAUDE.md` sección 6. Fase 15 ya tiene "tamaños de fuente auditados"
+como entregable; esta ronda lo resuelve **por construcción** (ningún estilo
+del tema baja de 18sp) y deja un test que lo vigila.
+
+**1.3. Alturas fijas: 15 sitios con `.height(Ndp)`** (HomeScreen ×7,
+CustomerProfileScreen ×2, AddProduct, ProductEdit ×2, RegisterPurchase,
+RegisterSale, CategoryManage), los que revisé son botones. Con letra grande
+del sistema (o con 18sp en vez de 14sp) un alto fijo **recorta el texto** en
+vez de crecer. **Hallazgo concreto: `CustomerProfileScreen.kt:386` tiene
+`.height(48.dp)`**, el botón "Registrar pago" de cada venta pendiente. Está
+**por debajo de los 56dp** exigidos. Es un incumplimiento de la sección 6
+que existe hoy; se corrige en esta ronda.
+
+**1.4. Componentes de Material 3 en uso** (menciones por grep, incluyen los
+`import`, así que son una cota alta): `OutlinedTextField` en 15 archivos,
+`TextButton` 10, `IconButton` 10, `TopAppBar` 10, `AlertDialog` 9,
+`OutlinedButton` 7, `Card` 6, `Button` 6, `ExposedDropdownMenuBox` 4,
+`HorizontalDivider` 4, `AssistChip` 2, `FloatingActionButton` 2,
+`FilterChip` 1. Colores del tema que se usan de verdad: `onSurfaceVariant`
+33, `error` 15, `primary` 8, `surfaceVariant` 4 y pocos más. Tipografía:
+`bodyLarge` 53, `bodyMedium` 26, `titleMedium` 14, `titleLarge` 5,
+`headlineSmall` 3, `headlineMedium` 1, `bodySmall` 1.
+
+**No hay ningún `Color(0x…)`, `fontSize` ni `sp` literal en las pantallas**
+(solo `MoneyTextField` lee `headlineSmall.fontSize` del tema). Sí hay **4
+`RoundedCornerShape(Ndp)` literales** (`AddProductScreen:170`,
+`ProductEditScreen:206`, `ProductListScreen:202`, `RegisterSaleScreen:428`:
+marco de foto y miniaturas), que pasan al tema. Eso es lo mejor que tiene la
+base: **cambiar el tema cambia casi toda la app sin tocar cada pantalla**, y
+por eso el plan empieza por el tema y recién después retoca pantallas.
+Detalle a vigilar: el campo de dinero toma su tamaño de `headlineSmall`
+(hoy 24sp, en mi escala 26sp); cambia el tamaño del número que ella teclea,
+y hay que mirar que quepa.
+
+**1.5. Insets: solo 3 lugares los manejan a mano**, y ahí están las cicatrices:
+`AddProductScreen` y `ProductEditScreen` usan `imePadding()` **antes** de
+`verticalScroll()`; `RegisterSaleScreen` envuelve su `bottomBar` en
+`windowInsetsPadding(WindowInsets.safeDrawing.only(Bottom))`. `MainActivity`
+llama `enableEdgeToEdge()`. El resto de las pantallas depende de que el
+`Scaffold` de Material 3 pase el `innerPadding` — lo hace para el contenido,
+**no para el slot `bottomBar`**, que es exactamente el bug que ya tuvimos
+(ESTADO.md, "Punto 2 — insets").
+
+**1.6. Listas: 10 sitios `items`/`itemsIndexed`.** Seis cumplen la regla de
+prefijo por sección de `CLAUDE.md` sección 5 (`"cart-…"`, `"product-…"`,
+`"active-…"`, `"archived-…"`, `"statement-…"`, `"history-…"`). **Cuatro la
+incumplen** (clave pelada, `it.id`/`it.customerId`):
+`ProductListScreen:113`, `TodaySalesScreen:100`, `CustomersScreen:215` y
+`CustomersScreen:296`. Hoy **no crashean**: los dos de `CustomersScreen`
+están en `LazyColumn` distintos, y las otras dos pantallas tienen una sola
+sección. Pero la regla dice "siempre, aunque hoy haya una sola", y son
+exactamente las pantallas que esta ronda va a retocar. Ver pregunta 3.
+
+---
+
+## 2. La propuesta de identidad
+
+### 2.1. Concepto: «vitrina cálida»
+
+La app se siente como el **forro de una caja de joyería**: marfil cálido de
+fondo (papel de seda), verde esmeralda profundo para lo que se toca
+(terciopelo), y **oro solo como detalle** (el filete, un resaltado), nunca
+como color de texto sobre claro. Serifa elegante **solo** en títulos grandes;
+todo lo que ella lee para decidir (precios, nombres, cantidades) va en una
+sans redonda y amable.
+
+**Por qué encaja con joyería:** Xuping es baño de oro; marfil + esmeralda +
+oro es el código visual de la joyería de siempre, y se aleja del
+blanco/morado "de app de banco" que hoy tiene. Es cálido, no frío.
+
+**Por qué encaja con esta usuaria** (y esto pesa más que el gusto):
+- Todo texto contra su fondo supera **5.4:1** de contraste (el mínimo
+  accesible es 4.5:1; los cálculos están en 2.2). Nada de dorado claro
+  sobre crema, que es el error clásico de "se ve lujoso" y no se lee.
+- **Un color, un significado**, siempre: esmeralda = acción principal;
+  oro = lo destacado (precio, total); rojo ladrillo = deuda, aviso o acción
+  destructiva. Y **nunca el color como única señal**: toda deuda lleva
+  palabra y número, no solo rojo.
+- Formas grandes y redondeadas, pocas variantes: se aprende una vez.
+- La serifa no llega a ningún texto chico ni a ningún número.
+
+*Alternativa que descarté:* granate + champán. Es más femenino, pero el
+granate se parece demasiado al rojo de error/deuda, y en esta app "rojo"
+tiene que significar una sola cosa.
+
+### 2.2. Paleta (tokens con rol, no colores sueltos)
+
+Contrastes **calculados** con la fórmula WCAG 2.x (script en el scratchpad
+de la sesión; en 3.4 está el test que los vigila dentro del repo). Mínimos:
+4.5:1 texto, 3:1 bordes y elementos gráficos.
+
+**Tema claro (el principal)**
+
+| Token | Hex | Rol | Contraste |
+|---|---|---|---|
+| `Marfil` | `#FBF7EF` | `background` / `surface` | — |
+| `Arena` | `#F3ECDD` | `surfaceContainer`: tarjetas, filas | — |
+| `TintaCafe` | `#2A2420` | `onSurface`: texto principal | 14.33 sobre Marfil · 13.02 sobre Arena |
+| `TintaSuave` | `#5C5147` | `onSurfaceVariant`: texto secundario | 7.22 · 6.56 |
+| `Esmeralda` | `#1F5446` | `primary`: botón principal, enlaces | blanco encima: 8.70 · sobre Marfil: 8.14 |
+| `EsmeraldaClara` | `#D5E8DF` | `primaryContainer` | texto `#0F2E26` encima: 11.42 |
+| `OroBronce` | `#7A5A0B` | texto/ícono dorado **sobre claro** | 5.96 sobre Marfil · 5.42 sobre Arena |
+| `OroClaro` | `#F1DFAE` | `secondaryContainer`: 2.ª acción, resaltado | texto `#3F2E00` encima: 9.93 |
+| `OroBrillo` | `#C9A24A` | **solo decoración** (filete, ornamento) | 2.25 sobre Marfil → **prohibido para texto o ícono que importe** |
+| `Borde` | `#8A7D6C` | `outline`: borde de campos | 3.76 · 3.41 (pasa 3:1) |
+| `Ladrillo` | `#B3261E` | `error`: deuda, aviso, destructivo | 6.12 sobre Marfil |
+| `LadrilloClaro` | `#F9DEDC` | `errorContainer` | texto `#410E0B`: 12.77 |
+
+**Tema oscuro** (se conserva: hoy la app sigue el tema del teléfono y
+quitarlo sería una regresión para quien lo tenga prendido): fondo `#17130F`,
+tarjeta `#241E18`, texto `#F0E8DA` (15.19 / 13.55), texto suave `#BDB09E`
+(8.68 / 7.75), primario `#8FD0BB` con `#00382C` encima (7.43), oro `#E5C26B`
+(10.79 sobre fondo), borde `#8F8373` (4.98), error `#F2B8B5` (10.82).
+Mínimo de todos los pares oscuros calculados: 4.98.
+
+**Filete dorado:** el único motivo decorativo de la identidad. Una línea de
+1dp en `OroBrillo` (a ~50% de opacidad) bajo la barra superior y alrededor
+de las tarjetas. Decorativo: la tarjeta también se distingue por el fondo
+`Arena`, así que si el filete no se ve, no se pierde información.
+
+### 2.3. Tipografía
+
+| Rol | Fuente | Dónde |
+|---|---|---|
+| Títulos grandes | **Playfair Display** SemiBold | `headline*`, `titleLarge` (≥ 24sp): nombre en Inicio, título de cada pantalla |
+| Todo lo demás | **Nunito Sans** (Regular / SemiBold / Bold) | cuerpo, botones, etiquetas, **todo el dinero** |
+
+- **Fuentes empaquetadas en `res/font/`, estáticas, nunca descargables.**
+  Descartada `ui-text-google-fonts`: baja las fuentes de internet, y
+  `CLAUDE.md` sección 4 exige modo avión completo. Descartada la fuente
+  variable: en Compose solo funciona desde API 26 y `minSdk = 24`.
+- Las dos son licencia OFL (libre uso y empaquetado), según recuerdo.
+  **Antes de bajar nada verifico la licencia en el repositorio oficial
+  `google/fonts`** y guardo el texto de la licencia junto a las fuentes. No
+  descargué nada todavía.
+- Dinero en la sans, nunca en la serifa: no quiero depender de cómo dibuje
+  la serifa los números (algunas serifas usan cifras "de estilo antiguo",
+  que no alinean). Se verifica mirando una columna de montos en el emulador.
+- Presupuesto de peso: **4 archivos TTF, y mido y anoto el total** (hoy el
+  APK debug pesa ~25.8 MB). Propongo un tope de ~600 KB para las fuentes;
+  si se pasara, paro y consulto.
+
+**Escala (todo ≥ 18sp; la diferencia entre estilos es peso y color, no tamaño chico):**
+
+| Estilo | sp / interlínea | Fuente · peso | Uso |
+|---|---|---|---|
+| `headlineLarge` | 34 / 42 | Playfair SemiBold | nombre en Inicio |
+| `headlineMedium` | 30 / 38 | Playfair SemiBold | total grande |
+| `headlineSmall` | 26 / 34 | Playfair SemiBold | encabezado de sección grande; **también el número del campo de dinero** |
+| `titleLarge` | 24 / 32 | Playfair SemiBold | título de pantalla (barra superior) |
+| `titleMedium` | 20 / 28 | Nunito Sans Bold | botones grandes, subtítulos, montos destacados |
+| `titleSmall` | 18 / 26 | Nunito Sans Bold | encabezado de fila |
+| `bodyLarge` / `bodyMedium` | 18 / 26 | Nunito Sans Regular | cuerpo (sin cambio de tamaño → no reflujo) |
+| `bodySmall` | 18 / 26 | Nunito Sans Regular, `TintaSuave` | notas (hoy 12sp) |
+| `labelLarge` | 18 / 24 | Nunito Sans SemiBold | **texto de botones** (hoy 14sp) |
+| `labelMedium` / `labelSmall` | 18 / 24 | Nunito Sans Medium | chips, campos (hoy 12/11sp) |
+
+Dos notas: el campo de dinero lee `headlineSmall.fontSize`, y como ese estilo
+pasa a ser Playfair, el campo toma el **tamaño** (26sp) pero **no** la
+fuente (su `TextStyle` solo copia `fontSize`), así que los números siguen
+en la sans. Se confirma en el emulador. Y subir `labelLarge` de 14 a 18sp
+ensancha todos los botones: una fila con dos botones lado a lado puede
+desbordar. Por eso la verificación incluye letra grande (sección 6).
+
+### 2.4. Forma y componentes
+
+- **Botón principal:** píldora, Esmeralda, texto blanco, **alto mínimo 64dp**.
+- **Botón secundario** («Agregar pieza» en Inicio, etc.): píldora `OroClaro`
+  con texto `#3F2E00` (hoy es un botón con solo borde, que se lee como
+  "desactivado"). Alto mínimo 56dp.
+- **Enlace / acción terciaria:** fila de **alto mínimo 56dp** con ícono en
+  círculo `EsmeraldaClara` y texto 18sp; no un `TextButton` suelto.
+- **Alturas: siempre `heightIn(min = …)`, nunca `height(…)` fijo** en nada
+  con texto. Crece con la letra grande en vez de recortarla.
+- **Tarjetas:** esquinas 20dp, relleno `Arena`, sin sombra, con filete.
+- **Campos:** esquinas 14dp, borde 1.5dp `Borde`, enfocado 2dp Esmeralda. Se
+  estiliza por tema (`shapes` y `colorScheme`), **sin tocar el interior de
+  `MoneyTextField`/`QuantityTextField`** (su mecanismo es lo que arregló D-030).
+  A confirmar en el paso 1 qué forma de `Shapes` usa el campo de Material 3
+  de esta versión del BOM, para no redondear de más otras piezas.
+- **Barra superior:** fondo Marfil (sin tinte al scrollear), título en
+  Playfair, filete debajo. Sigue siendo el `TopAppBar` de Material 3: **no lo
+  reemplazo por un `Box` propio**, porque el de Material ya maneja el inset
+  de la barra de estado.
+- **Diálogos:** esquinas 28dp, fondo Marfil; el botón destructivo en Ladrillo
+  y con el texto que dice qué va a pasar (ya exigido por sección 6).
+- **Íconos:** los de Material que ya están (`material-icons-extended`),
+  sin dependencia nueva.
+- **`LocalMinimumInteractiveComponentSize = 56.dp` en el tema.** Material 3
+  garantiza 48dp de área táctil por default; subirlo a 56dp en un solo lugar
+  hace que checks, íconos y chips lo hereden, incluidos los de pantallas
+  futuras. (El `FilterChip` de `CategoryChipRow` ya fuerza 56dp a mano.)
+
+**Inicio (boceto, sigue sin ser un dashboard):**
+
+```
+┌──────────────────────────────┐
+│  Mother App   (Playfair 34)  │
+│  ───── filete dorado ─────   │
+│                              │
+│ ╭──────────────────────────╮ │
+│ │ [ico] Vender   (64dp)    │ │  Esmeralda
+│ ╰──────────────────────────╯ │
+│ ╭──────────────────────────╮ │
+│ │ [ico] Agregar pieza      │ │  OroClaro
+│ ╰──────────────────────────╯ │
+│                              │
+│  (o) Inventario          >   │  filas de 56dp+
+│  (o) Ventas de hoy       >   │  ícono en círculo
+│  (o) Registrar compra    >   │
+│  (o) Clientes            >   │
+│  (o) Reportes            >   │
+└──────────────────────────────┘
+```
+
+*(El nombre «Mother App» sale de `strings.xml`. El nombre y el ícono de
+la app son de Fase 15; esta ronda no los toca.)*
+
+---
+
+## 3. Cómo queda como sistema reutilizable
+
+El objetivo que pediste: que las fases 12 a 15 **nazcan** con esto. Para eso
+no alcanza con un tema; hace falta que lo correcto sea lo más fácil de usar
+y lo incorrecto sea difícil de escribir.
+
+**3.1. `ui/theme/`** (existe; se reescribe)
+- `Color.kt`: los tokens de 2.2 con nombre de rol. Se borran los morados.
+- `Theme.kt`: `lightColorScheme`/`darkColorScheme` completos; **sin
+  `dynamicColor`**; `LocalMinimumInteractiveComponentSize = 56.dp`.
+- `Type.kt`: la escala de 2.3 con `FontFamily` de `res/font/`.
+- `Shape.kt` (nuevo): `Shapes` de 2.4.
+- `Dimens.kt` (nuevo): `Spacing` (4/8/16/24/32), `MinTouch = 56.dp`,
+  `ButtonBig = 64.dp`, `ScreenPadding = 16.dp`. Un solo lugar para los
+  números que hoy están regados como `16.dp`.
+
+**3.2. `ui/components/`** (paquete nuevo — solo composables sin ViewModel,
+con `@Preview`, como exige la sección 5)
+- `JoyeriaButtons.kt`: `PrimaryButton`, `SecondaryButton`, `LinkRow`.
+  Alto mínimo adentro, no se puede pasar un `height` fijo por accidente.
+- `JoyeriaCard.kt`: tarjeta con relleno y filete.
+- `JoyeriaTopBar.kt`: la barra superior con título y botón de volver.
+- `BottomActionBar.kt`: **la única forma permitida de anclar un botón al
+  fondo.** Lleva adentro el `windowInsetsPadding(safeDrawing.only(Bottom))`
+  de la cicatriz de `RegisterSaleScreen`, con el comentario de por qué no es
+  `navigationBarsPadding()` + `imePadding()`.
+- `Modifier.imeAwareVerticalScroll(state)`: `imePadding()` y luego
+  `verticalScroll()`, **en ese orden**, encapsulado. Es la cicatriz de
+  `AddProductScreen`/`ProductEditScreen` hecha función.
+- `EmptyState.kt`: ícono + texto + instrucción. Fase 15 pide "estados vacíos
+  con instrucciones"; queda el componente listo.
+- `SectionHeader.kt`: encabezado de sección con el estilo del tema.
+- `DesignCatalogPreview.kt`: **una pantalla de `@Preview` con todo el
+  sistema** (paleta, escala tipográfica, cada componente), en claro y
+  oscuro y con letra 1.0× y 2.0×. Es el «catálogo» para ver el sistema
+  de un vistazo y para que Fase 12 en adelante copie de ahí.
+
+*Lo que NO hago:* un `JoyeriaScaffold` que envuelva todo. Cada pantalla
+tiene necesidades distintas (con/sin `bottomBar`, con FAB, con formulario
+que scrollea) y un envoltorio genérico es justo donde se esconde un bug
+de insets. Las pantallas siguen usando `Scaffold` de Material; lo que se
+comparte son las piezas que ya tuvieron bugs.
+
+**3.3. Documentación.** Una sección nueva **6.1 «Sistema de diseño»** en
+`CLAUDE.md` (borrador en la sección 8 de este plan), más
+`docs/DISENO.md` con el catálogo detallado (tablas de tokens, escala,
+lista de componentes). Va en `docs/` porque cumple la prueba de la
+sección 7.9: es una política permanente que alguien abre *a propósito* para
+saber **cómo se decide** algo. Las reglas obligatorias van en `CLAUDE.md`
+(que es lo que se lee siempre); el catálogo largo no lo infla.
+Más una entrada en `DECISIONES.md` (fuentes, `dynamicColor` apagado,
+`LocalMinimumInteractiveComponentSize`). Sin esa entrada no se agregan las
+fuentes (sección 2: nada sin justificar).
+
+**3.4. Redes automáticas** (JUnit4 puro, sin Robolectric — sección 8):
+- Ningún estilo de `Typography` baja de 18sp. Un test recorre los 15 estilos.
+- Los pares de color de 2.2 mantienen su contraste mínimo (4.5:1 texto,
+  3:1 borde). Si alguien edita un hex de la paleta y rompe la lectura, el
+  test falla; hoy eso no lo detectaría nadie.
+- `MinTouch >= 56.dp` y `ButtonBig >= MinTouch`.
+
+Los nombres de estos tests siguen la sección 8: afirman solo lo que el
+cuerpo ejercita. Un test de «todos los estilos» recorre todos; uno de
+contraste nombra los pares que prueba.
+
+---
+
+## 4. Qué pantallas toca y en qué orden
+
+Principio del orden: **de menor a mayor riesgo, y el tema primero**, porque
+como ninguna pantalla tiene colores ni tamaños de letra literales (1.4), el
+tema solo ya cambia casi toda la app. Cada paso con cambios es **un commit
+que compila y pasa los tests** (sección 7, Git: «si necesitás más, que cada
+uno compile y pase tests»). Pasos 1 a 8: ocho commits.
+
+| Paso | Qué | Riesgo | Por qué en este lugar |
+|---|---|---|---|
+| **0** | **Base «antes»**: capturas de cada pantalla actual, y volcado de la jerarquía de la app (`uiautomator dump`) para medir qué áreas táctiles de hoy miden menos de 56dp. Confirma o refuta 1.2. Sin commit de código | — | Sin foto del «antes» no se puede decir que algo mejoró ni que no se rompió |
+| **1** | **Cimientos**: `Color.kt`, `Theme.kt`, `Type.kt`, `Shape.kt`, `Dimens.kt`, fuentes, `themes.xml`, `colors.xml`, tests de 3.4. **Ninguna pantalla se edita**, pero todas cambian de aspecto por herencia | Medio | Ya se ve la identidad en toda la app. Y como el texto de los botones sube de 14 a 18sp, **este es el paso donde puede aparecer un desborde**: ver todas las pantallas con letra normal y grande antes de seguir |
+| **2** | **Componentes** de 3.2 y `DesignCatalogPreview`. Aún sin usarlos en pantallas | Bajo | Se prueban aislados antes de aplicarlos |
+| **3** | **Inicio** (`HomeScreen`) | Bajo | Sin listas, sin teclado. Es la cara de la app y la que más cambia (botones, enlaces como filas). Quita 7 alturas fijas |
+| **4** | **Alta rápida y Editar pieza** (`AddProductScreen`, `ProductEditScreen`, `CategoryChipRow`; `CameraCaptureView` solo en sus botones propios) | **Alto** — teclado | `imePadding()` y su orden. Hay que comprobar que «Guardar» y los campos se ven con teclado abierto en los 2 modos de navegación. Re-medir el tiempo de alta (ver 5.5) |
+| **5** | **Vender** (`RegisterSaleScreen`) | **Alto** — `bottomBar` + 2 secciones con `key` + teclado | Es la pantalla con más cicatrices. Se hace con los componentes ya probados (`BottomActionBar`). §7.10 completo |
+| **6** | **Listas**: `ProductListScreen`, `TodaySalesScreen`, `CustomersScreen`, `CustomerProfileScreen` (incluye el botón de 48dp), `CategoryManageScreen` | **Alto** — `key` | Cada una: §7.10 completo (agregar, quitar, salir y volver). Las 4 claves sin prefijo se resuelven acá si respondés que sí (pregunta 3) |
+| **7** | **Resto**: `RegisterPurchaseScreen`, `ReportsScreen`, y los diálogos (`CustomerFormDialog`, `CustomerQuickAddDialog`, los `AlertDialog` de confirmación) | Medio | Heredan casi todo del tema; se revisa que las confirmaciones destructivas sigan diciendo qué va a pasar |
+| **8** | **Cierre**: sección 6.1 en `CLAUDE.md`, `docs/DISENO.md`, `DECISIONES.md`, `ESTADO.md`, `testDebugUnitTest` completo, `code-review` sobre el diff | Bajo | La documentación se escribe al final, con lo que realmente quedó |
+
+**Qué NO toca esta ronda:** capa `data`/`domain` (cero), `ui/format/` (los
+campos de dinero y cantidad no cambian por dentro), navegación, ViewModels,
+UiStates, textos de `strings.xml` (solo si un texto no cabe en el nuevo
+tamaño; si pasa, se anota), ícono y nombre de la app (Fase 15), y **nada de
+las fases 12 a 15** (sin catálogo, sin códigos de barras, sin respaldo).
+
+**Relación con `FASES.md` Fase 15:** esta ronda adelanta parte de «tamaños de
+fuente y áreas táctiles auditados». No es adelantar trabajo de fase futura
+(sección 9): es un requisito de sección 6 que el tema debe cumplir desde
+ahora. La auditoría final de Fase 15 sigue en pie, sobre pantallas ya
+hechas con este sistema. Tampoco hay lista de «Archivos permitidos» porque
+esto no es una fase; la lista de arriba, una vez aprobada, la reemplaza.
+
+---
+
+## 5. Riesgos y cómo se controla cada uno
+
+**5.1. Insets (dos bugs previos).** El riesgo real no es retocar el color de
+una barra; es **mover** un botón o un campo y romper el acuerdo con las
+barras del sistema.
+- Ninguna pantalla pierde su manejo de insets actual al rediseñarse; el
+  único cambio es reemplazar el código ad hoc por `BottomActionBar` /
+  `imeAwareVerticalScroll`, que contienen **el mismo código**, movido.
+- No se reemplaza `TopAppBar` ni `Scaffold` (ver 2.4 y 3.2).
+- **Verificación como en la ronda anterior, en cada pantalla con botón al
+  fondo o campos** (Alta, Editar, Vender, Registrar compra, formularios de
+  clienta): los 4 casos **barra de tres botones / barra de gestos × sin
+  teclado / con teclado**, con captura de cada uno (hay precedente en
+  `app/build/screenshots/fix-insets-*.png`). El modo de navegación se cambia
+  por `adb` con el overlay `navbar.threebutton` / `navbar.gestural`.
+
+**5.2. Listas con `key` (dos crashes previos).**
+- Las filas nuevas (`ProductRow`, `SaleRow`, etc.) se rediseñan **por
+  dentro**; ninguna línea `items(…, key = …)` se edita salvo las 4 de 1.6.
+  Antes y después de cada paso se corre `grep` de todos los sitios
+  `items`/`itemsIndexed` y se compara la lista de claves: si el diff las
+  toca y no era lo planeado, se frena.
+- Un componente de fila compartido **nunca recibe la `key`**: la `key` es
+  del `items` que lo llama, que es donde la regla de prefijo la puede ver.
+- **§7.10 completo en cada pantalla con lista**, con datos reales en el
+  emulador: agregar un elemento, quitar uno, salir y volver a entrar; en
+  Vender, además, agregar la misma pieza que ya está en el carrito. Una
+  clave literal sin interpolar (el bug de Fase 08) solo existe al dibujar
+  la segunda fila, y por eso se hace con datos reales y al menos 2 filas.
+- Si se corrigen las 4 claves sin prefijo: cada una se verifica
+  **mirando que la clave interpolada tenga la `$`** (el bug de Fase 08 fue
+  exactamente un `"statement-{id}"` sin `$`).
+
+**5.3. Tamaño de letra y área táctil (las restricciones que no se negocian).**
+- Por construcción: ningún estilo < 18sp (test), `MinTouch = 56dp` en el
+  tema y en los componentes, `heightIn(min)` en vez de `height` fijo.
+- **Medición, no a ojo:** en cada pantalla rediseñada, `uiautomator dump`
+  y chequeo de que todo nodo `clickable` mide ≥ 56dp de alto (en px, con
+  la densidad del emulador). Los resultados van a `app/build/logs/`.
+- **Letra grande del sistema:** se corre cada pantalla con escala de
+  fuente 1.0, 1.3 y 2.0 (`adb shell settings put system font_scale`). El
+  texto tiene que **crecer y partirse en líneas**, no recortarse, y ningún
+  botón puede quedar fuera de la pantalla sin forma de scrollear hasta él.
+- Cualquier cosa que se vea bonita pero reduzca una de estas dos
+  cosas se descarta. Es la regla que pusiste, y la tomo literal.
+
+**5.4. Contraste y modo oscuro.** Paleta calculada (2.2), con test que la
+vigila. Captura en oscuro de tres pantallas clave: Inicio, Vender y Perfil
+de clienta. Riesgo: el oro es lo más fácil de arruinar; está confinado a
+`OroBronce` (texto, 5.4–6:1) y `OroBrillo` (solo decoración).
+
+**5.5. El tiempo de alta rápida.** `CLAUDE.md` sección 6 exige < 20 s y 4 taps
+para registrar una pieza, y está medido sobre el diseño actual. Si el nuevo
+diseño mueve campos hacia abajo (campos más altos, más aire), puede haber
+que scrollear donde antes no. En el paso 4: **comparo la posición de
+«Guardar» y de cada campo antes/después**; si algo sale de la pantalla en
+un teléfono chico (360×640dp), se ajusta el espaciado, no se acepta. Si el
+cambio es material, **se vuelve a cronometrar** — con el entorno en reposo
+(sección 7.11: sin build corriendo, `adb shell top` ocioso); una medición
+tomada con contención no vale.
+
+**5.6. Peso de las fuentes y arranque.** 4 TTF dentro del APK; se mide y se
+anota. Sin red, sin carga diferida de fuente.
+
+**5.7. Efecto de `dynamicColor = false` en el teléfono de ella.** Si tiene
+Android 12 o más nuevo, **hoy la app ya se le ve con colores de su fondo de
+pantalla**, distinta a lo que ves vos. Después de esta ronda se ve igual en
+todos los teléfonos. Es el comportamiento buscado, pero es un cambio visible
+para ella sin que lo haya pedido: conviene avisarle.
+
+---
+
+## 6. Verificación al cerrar cada paso de pantalla
+
+1. `./gradlew assembleDebug` y `./gradlew testDebugUnitTest` (con `Bash` y
+   `./gradlew`, sección 7.12).
+2. Capturas **antes/después** en `app/build/screenshots/design-NN-*.png`.
+3. §7.10: ejercitar cada lista de verdad.
+4. Insets: 4 casos (tres botones/gestos × teclado) donde aplique.
+5. Letra 1.0 / 1.3 / 2.0.
+6. `uiautomator dump` → áreas táctiles ≥ 56dp, a `app/build/logs/`.
+7. Claro + oscuro en las 3 pantallas clave.
+8. Una línea por paso en `ESTADO.md`, con las rutas relativas de las
+   capturas y logs (no pegadas, sección 7.10).
+
+`adb` no está en el `PATH` de esta sesión; está en
+`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. Lo invoco con la ruta
+completa.
+
+---
+
+## 7. Qué decidí yo (reversibles)
+
+Nada de esto es irreversible y ninguno se ejecuta hasta que apruebes el plan:
+
+| Decisión | Alternativa |
+|---|---|
+| Esmeralda + oro sobre marfil | Granate + champán (descartada por 2.1) |
+| Se mantiene el tema oscuro | Forzar siempre claro: menos trabajo de verificación, pero cambia el comportamiento para quien tenga el teléfono en oscuro |
+| `dynamicColor` apagado | No hay alternativa compatible con tener identidad |
+| Sin `JoyeriaScaffold` envolvente | Un solo scaffold: más uniforme, pero riesgo de insets (3.2) |
+| Reglas en `CLAUDE.md` 6.1 + catálogo en `docs/DISENO.md` | Todo dentro de `CLAUDE.md`: más largo de leer siempre |
+| Un commit por paso (pasos 1 a 8), no uno solo | Un commit para toda la rama: más difícil de auditar y de revertir un paso que falle |
+| Íconos de Material actuales, sin dependencia | — |
+
+---
+
+## 8. Borrador de la sección nueva de `CLAUDE.md` (6.1)
+
+Se insertaría **después de la sección 6** como `6.1`, sin renumerar nada
+(el resto del archivo cita §7.10, §7.9, etc.). Todavía no está escrito en
+`CLAUDE.md`; este es el texto que propongo:
+
+> ## 6.1. Sistema de diseño
+>
+> La identidad visual (marfil, esmeralda, oro; serifa solo en títulos) vive
+> en `ui/theme/` y `ui/components/`. El catálogo completo está en
+> `docs/DISENO.md`. Estas son las reglas que no se rompen:
+>
+> - **Nada literal en una pantalla:** ningún `Color(0x…)`, ningún `sp`,
+>   ningún `RoundedCornerShape(Ndp)` suelto. Todo sale de `MaterialTheme` y
+>   de `Dimens`. Si falta un valor, se agrega al tema, no a la pantalla.
+> - **`dynamicColor` queda apagado.** Con él prendido la app toma los colores
+>   del fondo de pantalla y no hay identidad.
+> - **Ningún estilo de texto por debajo de 18sp**, incluidos etiquetas y notas
+>   (`labelLarge`, `bodySmall`…): lo vigila un test. Se diferencia por peso o
+>   color, no achicando.
+> - **Todo lo que se toca mide ≥ 56dp**, usando los componentes de
+>   `ui/components/`. **Prohibido `.height(Ndp)` fijo en algo con texto**:
+>   se usa `heightIn(min = …)`, para que crezca con la letra grande en vez de
+>   recortarla.
+> - **Un botón anclado al fondo se arma solo con `BottomActionBar`.** Un
+>   formulario que scrollea con teclado usa `imeAwareVerticalScroll`.
+>   Prohibido combinar `navigationBarsPadding()` con `imePadding()` (ver
+>   `ESTADO.md`, «Punto 2 — insets»).
+> - **Un color, un significado:** esmeralda = acción principal; oro =
+>   destacado; ladrillo = deuda, aviso o acción destructiva. El color **nunca
+>   es la única señal**: va con texto o ícono.
+> - **`OroBrillo` es decoración**, nunca texto ni un ícono que importe. Para
+>   texto dorado sobre claro se usa `OroBronce`.
+> - **La serifa solo en títulos de 24sp o más. El dinero siempre en la sans.**
+> - **Fuentes empaquetadas en `res/font/`**, nunca descargables (modo avión).
+> - **Toda pantalla nueva** arranca de `ui/components/` y agrega su
+>   `@Preview` en claro y oscuro. Si tiene una lista, aplican la regla de
+>   `key` con prefijo (sección 5) y §7.10.
+> - **Cambiar un color de la paleta** exige que el test de contraste siga en
+>   verde, y actualizar `docs/DISENO.md`.
+
+---
+
+## 9. Bloqueos — la ronda no arranca sin estas respuestas
+
+Todas juntas, como pediste. Ninguna se asume aprobada por silencio.
+
+1. **Aprobar (o corregir) la identidad:** paleta de 2.2, tipografía de
+   2.3, formas de 2.4. Es lo que pediste ver antes de aplicar nada. Si te
+   gusta la dirección pero no un color, decime cuál y lo ajusto antes de
+   escribir una línea.
+2. **Fuentes (Playfair Display + Nunito Sans, 4 archivos TTF, licencia
+   OFL).** Son archivos binarios nuevos dentro del proyecto: lo más
+   parecido a «agregar una dependencia» que tiene esta ronda, y la sección 2
+   lo prohíbe sin autorización. No toca Gradle (`libs.versions.toml` no
+   cambia, ninguna versión se mueve). ¿Autorizás? Si no, la alternativa es
+   el tipo de letra del sistema (Roboto): se pierde la serifa, que es lo que
+   más aporta al carácter, pero no hay archivos nuevos.
+3. **Las 4 claves de `LazyColumn` sin prefijo** (1.6): ¿las corrijo en el
+   paso 6, dentro de esta rama? Tocar una `key` es justo donde ya nos mordió
+   un bug, por eso no lo hago sin que lo pidas; con tu OK, cada una
+   se verifica con §7.10. Sin tu OK, las dejo como están y las anoto en
+   `ESTADO.md`.
+4. *(Opcional, no bloquea.)* ¿Querés que arme **una maqueta HTML de la
+   paleta y la escala** para verla en color antes de aprobar? Es una página
+   sola (no toca el repo) que renderiza el Inicio y una tarjeta con estos
+   colores y fuentes. Una tabla de hex dice poco de cómo se ve.
+5. *(Información, no bloquea.)* **¿Qué teléfono y qué versión de Android
+   tiene ella?** Define si `dynamicColor` hoy le cambia la app (5.7), y qué
+   tamaño de letra tiene el sistema; si ya la tiene en «grande», el caso de
+   2.0× deja de ser teórico.
+6. *(Etiqueta de cierre.)* El git del proyecto nombra los tags `fase-NN-ok`.
+   Esta ronda no es una fase. Propongo al terminar fusionar a `main` y poner
+   el tag `design-visual-identity-ok`. ¿Está bien, o preferís otro?
