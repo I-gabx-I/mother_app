@@ -3011,6 +3011,12 @@ El armado de esos textos vive en `OutgoingText`, puro y sin Android, y
 `catalogPriceText` delega en la misma función: **la regla tiene una sola
 definición.** Lo que ella lee en SU pantalla sigue con `format()`.
 
+**Las fechas, igual (Fase 13):** las líneas del estado de cuenta llevaban la fecha con
+`DateFormat.SHORT` del teléfono (`20/9/26` o `9/20/26`; `3/4/26` se lee marzo o abril
+según de dónde sea quien lo recibe). Ahora `OutgoingText.date()` usa siempre
+`dd/MM/yyyy`, como se escribe en Guatemala, con la zona horaria del teléfono (la misma
+con la que ella ve la fecha en su pantalla).
+
 ### Apariencia (no sale del tema de la app)
 
 El catálogo es una imagen que se manda a otra gente: sus colores viven en
@@ -3024,6 +3030,106 @@ completa, nunca recortada.
 de Android) y el dibujo usa `android.graphics`. `libs.versions.toml` no cambia.
 Único cambio de configuración: un `<provider>` en el manifiesto y
 `res/xml/file_paths.xml` (solo `cache/catalog/`).
+
+---
+
+## D-059 — Códigos de barras: ZXing también para leer; ML Kit descartado por su telemetría y el permiso `INTERNET`
+
+**Contexto:** Fase 13. El stack fijo de `CLAUDE.md` sección 2 decía «ML Kit Barcode Scanning
+(lectura), ZXing core (generación)». La sección 9 prohíbe «backend, red, analytics, crash
+reporting, publicidad o telemetría de cualquier tipo» y pedir permisos que no se usen; la
+sección 4 exige que la app funcione completa en modo avión. Las dos reglas se contradicen
+para ML Kit, y el humano resolvió el conflicto autorizando el cambio de stack (2026-10-19).
+
+**Evidencia (leída de los manifiestos y POM reales, no de memoria):**
+`com.google.mlkit:barcode-scanning:17.3.0` (la última en Google Maven; variante
+empaquetada: modelos en `assets/` y `libbarhopper_v3.so` por ABI, AAR de 9.9 MB; arm64
+4.9 MB, armeabi-v7a 3.2 MB, x86 y x86_64 ~6 MB) depende de `mlkit:common:18.11.0`, que
+depende de `transport-backend-cct:2.3.3` y `transport-runtime:2.2.6` (Google Data
+Transport). El manifiesto de `transport-backend-cct` declara **`android.permission.INTERNET`**
+y `ACCESS_NETWORK_STATE`; el de `transport-runtime` declara `JobInfoSchedulerService` y un
+receptor de alarmas que programan el envío de eventos en segundo plano. Es la tubería de
+telemetría de Google: la app habría pasado a pedir `INTERNET` y a programar envíos.
+
+**Decisión:** la lectura se hace con **ZXing core** (`com.google.zxing:core:3.5.4`, jar de
+Java de 610 KB, Apache 2.0, sin dependencias, que ya hacía falta para generar) y CameraX
+`ImageAnalysis` (ya en el proyecto). `ML Kit` sale de `CLAUDE.md` sección 2.
+
+**Por qué:** una dependencia que hay que amordazar es peor que no tenerla. ML Kit con la
+red cortada por manifiesto (`tools:node="remove"` sobre `INTERNET`, el servicio y el receptor)
+habría funcionado **hasta que una versión futura cambiara su manifiesto y nadie lo notara**;
+y deja corriendo componentes de telemetría que no pueden enviar. Si ZXing ya entra para
+generar, leer con él no suma nada.
+
+**El guardián se queda y es de cualquier dependencia, no solo de esta:**
+`NetworkPermissionTest` (`androidTest`) mira el paquete instalado, o sea el manifiesto
+fusionado, y falla si pide `INTERNET`. Verificado por mutación: con `INTERNET` agregado al
+manifiesto el test falla y lista los permisos que pide. Está en `CLAUDE.md` sección 9.
+
+**Lo que se pierde, dicho sin adornos:** ML Kit lee mejor códigos chicos, borrosos o inclinados.
+ZXing lee de forma aceptable lo que medimos (ver D-060), con menos margen. Mitigación: el
+escáner analiza a 1080p, prueba el cuadro girado 90° y tiene linterna, y siempre queda el
+campo de búsqueda para tipear el código que está escrito en letras debajo de las barras.
+
+**Descartado:** ML Kit con el manifiesto recortado (arriba); ML Kit no empaquetado (descarga
+el modelo por Google Play Services: red); `camera-mlkit-vision` (mismo ML Kit por dentro).
+
+**Dependencia nueva (sección 2):** `com.google.zxing:core:3.5.4`, versión verificada en
+`maven-metadata.xml` de Maven Central; sin dependencias transitivas; Java 8, compatible con
+`minSdk 24`. No se movió ninguna versión de la línea base.
+
+---
+
+## D-060 — Etiquetas con código de barras: el tipo no recibe montos, 38 × 16 mm, módulo de 0.254 mm y PDF vectorial
+
+**Contexto:** Fase 13. D-003: el código codifica el `uid`, nunca el precio. Misma idea que
+`SaleLineInput` (D-045) y `CatalogItem` (D-058): que sea estructural.
+
+**La garantía estructural:**
+- `ProductUid` (value class, constructor privado): la única puerta es `parse`, que solo
+  acepta `XP-` y 6 o más dígitos. **Un monto (`Q90.00`, `9000`) no se puede construir** como código.
+- `BarcodeLabel(uid: ProductUid)`: único campo. El generador (`Code128Encoder`) y la hoja
+  (`LabelSheetPdf`) solo reciben `BarcodeLabel`: lo que se codifica y el texto legible debajo
+  son `uid.value`. `LabelPiece` (la pantalla) y `LabelRow` (la consulta) tampoco tienen ningún monto.
+- Cerrojos: `BarcodeLabelTest` y `ProductDaoUidLookupTest.labelRow_columnsHaveNoMoneyAtAll`
+  fijan el conjunto exacto de campos; `ProductUidTest` prueba que los montos no se construyen.
+
+**Tamaño (medido):** `XP-000042` ocupa **112 módulos** en Code128 (ZXing usa el juego B para
+`XP-` y el C para los seis dígitos; 123 con 7 dígitos). **Módulo de 0.254 mm** (1/100 de pulgada):
+3 puntos a 300 dpi, 6 a 600, 12 a 1200, así que las barras salen de ancho parejo. Barras de
+28.4 mm + zonas de silencio de 10 módulos = 33.5 mm. **Etiqueta de 38 × 16 mm**, 4 columnas
+× 14 filas = 56 por hoja Carta (la de Guatemala), grilla centrada; barras de 8 mm de alto y el
+código en letras debajo. Medidas definitivas pendientes de lo que use ella (`LabelSheetSpec`).
+
+**Qué se verificó y qué no:**
+- Rasterizando el PDF de 60 etiquetas como lo haría una impresora y leyendo cada una con el
+  mismo `BarcodeDecoder` de la cámara: **a 300 dpi 60 de 60; a 600 dpi 60 de 60**
+  (`LabelSheetPdfScanTest`, emulador). **A 203 dpi 0 de 60:** 0.254 mm son 2.03 puntos, que no
+  es un número entero, y las barras salen de anchos irregulares. **Una impresora térmica de
+  etiquetas de 203 dpi no sirve con este módulo** (necesitaría 0.246 mm = 2 puntos). Un test
+  fija que el módulo sea entero a 300, 600 y 1200 dpi.
+- El mínimo de ZXing medido con un spike (reducción más desenfoque): lee desde 1.75 píxeles por
+  módulo con desenfoque moderado y desde 2 con desenfoque fuerte. Una cámara a ~10 cm con
+  análisis a 1080p da ~3.5 px/módulo (a 720p, ~2.3): el escáner fija **1080p**.
+- **NO se verificó** impreso en papel ni con la óptica real de la cámara. Para eso está la
+  **hoja de prueba** (regla de 50 mm y el código a cuatro módulos: 0.200, 0.254, 0.300, 0.350 mm).
+
+**PDF vectorial, no imagen:** las barras son rectángulos, nítidas a cualquier resolución, y el
+módulo es exacto; el PDF de 8 etiquetas pesa decenas de KB. Se imprime con `PrintManager`
+(sin permisos) o se comparte por el selector de Android.
+
+**Permiso de cámara compartido (`CameraPermissionGate`):** ya otorgado, abre directo; si no,
+**explicación primero y el diálogo del sistema recién al tocar «Permitir la cámara»**; negado
+una vez, reintento; negado para siempre, «Abrir ajustes» (el alta rápida tenía un callejón sin
+salida: el botón no hacía nada). Android otorga el permiso a la app, no a una función: lo que
+acepte en el alta rápida vale para el escáner y viceversa. Verificado en el emulador. Un bug que
+encontró esa verificación: la 2.ª negación no cambia ningún estado de Compose, así que la
+pantalla no se recalculaba y seguía mostrando «todavía puede intentar»; se arregló con un
+contador de respuestas (el test puro de la máquina de estados no podía verlo).
+
+**Dónde se escanea:** el botón va en la búsqueda de Inventario (abre la pieza) y en el selector de
+piezas de Vender (la agrega al carrito; sin existencias, avisa), no en Inicio. Un código ajeno,
+inexistente o de una pieza archivada tiene su mensaje y no cierra ni tira la app.
 
 ---
 

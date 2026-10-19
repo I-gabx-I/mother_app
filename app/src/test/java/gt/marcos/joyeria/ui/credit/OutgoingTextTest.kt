@@ -77,6 +77,33 @@ class OutgoingTextTest {
         assertThat(total).isEqualTo("Saldo total: Q12,345.67")
     }
 
+    private val oct19of2026 = java.util.GregorianCalendar(java.util.TimeZone.getTimeZone("UTC")).apply {
+        clear(); set(2026, java.util.Calendar.OCTOBER, 19, 12, 0)
+    }.timeInMillis
+    private val utc = java.util.TimeZone.getTimeZone("UTC")
+
+    @Test
+    fun date_whenDeviceLocaleIsSpanishSpain_isDayMonthYear() {
+        assertThat(withDeviceLocale(spanishSpain) { OutgoingText.date(oct19of2026, utc) }).isEqualTo("19/10/2026")
+    }
+
+    @Test
+    fun date_whenDeviceLocaleIsUnitedStates_isStillDayMonthYear() {
+        // Con DateFormat.SHORT en en-US salía 10/19/26: la clienta lo leería como mes/día.
+        assertThat(withDeviceLocale(Locale.US) { OutgoingText.date(oct19of2026, utc) }).isEqualTo("19/10/2026")
+    }
+
+    @Test
+    fun date_whenDeviceLocaleIsArabicEgypt_stillUsesAsciiDigits() {
+        assertThat(withDeviceLocale(arabicEgypt) { OutgoingText.date(oct19of2026, utc) }).isEqualTo("19/10/2026")
+    }
+
+    @Test
+    fun date_padsSingleDigitDayAndMonthWithZero() {
+        val march5 = java.util.GregorianCalendar(utc).apply { clear(); set(2026, java.util.Calendar.MARCH, 5, 12, 0) }.timeInMillis
+        assertThat(OutgoingText.date(march5, utc)).isEqualTo("05/03/2026")
+    }
+
     @Test
     fun statementTotal_whenDeviceLocaleIsArabicEgypt_stillUsesAsciiDigits() {
         val total = withDeviceLocale(arabicEgypt) { OutgoingText.statementTotal(totalTemplate, Money(1234567)) }

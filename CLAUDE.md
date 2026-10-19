@@ -35,7 +35,7 @@ No cambies, no sustituyas, no agregues alternativas sin autorización explícita
 | DI | Hilt |
 | Async | Coroutines + Flow |
 | Imágenes | CameraX (captura) + Coil (carga) |
-| Códigos de barras | ML Kit Barcode Scanning (lectura), ZXing core (generación) |
+| Códigos de barras | ZXing core (generación **y lectura**; la lectura con CameraX `ImageAnalysis`). ML Kit se descartó: ver D-059 |
 | Tests | JUnit4 + Truth + Turbine + Room in-memory |
 | Build | Gradle Kotlin DSL + version catalog (`libs.versions.toml`) |
 
@@ -563,6 +563,7 @@ se vuelve imposible y el proyecto se cae.
 - ❌ Adelantar trabajo de fases futuras "porque ya que estamos"
 - ❌ Inventar campos o tablas que no están en `ESQUEMA.md`
 - ❌ Backend, red, analytics, crash reporting, publicidad o telemetría de cualquier tipo
+- ❌ Una dependencia que traiga el permiso `INTERNET` o una tubería de envío de datos (telemetría de un SDK incluida). **Lo vigila `NetworkPermissionTest`** (`androidTest`): mira el manifiesto fusionado de lo instalado y falla si el paquete pide `INTERNET`, venga de donde venga. Si falla, la dependencia no entra; no se la «amordaza» por manifiesto (D-059)
 - ❌ Pedir permisos de Android que no se usen en la fase actual
 
 ---

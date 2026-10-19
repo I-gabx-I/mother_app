@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import gt.marcos.joyeria.ui.barcode.LabelsRoute
 import gt.marcos.joyeria.ui.catalog.CatalogRoute
 import gt.marcos.joyeria.ui.credit.CustomerProfileRoute
 import gt.marcos.joyeria.ui.credit.CustomersRoute
@@ -37,6 +38,9 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
                 onReportsClick = { navController.navigate(JoyeriaDestination.Reports.route) },
                 onCatalogClick = { navController.navigate(JoyeriaDestination.Catalog.route) },
             )
+        }
+        composable(JoyeriaDestination.Labels.route) {
+            LabelsRoute(onBackClick = { navController.popBackStack() })
         }
         composable(JoyeriaDestination.Catalog.route) {
             CatalogRoute(onBackClick = { navController.popBackStack() })
@@ -93,6 +97,7 @@ fun JoyeriaNavHost(navController: NavHostController = rememberNavController()) {
                     navController.navigate(JoyeriaDestination.ProductEdit.createRoute(productId))
                 },
                 onManageCategoriesClick = { navController.navigate(JoyeriaDestination.Categories.route) },
+                onLabelsClick = { navController.navigate(JoyeriaDestination.Labels.route) },
                 onBackClick = { navController.popBackStack() },
             )
         }

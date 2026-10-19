@@ -61,8 +61,10 @@ fun ProductListScreen(
     onCategorySelected: (Long?) -> Unit,
     onProductClick: (Long) -> Unit,
     onManageCategoriesClick: () -> Unit,
+    onLabelsClick: () -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
+    searchTrailingIcon: (@Composable () -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -75,7 +77,7 @@ fun ProductListScreen(
                     }
                 },
                 actions = {
-                    ProductListOverflowMenu(onManageCategoriesClick = onManageCategoriesClick)
+                    ProductListOverflowMenu(onManageCategoriesClick = onManageCategoriesClick, onLabelsClick = onLabelsClick)
                 },
             )
         },
@@ -90,6 +92,7 @@ fun ProductListScreen(
                     onValueChange = onQueryChange,
                     label = { Text(stringResource(R.string.product_list_search_placeholder)) },
                     singleLine = true,
+                    trailingIcon = searchTrailingIcon,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 CategoryFilterDropdown(
@@ -164,12 +167,12 @@ private fun CategoryFilterDropdown(
 }
 
 /**
- * Único ítem hoy ("Categorías", Fase 09) -- administrar categorías es de
+ * Dos ítems ("Categorías", Fase 09, y "Etiquetas", Fase 13) -- administrar categorías es de
  * baja frecuencia y vive donde ella ya está mirando categorías (el
  * filtro), no como botón grande en el inicio (CLAUDE.md sección 6).
  */
 @Composable
-private fun ProductListOverflowMenu(onManageCategoriesClick: () -> Unit) {
+private fun ProductListOverflowMenu(onManageCategoriesClick: () -> Unit, onLabelsClick: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.product_list_menu))
@@ -180,6 +183,13 @@ private fun ProductListOverflowMenu(onManageCategoriesClick: () -> Unit) {
             onClick = {
                 expanded = false
                 onManageCategoriesClick()
+            },
+        )
+        JoyeriaDropdownMenuItem(
+            text = { Text(stringResource(R.string.labels_menu_item)) },
+            onClick = {
+                expanded = false
+                onLabelsClick()
             },
         )
     }
@@ -263,6 +273,7 @@ private fun ProductListScreenPreview() {
             onCategorySelected = {},
             onProductClick = {},
             onManageCategoriesClick = {},
+            onLabelsClick = {},
             onBackClick = {},
         )
     }

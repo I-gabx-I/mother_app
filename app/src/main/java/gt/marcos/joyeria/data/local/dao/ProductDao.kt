@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import gt.marcos.joyeria.data.local.entity.ProductEntity
+import gt.marcos.joyeria.domain.barcode.UidLookup
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -39,6 +40,19 @@ data class CatalogRow(
     val categoryName: String?,
     val photoPath: String?,
     val salePriceCents: Long,
+)
+
+/**
+ * Una pieza para la hoja de etiquetas de la Fase 13: **sin ningún monto** (ni precio
+ * ni costo). Las columnas se listan a mano en `observeLabelRows`, igual que
+ * `CatalogRow`: la etiqueta solo lleva el código de la pieza (D-003, D-060).
+ */
+data class LabelRow(
+    val id: Long,
+    val uid: String,
+    val name: String,
+    val categoryName: String?,
+    val photoPath: String?,
 )
 
 @Dao
@@ -110,4 +124,25 @@ interface ProductDao {
         """,
     )
     fun observeCatalogRows(): Flow<List<CatalogRow>>
+
+    // Fase 13: qué hay detrás de un código escaneado. Devuelve el estado (archivada,
+    // existencias) y no decide nada: `ScanResolver` decide. Una sola columna de
+    // identidad, `uid` (índice único).
+    @Query("SELECT id AS productId, archived AS archived, stock_qty AS stockQty FROM product WHERE uid = :uid")
+    suspend fun findByUid(uid: String): UidLookup?
+
+    // Fase 13: las piezas a las que se les puede imprimir etiqueta -- las activas, con
+    // las más nuevas primero (la pieza que acaba de cargar es la que más se etiqueta).
+    // Columnas a mano: ninguna es un monto (ver `LabelRow`).
+    @Query(
+        """
+        SELECT product.id AS id, product.uid AS uid, product.name AS name,
+               category.name AS categoryName, product.photo_path AS photoPath
+        FROM product
+        LEFT JOIN category ON category.id = product.category_id
+        WHERE product.archived = 0
+        ORDER BY product.id DESC
+        """,
+    )
+    fun observeLabelRows(): Flow<List<LabelRow>>
 }

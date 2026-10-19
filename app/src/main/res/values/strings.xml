@@ -17,8 +17,41 @@
     <string name="add_product_saved_confirmation">Guardada como %1$s</string>
     <string name="add_product_default_name">Pieza sin nombre</string>
     <string name="add_product_camera_permission_rationale">Necesitamos usar tu cámara para tomar la foto de la pieza.</string>
-    <string name="add_product_camera_permission_denied">No se puede tomar la foto sin permiso de cámara. Tocá de nuevo para intentarlo.</string>
-    <string name="add_product_camera_cancel">Cancelar</string>
+    <!-- Fase 13: etiquetas con código de barras -->
+    <string name="labels_title">Etiquetas</string>
+    <string name="labels_hint">Elegí las piezas y se arma una hoja de etiquetas para imprimir. Cada etiqueta lleva solo el código de la pieza, nunca el precio.</string>
+    <string name="labels_empty">Todavía no tenés piezas para etiquetar.</string>
+    <string name="labels_print">Imprimir etiquetas</string>
+    <string name="labels_share">Compartir PDF</string>
+    <string name="labels_working">Armando la hoja…</string>
+    <string name="labels_error">No se pudo armar la hoja de etiquetas. Probá de nuevo.</string>
+    <string name="labels_test_sheet">Imprimir una hoja de prueba (para revisar el tamaño)</string>
+    <string name="labels_print_job">Etiquetas de piezas</string>
+    <string name="labels_share_chooser">Compartir hoja de etiquetas</string>
+    <string name="labels_menu_item">Etiquetas</string>
+    <!-- Se dibujan DENTRO del PDF de la hoja de prueba -->
+    <string name="labels_test_title">Hoja de prueba de etiquetas</string>
+    <string name="labels_test_ruler">Esta línea tiene que medir exactamente 50 mm. Si mide menos o más, la impresora cambió el tamaño de la hoja.</string>
+    <string name="labels_test_instructions">Imprimila en tamaño real, sin «ajustar a la página». Escaneá cada código con la app y anotá el más chico que lee bien.</string>
+    <string name="labels_test_module">Módulo %1$s mm</string>
+    <string name="labels_test_module_real">Módulo %1$s mm (el de las etiquetas)</string>
+    <!-- Fase 13: escáner de códigos de barras -->
+    <string name="scanner_button_description">Escanear el código de una pieza</string>
+    <string name="scanner_permission_explanation">Para leer el código de la etiqueta, la app necesita usar la cámara. No guarda ni envía ninguna foto.</string>
+    <string name="scanner_hint">Apuntá la cámara al código de la etiqueta</string>
+    <string name="scanner_close">Cerrar</string>
+    <string name="scanner_torch_on">Prender la luz</string>
+    <string name="scanner_torch_off">Apagar la luz</string>
+    <string name="scanner_not_a_piece">Ese código no es de una de tus piezas.</string>
+    <string name="scanner_not_found">No encontré la pieza %1$s en tu inventario.</string>
+    <string name="scanner_archived">Esa pieza está archivada: ya no está en tu inventario.</string>
+    <string name="scanner_no_stock">Esa pieza no tiene existencias para vender.</string>
+    <!-- Permiso de cámara compartido (foto de la pieza y escáner) -->
+    <string name="camera_permission_allow">Permitir la cámara</string>
+    <string name="camera_permission_denied">No podemos usar la cámara sin tu permiso. Podés permitirla cuando quieras.</string>
+    <string name="camera_permission_denied_for_good">Dijiste que no a la cámara. Para usarla, activala en los ajustes de la app.</string>
+    <string name="camera_permission_open_settings">Abrir ajustes</string>
+    <string name="camera_permission_dismiss">Ahora no</string>
     <string name="add_product_category_label">Categoría</string>
     <string name="add_product_category_none">Sin categoría</string>
 

@@ -609,17 +609,21 @@ corregir ninguna.
 
 **Objetivo:** encontrar una pieza al instante escaneando su etiqueta.
 
+**Archivos permitidos (aprobados por el humano el 2026-10-19):** `app/src/main/java/**/domain/barcode/**`, `app/src/main/java/**/data/repository/BarcodeRepository.kt`, `app/src/main/java/**/data/local/dao/ProductDao.kt` (solo las consultas y proyecciones de códigos), `app/src/main/java/**/ui/barcode/**`, `app/src/main/java/**/ui/permission/**`, `app/src/main/java/**/ui/product/add/CameraCaptureView.kt` (pasa a usar el componente compartido de permiso: arregla el callejón sin salida), `app/src/main/java/**/ui/product/list/**` y `app/src/main/java/**/ui/sale/**` (solo el botón de escanear en la búsqueda), `app/src/main/java/**/ui/credit/**` (solo el formato fijo de las fechas de los textos que salen), `app/src/main/java/**/ui/navigation/**`, `app/src/main/res/xml/file_paths.xml`, `strings.xml`, `gradle/libs.versions.toml` y `app/build.gradle.kts` (solo `zxing`), `app/src/test/java/**`, `app/src/androidTest/java/**`. Sin cambio de esquema de Room. **ML Kit se descartó** (D-059): la lectura es con ZXing.
+
 **Entregable:**
-- Generar imagen Code128 que codifica **el `uid`, nunca el precio**.
-- Hoja de etiquetas imprimible (varias por página).
-- Escaneo con ML Kit que abre la pieza correspondiente.
+- Generar el Code128 que codifica **el `uid`, nunca el precio**; el tipo que lo genera no tiene por dónde recibir un monto (D-060).
+- Hoja de etiquetas imprimible (varias por página): PDF vectorial en hoja Carta, etiquetas de 38 × 16 mm, desde el menú de Inventario; más una hoja de prueba para comprobar el tamaño con la impresora.
+- Escaneo con ZXing y CameraX `ImageAnalysis`, en la búsqueda de Inventario (abre la pieza) y en el selector de piezas de Vender (la agrega al carrito).
 - Si se escanea un código desconocido, mensaje claro, sin crash.
+- Las fechas de los textos que viajan a otro teléfono quedan fijas en `dd/MM/yyyy`.
 
 **Criterios de aceptación:**
 1. Build y tests pasan.
 2. **[TESTS OBLIGATORIOS]** Test: el contenido codificado es exactamente el `uid` y no contiene ningún monto.
 3. Test de round-trip: generar el código de `XP-000042` y decodificarlo devuelve `XP-000042`.
 4. Permiso de cámara solicitado solo al entrar al escáner, con explicación en español.
+5. **[TESTS OBLIGATORIOS]** `NetworkPermissionTest` (`androidTest`): el paquete instalado no pide `INTERNET`. Guardián de la sección 9 de `CLAUDE.md` para cualquier dependencia, no solo para esta.
 
 **Commit:** `fase-13: barcode labels and scanning` → tag `fase-13-ok`
 

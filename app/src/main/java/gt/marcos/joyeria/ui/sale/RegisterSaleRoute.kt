@@ -5,6 +5,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import gt.marcos.joyeria.ui.barcode.BarcodeScanButton
+import androidx.compose.ui.res.stringResource
+import gt.marcos.joyeria.R
 
 /** Borde delgado entre navegación/Hilt y `RegisterSaleScreen` (CLAUDE.md sección 5). */
 @Composable
@@ -33,5 +36,18 @@ fun RegisterSaleRoute(
         onNewCustomerConfirmed = viewModel::onNewCustomerConfirmed,
         onInitialPaymentChange = viewModel::onInitialPaymentChanged,
         modifier = modifier,
+        // Escanear la etiqueta de una pieza la agrega al carrito: es donde ella busca
+        // por código cuando está vendiendo. Sin existencias no se puede vender.
+        searchTrailingIcon = {
+            val noStock = stringResource(R.string.scanner_no_stock)
+            BarcodeScanButton(onFound = { found ->
+                if (found.stockQty > 0) {
+                    viewModel.onProductSelected(found.productId)
+                    null
+                } else {
+                    noStock
+                }
+            })
+        },
     )
 }

@@ -5,4 +5,8 @@
     <cache-path
         name="catalog"
         path="catalog/" />
+    <!-- Fase 13: el PDF de etiquetas que se comparte. -->
+    <cache-path
+        name="labels"
+        path="labels/" />
 </paths>

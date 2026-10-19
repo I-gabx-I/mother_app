@@ -10142,3 +10142,98 @@ Mutación, como en la Fase 12: agregar un campo a `BarcodeLabel` y hacer que `pa
 ## 9. Orden de trabajo una vez aprobada
 
 1. Dependencia ZXing → `assembleDebug`. 2. Dominio (`ProductUid`, `BarcodeLabel`) y encoder con sus tests. 3. Dependencia ML Kit **con el manifiesto recortado** → `assembleDebug` → compuerta de la sección 1 (permiso, lectura sin red, base de eventos). **Si la compuerta falla se frena y se consulta.** 4. `CameraPermissionGate`. 5. Escáner. 6. Hoja de etiquetas, PDF e impresión. 7. Verificación en el emulador (`adb devices` antes; `verification/`). 8. `DECISIONES.md`, `FASES.md`, cierre.
+
+
+---
+
+## Fase 13 — Códigos de barras
+
+**Inicio:** 2026-10-19
+**Cierre:** 2026-10-19
+**Commit:** `fase-13: barcode labels and scanning` (un solo commit sobre el del plan, sin tag todavía — paro antes del tag)
+
+### Qué se hizo
+
+Aprobaste los cinco bloqueos del plan: **ZXing también para leer** (ML Kit fuera de `CLAUDE.md`
+sección 2, con mi hallazgo del permiso `INTERNET` como evidencia: D-059), la lista de archivos
+(sin la compuerta de recorte, que ya no hace falta), etiqueta de 38 × 16 mm en hoja Carta, la
+prueba impresa a cargo tuyo, y el botón de escanear en la búsqueda de Inventario y en el
+selector de piezas de Vender. Pediste además las fechas fijas en `dd/MM/yyyy`.
+
+- **Dominio** (`domain/barcode/`): `ProductUid` (un monto no se puede construir como código),
+  `BarcodeLabel(uid)` (único campo), `LabelPiece`, `ScanResolver`/`ScanResult` (cuatro salidas,
+  ninguna es excepción), `LabelSheetSpec` (la geometría de la hoja).
+- **Datos:** `ProductDao.findByUid()` y `observeLabelRows()` (columnas a mano, sin ningún monto),
+  `BarcodeRepository`.
+- **Código de barras** (`ui/barcode/`): `Code128Encoder` y `BarcodeDecoder` (ZXing, Kotlin puro,
+  prueba también el cuadro girado 90°), `BarcodeScannerOverlay` (CameraX `ImageAnalysis` a 1080p,
+  linterna, libera la cámara al salir), `BarcodeScanButton` (el botón y su ventana), `LabelSheetPdf`
+  (PDF vectorial + hoja de prueba), `LabelOutput` (imprimir con `PrintManager` y compartir),
+  pantalla de etiquetas con su `ViewModel`.
+- **Permiso compartido** (`ui/permission/`): `CameraPermissionGate`; el alta rápida
+  (`CameraCaptureView`) pasó a usarlo.
+- **Integración:** icono de escanear en la búsqueda de Inventario (abre la pieza) y de Vender (la
+  agrega al carrito; sin existencias avisa); «Etiquetas» en el menú de Inventario.
+- **Dependencia nueva:** `com.google.zxing:core:3.5.4` (verificada en Maven Central; D-059). Sin
+  cambio de esquema, sin tocar la línea base, **sin ningún permiso nuevo**.
+- **Fechas:** `OutgoingText.date()` fija `dd/MM/yyyy` en el estado de cuenta compartido (4 tests).
+
+### Criterios de aceptación
+
+| # | Criterio | Resultado |
+|---|---|---|
+| 1 | Build y tests pasan | ✅ **368 tests, 0 fallos** (307 + 61 nuevos) y, en el emulador, 4 de `androidTest` verdes |
+| 2 | **[TESTS OBLIGATORIOS]** lo codificado es exactamente el `uid`, sin monto | ✅ Estructural: `ProductUid` no deja construir un monto y `BarcodeLabel` tiene un solo campo (`BarcodeLabelTest`, `ProductUidTest`). Valores: `Code128RoundTripTest.encodedContent_isExactlyTheUidAndNothingElse` |
+| 3 | Round-trip: generar `XP-000042` y decodificar devuelve `XP-000042` | ✅ `roundTrip_XP000042_decodesToItself` y, además, **los 1,999 códigos de `XP-000001` a `XP-001999`**, el de 7 dígitos, a 2 px/módulo y con el cuadro girado 90° |
+| 4 | Permiso de cámara solo al entrar al escáner, con explicación en español | ✅ Verificado en el emulador: **la explicación sale primero y el diálogo del sistema recién al tocar «Permitir la cámara»** (`verification/screenshots/fase13-01..02`) |
+| 5 | (agregado) `NetworkPermissionTest`: el paquete no pide `INTERNET` | ✅ Pasa. **Mutación:** con `INTERNET` agregado al manifiesto falla y lista los permisos que pide (trajo también `ACCESS_NETWORK_STATE`); restaurado |
+
+### El tamaño de la etiqueta, y qué se pudo y qué no se pudo verificar
+
+- 38 × 16 mm, módulo **0.254 mm**, 112 módulos, 4 × 14 = 56 etiquetas por hoja Carta (D-060).
+- **Impreso a ese tamaño, simulado:** se rasteriza el PDF de 60 etiquetas como una impresora y cada una se lee con el mismo decodificador de la cámara: **300 dpi → 60 de 60; 600 dpi → 60 de 60** (`verification/logs/fase13-instrumented.txt`).
+- **203 dpi → 0 de 60.** Hallazgo: 0.254 mm son 2.03 puntos, que no es entero, y las barras salen de ancho irregular. **Una impresora térmica de etiquetas de 203 dpi no sirve con este módulo** (necesitaría 0.246 mm = 2 puntos). Un test fija que el módulo sea entero a 300, 600 y 1200 dpi. No es tu caso (hoja Carta adhesiva), pero conviene saberlo si algún día cambia la impresora.
+- **No pude imprimir ni escanear papel real.** Falta la óptica de la cámara y el papel. Por eso la pantalla de etiquetas trae **«Imprimir una hoja de prueba»**: una regla de 50 mm (si no mide 50 mm, la impresora escaló la hoja) y el mismo código a cuatro módulos (0.200, 0.254, 0.300, 0.350 mm). **Esa prueba la hacés vos** (bloqueo 1).
+
+### Verificación manual en el emulador (`verification/`, `adb devices` antes: solo `emulator-5554`)
+
+- **Permiso** (`fase13-01..06`): explicación primero; «No permitir» una vez → mensaje con reintento;
+  dos veces → **«Abrir ajustes»** (antes el botón no hacía nada); otorgado desde afuera, al volver
+  el escáner abre con la vista previa de la cámara. El alta rápida (`fase13-14..15`) hace lo mismo y
+  «Ahora no» vuelve al formulario.
+- **Etiquetas** (`fase13-07..12`): lista, búsqueda por código, «Elegir/Quitar las que se ven»
+  simétricos (8 → 7 con búsqueda activa), vista previa de impresión del sistema con las 8
+  etiquetas en hoja Carta, la hoja de prueba, letra 1.3× y 2.0× (ningún botón < 56dp), y los 4
+  casos de insets (los botones quedan sobre la barra y sobre el teclado).
+- **Vender** (`fase13-13`): el icono de escanear abre el escáner y «Cerrar» vuelve.
+- Sin ningún `FATAL`. **El teléfono físico no se tocó.**
+
+### Hallazgos
+
+1. **ML Kit** (D-059): arrastra `transport-backend-cct` (permiso `INTERNET`) y un `JobService` de telemetría. Descartado; ZXing lee.
+2. **Alta rápida sin salida** (Fase 03): si ella negaba el permiso dos veces el botón no hacía nada. Arreglado con el componente compartido.
+3. **Un bug que solo apareció mirando el emulador:** la segunda negación no cambia ningún estado de Compose, así que la pantalla no se recalculaba y seguía mostrando «todavía puede intentar». Se corrigió con un contador de respuestas; el test puro de la máquina de estados no podía verlo (D-060).
+4. `pm revoke` mata el proceso de la app, y las pruebas instrumentadas desinstalan la app y borran sus datos (ya está en `CLAUDE.md` 7.13).
+
+### Lo que NO está verificado
+
+- **Escanear una etiqueta real con la cámara real.** En el emulador la cámara es una escena virtual sin códigos. Está probado el decodificador (JVM, con cuadros a 2–4 px/módulo y girados), el PDF rasterizado a 300/600 dpi, el permiso y que el escáner abre y cierra. **No está ejercitado en el dispositivo el camino «leyó una pieza → abre la edición / la agrega al carrito»**: la decisión es `ScanResolver` (probado con sus cuatro salidas) y el cableado de Inventario y Vender compila, pero nadie lo recorrió con un código leído.
+- Impresión en papel (arriba), y el rendimiento del decodificador en un teléfono real (cada cuadro se prueba derecho y girado).
+
+### Suposiciones que tomé
+
+- «Etiquetas» lista las piezas **activas** aunque no tengan existencias (se reimprime una etiqueta de una pieza que volvió), las más nuevas primero.
+- Una pieza archivada escaneada avisa «ya no está en tu inventario» y no se abre.
+- El escáner de Vender se cierra solo al agregar la pieza; si no tiene existencias muestra el aviso y sigue abierto.
+
+### Lo que NO hice
+
+- No toqué `design/visual-identity` ni la deuda de la Fase 15 (las alturas fijas).
+- No pude medir la linterna (el emulador no tiene flash): el botón solo aparece si el teléfono tiene.
+- No arreglé que `CameraCaptureOverlay` (foto de la pieza) no suelta la cámara al cerrar (pre-existente; el escáner sí la suelta con `unbindAll`).
+
+### Bloqueos / preguntas para el humano
+
+1. **Tu prueba impresa:** imprimí la hoja de prueba en tamaño real («sin ajustar a la página»), comprobá que la línea mide 50 mm y escaneá con la app cada módulo; decime el más chico que lee bien. Con eso se confirma o se ajusta el tamaño (hoy 0.254 mm).
+2. Cuando sepas con qué imprime, decime el modelo/medida de la hoja de etiquetas adhesivas (`LabelSheetSpec` se ajusta).
+3. **Falta el tag** (`fase-13-ok`): lo ponés vos.

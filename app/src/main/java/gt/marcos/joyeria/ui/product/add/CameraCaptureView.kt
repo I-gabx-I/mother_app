@@ -1,11 +1,7 @@
 package gt.marcos.joyeria.ui.product.add
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -13,25 +9,18 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.ui.permission.CameraPermissionGate
 
 /**
  * Pantalla completa (superpuesta sobre `AddProductScreen`) que pide el
@@ -56,65 +46,16 @@ fun CameraCaptureOverlay(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    var hasPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    var permissionDenied by remember { mutableStateOf(false) }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        hasPermission = granted
-        permissionDenied = !granted
-    }
-
-    LaunchedEffect(Unit) {
-        if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
-    }
-
-    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.9f)) {
-        if (hasPermission) {
-            CameraPreviewWithShutter(onImageCaptured = onImageCaptured)
-        } else {
-            PermissionRationale(
-                denied = permissionDenied,
-                onRetry = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                onDismiss = onDismiss,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PermissionRationale(denied: Boolean, onRetry: () -> Unit, onDismiss: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
+    // El permiso, la explicación y la salida viven en CameraPermissionGate, compartido
+    // con el escáner de códigos: antes el diálogo salía apenas se abría esta pantalla
+    // y, si ella lo negaba dos veces, el botón no hacía nada y no había salida.
+    CameraPermissionGate(
+        explanation = stringResource(R.string.add_product_camera_permission_rationale),
+        onDismiss = onDismiss,
+        modifier = modifier,
     ) {
-        Text(
-            text = stringResource(R.string.add_product_camera_permission_rationale),
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        if (denied) {
-            Text(
-                text = stringResource(R.string.add_product_camera_permission_denied),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-        }
-        Button(onClick = onRetry, modifier = Modifier.padding(top = 24.dp)) {
-            Text(stringResource(R.string.add_product_take_photo))
-        }
-        Button(onClick = onDismiss, modifier = Modifier.padding(top = 8.dp)) {
-            Text(stringResource(R.string.add_product_camera_cancel))
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.9f)) {
+            CameraPreviewWithShutter(onImageCaptured = onImageCaptured)
         }
     }
 }

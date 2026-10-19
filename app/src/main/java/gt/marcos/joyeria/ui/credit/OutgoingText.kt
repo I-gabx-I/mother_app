@@ -2,7 +2,10 @@ package gt.marcos.joyeria.ui.credit
 
 import gt.marcos.joyeria.domain.model.Money
 import gt.marcos.joyeria.ui.format.formatForOtherPhone
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Los textos de la Fase 10 que **salen del teléfono de ella hacia el de otra
@@ -27,6 +30,17 @@ internal object OutgoingText {
     /** `template` lleva `%1$s` (fecha), `%2$s` (total de la venta) y `%3$s` (saldo). */
     fun statementLine(template: String, date: String, total: Money, balance: Money): String =
         String.format(Locale.ROOT, template, date, total.formatForOtherPhone(), balance.formatForOtherPhone())
+
+    /**
+     * La fecha de una línea del estado de cuenta, siempre `dd/MM/yyyy` (como se
+     * escribe en Guatemala), sin importar el idioma del teléfono de ella: con
+     * `DateFormat.SHORT` salía `20/9/26` o `9/20/26` según el teléfono, y
+     * `3/4/26` se lee marzo o abril según de dónde sea quien lo recibe. Mismo
+     * criterio que los montos (D-058). La zona horaria es la del teléfono, la
+     * misma con la que ella ve la fecha en su pantalla.
+     */
+    fun date(millis: Long, timeZone: TimeZone = TimeZone.getDefault()): String =
+        SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply { this.timeZone = timeZone }.format(Date(millis))
 
     /** `template` lleva `%1$s` (saldo total). */
     fun statementTotal(template: String, totalBalance: Money): String =

@@ -43,4 +43,6 @@ sealed class JoyeriaDestination(val route: String) {
     data object Reports : JoyeriaDestination("reports")
     /** Catálogo compartible (Fase 12), enlace chico desde el inicio, como Reportes. */
     data object Catalog : JoyeriaDestination("catalog")
+    /** Hoja de etiquetas con código de barras (Fase 13), desde el menú de Inventario. */
+    data object Labels : JoyeriaDestination("labels")
 }

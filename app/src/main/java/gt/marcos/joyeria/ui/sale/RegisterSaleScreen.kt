@@ -80,6 +80,7 @@ fun RegisterSaleScreen(
     onNewCustomerConfirmed: (name: String, phone: String?) -> Unit,
     onInitialPaymentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    searchTrailingIcon: (@Composable () -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -185,6 +186,7 @@ fun RegisterSaleScreen(
                     onValueChange = onQueryChange,
                     label = { Text(stringResource(R.string.product_list_search_placeholder)) },
                     singleLine = true,
+                    trailingIcon = searchTrailingIcon,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

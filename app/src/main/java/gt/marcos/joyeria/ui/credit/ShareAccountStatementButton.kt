@@ -16,8 +16,6 @@ import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.SaleAccountStatement
 import gt.marcos.joyeria.domain.model.Money
-import java.text.DateFormat
-import java.util.Date
 
 /**
  * "Compartir estado de cuenta" (entregable de Fase 10, FASES.md): texto
@@ -44,7 +42,7 @@ fun ShareAccountStatementButton(
     val lines = statements.map { statement ->
         OutgoingText.statementLine(
             template = lineTemplate,
-            date = formatDate(statement.soldAt),
+            date = OutgoingText.date(statement.soldAt),
             total = statement.total - statement.discount,
             balance = statement.balance,
         )
@@ -79,5 +77,3 @@ fun ShareAccountStatementButton(
     }
 }
 
-private fun formatDate(millis: Long): String =
-    DateFormat.getDateInstance(DateFormat.SHORT).format(Date(millis))
