@@ -3037,7 +3037,7 @@ real de la app y consultarla con `sqlite3` local, **no asumiendo** el
 resultado de ninguna acción sobre datos.
 
 Todos los logs (`ui*.xml`, `crash-check.log`) y capturas de esta
-verificación quedaron en `app/build/logs/` y `app/build/screenshots/`
+verificación quedaron en `verification/logs/` *(archivo perdido por un `gradlew clean`, 2026-10-19)* y `verification/screenshots/` *(archivo perdido por un `gradlew clean`, 2026-10-19)*
 respectivamente (regla nueva de `CLAUDE.md` sección 7, punto 10 —
 ignorados por git, no se commitean).
 
@@ -3047,19 +3047,19 @@ La base ya traía **XP-000001** ("Pieza sin nombre", cargado por la usuaria
 real durante la prueba de Fase 03, costo Q40,009.97/precio Q80,020.00 —
 valores reales que ella tipeó, no datos de prueba míos). Abrí Inventario
 sin tocar nada más:
-`app/build/screenshots/02-inventory-list.png` — el listado muestra esa
+`verification/screenshots/02-inventory-list.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)* — el listado muestra esa
 pieza con foto, nombre, uid, stock y ganancia calculada, correctamente.
 Agregué dos piezas más por el flujo real de "Agregar pieza" (foto con
 CameraX, costo, precio, nombre y categoría desde "Más detalles") —
 **XP-000002** "Aretes luna" (categoría Aretes) y **XP-000003** "Anillo
 sol" (categoría Anillos) — y el listado con las tres:
-`app/build/screenshots/18-inventory-3items.png`. ✅
+`verification/screenshots/18-inventory-3items.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. ✅
 
 ### 2. Búsqueda por nombre
 
 Escribí "anillo" (minúscula) en "Buscar por nombre o código": filtra a una
-sola pieza, "Anillo sol" (XP-000003) — `app/build/screenshots/21-search-anillo.png`,
-confirmado también con `uiautomator dump` (`app/build/logs/ui35.xml`).
+sola pieza, "Anillo sol" (XP-000003) — `verification/screenshots/21-search-anillo.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*,
+confirmado también con `uiautomator dump` (`verification/logs/ui35.xml` *(archivo perdido por un `gradlew clean`, 2026-10-19)*).
 Búsqueda case-insensitive: el nombre real es "Anillo sol" con mayúscula,
 la búsqueda en minúscula lo encontró igual (`LIKE` de SQLite es
 case-insensitive para ASCII, tal como está la consulta en
@@ -3068,7 +3068,7 @@ case-insensitive para ASCII, tal como está la consulta en
 ### 3. Búsqueda por código (uid)
 
 Escribí "xp-000002" (minúscula): filtra a una sola pieza, "Aretes luna"
-(XP-000002) — `app/build/screenshots/23-search-uid-exact.png`. Con el
+(XP-000002) — `verification/screenshots/23-search-uid-exact.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. Con el
 prefijo parcial "xp-00000" (sin el dígito final) coincidieron las tres
 piezas (las tres empiezan igual), confirmando que es una búsqueda por
 substring, no exacta — comportamiento esperado de `LIKE` con comodines a
@@ -3078,14 +3078,14 @@ ambos lados. ✅
 
 Con el selector de categoría en "Aretes": el listado se reduce a una sola
 pieza, "Aretes luna" — excluye "Anillo sol" (categoría Anillos) y "Pieza
-sin nombre" (sin categoría) — `app/build/screenshots/24-filter-aretes.png`.
+sin nombre" (sin categoría) — `verification/screenshots/24-filter-aretes.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*.
 ✅
 
 ### 5. Editar el precio inserta una fila en price_history (verificado consultando la tabla, no asumido)
 
 Entré al detalle de "Aretes luna" (Costo Q30.00, Precio Q960.00 antes del
 cambio), cambié el precio y guardé. Extraje la base real de la app
-(`app/build/logs/db-dumps/joyeria.db`, con su -wal/-shm, porque Room usa
+(`verification/logs/db-dumps/joyeria.db` *(archivo perdido por un `gradlew clean`, 2026-10-19)*, con su -wal/-shm, porque Room usa
 WAL y el cambio recién escrito puede no estar aún en el archivo principal
 si no se hace checkpoint) y corrí sqlite3 directo:
 
@@ -3106,11 +3106,11 @@ acción, no una inferencia de lo que la pantalla mostraba. ✅
 Desde el detalle de "Aretes luna" toqué "Archivar pieza": apareció el
 diálogo de confirmación exigido por CLAUDE.md sección 6 (texto claro, en
 español, diciendo exactamente qué va a pasar) —
-`app/build/screenshots/27-archive-confirm.png`: "¿Archivar esta pieza? Ya
+`verification/screenshots/27-archive-confirm.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*: "¿Archivar esta pieza? Ya
 no va a aparecer en el inventario ni se va a poder vender. No se borra:
 el historial de esta pieza queda guardado." Confirmé, y el listado (con
 el filtro de categoría limpio) quedó con solo dos piezas —
-`app/build/screenshots/29-list-after-archive.png`. Verificado en la base
+`verification/screenshots/29-list-after-archive.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. Verificado en la base
 real:
 
 ```
@@ -3129,10 +3129,10 @@ product en el flujo real. ✅
 ### 7. Navegación sin crash
 
 Listado → detalle ("Anillo sol") → atrás: vuelve al listado sin crash
-(`app/build/logs/ui53.xml` → `ui54.xml`). Alta rápida → atrás: probado
+(`verification/logs/ui53.xml` *(archivo perdido por un `gradlew clean`, 2026-10-19)* → `ui54.xml`). Alta rápida → atrás: probado
 varias veces durante la carga de los tres productos, siempre volvió a
 Inventario u Home sin problema. Revisé el logcat completo de toda la
-sesión (`app/build/logs/crash-check.log`) filtrando FATAL EXCEPTION y
+sesión (`verification/logs/crash-check.log` *(archivo perdido por un `gradlew clean`, 2026-10-19)*) filtrando FATAL EXCEPTION y
 AndroidRuntime: las únicas apariciones son del propio proceso uiautomator
 arrancando y parando (esperado, es la herramienta que usé para
 inspeccionar la UI), ninguna del proceso de la app. El PID de
@@ -3179,8 +3179,8 @@ final de la sesión — el proceso nunca murió ni se reinició. ✅
 
 ### Archivos tocados en esta verificación
 
-Ninguno de código. Se generaron app/build/logs/** y
-app/build/screenshots/** (ambos bajo build/, ignorados por git, no se
+Ninguno de código. Se generaron verification/logs/** *(archivo perdido por un `gradlew clean`, 2026-10-19)* y
+verification/screenshots/** *(archivo perdido por un `gradlew clean`, 2026-10-19)* (ambos bajo build/, ignorados por git, no se
 commitean — regla nueva de CLAUDE.md sección 7, punto 10).
 
 ### Resultado
@@ -3259,7 +3259,7 @@ reserva algo que interfiera es el tipo de cosa que a veces se comporta
 distinto de lo que predice la teoría. Plan de verificación una vez
 implementado: instalar en el emulador, abrir "Agregar pieza", tocar el
 campo de costo, capturar con el teclado abierto
-(`app/build/screenshots/`), confirmar visualmente que el campo y el
+(`verification/screenshots/` *(archivo perdido por un `gradlew clean`, 2026-10-19)*), confirmar visualmente que el campo y el
 dígito que se está tecleando quedan arriba del teclado, y repetir para el
 campo de precio de venta. Si el primer intento no alcanza, ajusto el
 modifier (por ejemplo `contentWindowInsets = WindowInsets(0)` en el
@@ -3439,7 +3439,7 @@ al contenedor que scrollea.
   (`ui/product/add/`), `FilterChip` de Material3 por categoría,
   `Modifier.heightIn(min = 56.dp)` y texto en `bodyLarge` (18sp) para
   cumplir CLAUDE.md sección 6 — verificado visualmente en el emulador
-  (`app/build/screenshots/fix-01-*.png` en adelante), no se ve roto, solo
+  (`verification/screenshots/fix-01-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)* en adelante), no se ve roto, solo
   más alto que un chip de Material3 estándar. Sin preselección, sin
   opción "sin categoría".
 - **`AddProductUiState`:** `quantityText` por defecto `"1"` (antes `""`);
@@ -3463,32 +3463,32 @@ al contenedor que scrollea.
 ### Verificación real en emulador (teclado abierto, las dos pantallas)
 
 Emulador `Medium_Phone_API_35`, instalación limpia del APK con este fix.
-Todas las capturas en `app/build/screenshots/` (ignoradas por git, regla
+Todas las capturas en `verification/screenshots/` *(archivo perdido por un `gradlew clean`, 2026-10-19)* (ignoradas por git, regla
 de `CLAUDE.md` sección 7 punto 10).
 
 1. **Alta rápida, campo Costo:** tapeado el campo, tecleado "4599" con el
    teclado abierto — `Costo: Q45.99` y `Precio de venta: Q95.00`
    (sugerido en vivo) quedan **completos y legibles arriba del
-   teclado** — `app/build/screenshots/fix-01-cost-field-ime-open.png`. ✅
+   teclado** — `verification/screenshots/fix-01-cost-field-ime-open.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. ✅
 2. **Alta rápida, campo Precio de venta:** mismo tapeado, tecleado
    "12345" — `Q9,500,134.52` con el cursor visible, arriba del
-   teclado — `app/build/screenshots/fix-02-price-field-ime-open.png`. ✅
+   teclado — `verification/screenshots/fix-02-price-field-ime-open.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. ✅
 3. **Flujo completo de alta, con categoría obligatoria:** foto real
    tomada con la cámara del emulador (permiso de cámara concedido en el
    diálogo real, "While using the app"), costo Q30.00, precio sugerido
    Q60.00/ganancia Q30.00 en vivo, chip "Anillos" tocado y confirmado
    `checked="true"` en el dump de accesibilidad, Guardar tocado →
    "Guardada como XP-000001" —
-   `app/build/screenshots/fix-03-saved-confirmation.png`. Confirmado
+   `verification/screenshots/fix-03-saved-confirmation.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. Confirmado
    además en la base real extraída del dispositivo
-   (`app/build/logs/db-dumps/joyeria.db`):
+   (`verification/logs/db-dumps/joyeria.db` *(archivo perdido por un `gradlew clean`, 2026-10-19)*):
    `1|XP-000001|Pieza sin nombre|3000|6000|1|...` (`category_id = 1`,
    Anillos). ✅
 4. **Edición, campo Precio de venta:** abierto el detalle de XP-000001,
    tapeado "Precio de venta", tecleado "9999" con el teclado abierto —
    `Q600,099.99` con el cursor visible, completo arriba del teclado,
    mismo comportamiento que en alta rápida —
-   `app/build/screenshots/fix-04-edit-price-field-ime-open.png`. ✅ (los
+   `verification/screenshots/fix-04-edit-price-field-ime-open.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. ✅ (los
    cambios de esta prueba de edición no se guardaron, se salió sin
    tocar "Guardar cambios" — XP-000001 sigue con sus valores
    originales.)
@@ -3497,8 +3497,8 @@ de `CLAUDE.md` sección 7 punto 10).
    chip de categoría, el botón "Guardar" queda deshabilitado —
    confirmado no por apariencia sino leyendo el árbol de accesibilidad:
    el nodo clickeable que envuelve el botón reporta `enabled="false"`
-   (`app/build/logs/ui_nosel.xml`) —
-   `app/build/screenshots/fix-07-save-disabled-without-category.png`. ✅
+   (`verification/logs/ui_nosel.xml` *(archivo perdido por un `gradlew clean`, 2026-10-19)*) —
+   `verification/screenshots/fix-07-save-disabled-without-category.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*. ✅
 
 ### Incidente durante la verificación: ANR del emulador (no es un bug de la app)
 
@@ -4237,7 +4237,7 @@ aplicó a `MoneyDigitsInputTest`). Un test por fila de la tabla del punto
 - `./gradlew assembleDebug` y `testDebugUnitTest` en verde.
 - Confirmar en el emulador que el campo de costo/precio abre teclado
   numérico con tecla decimal (no el de letras) en las dos pantallas —
-  captura en `app/build/screenshots/`, como pide `CLAUDE.md` sección 7.
+  captura en `verification/screenshots/` *(archivo perdido por un `gradlew clean`, 2026-10-19)*, como pide `CLAUDE.md` sección 7.
 - Escribir a mano "20,50" y "20.999" en el campo de costo de alta rápida
   y confirmar visualmente: el primero calcula sugerido/ganancia con
   normalidad, el segundo deja "Guardar" deshabilitado y no crashea.
@@ -4393,7 +4393,7 @@ del buffer de dígitos (punto 1 de arriba).
 | 6 | Escribir con coma, letra por letra, sin perder el decimal | `money-field-04-comma-2050.png` (alta rápida: "20,50"), `money-field-12-edit-comma-3375.png` (edición: "33,75") | ✅ la coma queda tal cual se tecleó, sin perder ningún carácter |
 | 7 | Cálculo correcto a partir de una coma | `money-field-05-suggested-price-prefill.png`: costo "20,50" → sugerido "Q45.00", ganancia "Q24.50" | ✅ `parseMoneyToCents` interpreta la coma igual que el punto |
 
-Capturas en `app/build/screenshots/money-field-01...15...*.png`
+Capturas en `verification/screenshots/money-field-01...15...*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*
 (referenciadas arriba y abajo por nombre).
 
 ### Verificación contra la base de datos (pedida antes del commit)
@@ -4404,7 +4404,7 @@ base real de la app con `adb exec-out run-as gt.marcos.joyeria cat
 databases/joyeria.db{,-wal,-shm}` (Room usa WAL, sin el `-wal` el
 cambio recién escrito puede no estar en el archivo principal) y
 consultarla con `sqlite3` local. Salidas en
-`app/build/logs/db-dumps/money-field/product-after-add.txt` y
+`verification/logs/db-dumps/money-field/product-after-add.txt` *(archivo perdido por un `gradlew clean`, 2026-10-19)* y
 `product-after-edit.txt`.
 
 **Alta rápida, costo tecleado "20,50" (con coma), letra por letra**
@@ -4727,7 +4727,7 @@ razón): `ui/navigation/**`, `app/src/androidTest/**` (D-034),
 2. Instalado ese APK en el emulador, **fresco** (sin datos previos).
    Cargada una pieza real por el flujo de "Agregar pieza": foto,
    costo, precio, categoría → guardada como `XP-000001`
-   (`app/build/screenshots/fase05-migration-0{1-6}*.png`).
+   (`verification/screenshots/fase05-migration-0{1-6}*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*).
 3. `adb install -r` del APK **nuevo** (esta rama, schema versión 2)
    **encima**, sin desinstalar — `Success`, sin que Android rechace
    el upgrade.
@@ -4736,7 +4736,7 @@ razón): `ui/navigation/**`, `app/src/androidTest/**` (D-034),
    precio y ganancia intactos (`fase05-migration-08-*.png`), y
    "Registrar compra" ya visible (la pantalla nueva de esta fase).
 5. Base real extraída con `adb exec-out run-as ... cat databases/`
-   (`app/build/logs/db-dumps/fase05-migration/post-migration-check.txt`):
+   (`verification/logs/db-dumps/fase05-migration/post-migration-check.txt` *(archivo perdido por un `gradlew clean`, 2026-10-19)*):
    `product` con los mismos valores guardados en el paso 2;
    `price_history` con las columnas nuevas en el esquema
    (`PRAGMA table_info`); `app_setting` con `min_margin_bp = 2500`
@@ -5349,7 +5349,7 @@ hecha en Fase 05.
 
 Total: 125 tests, 0 fallos (95 de Fase 05 + 30 nuevos).
 
-### Verificación manual en el emulador (con capturas, `app/build/screenshots/fase06-*.png`)
+### Verificación manual en el emulador (con capturas, `verification/screenshots/fase06-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*)
 
 Protocolo igual al de Fases 03/05: build real instalada, interacción
 por `adb input`/`uiautomator dump` para coordenadas exactas, capturas
@@ -5484,7 +5484,7 @@ El humano encontró dos bugs reales y una inconsistencia menor:
    `TodaySalesViewModel.onCancelConfirm()` es quien decide "ahora",
    mismo patrón que `RegisterSaleViewModel.save()` ya usa.
 
-**Verificación manual repetida tras el fix** (`app/build/screenshots/fase06-fix-*.png`):
+**Verificación manual repetida tras el fix** (`verification/screenshots/fase06-fix-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*):
 venta real registrada y anulada de nuevo con la build corregida,
 tocando la sugerencia "Devolución" en el diálogo (el campo se llena
 con el texto exacto, sigue editable) y confirmando. Verificado en la
@@ -5996,7 +5996,7 @@ abono inicial que excede el total, `canSave` con las dos ramas) y de
 cualquier estado puro nuevo de `ui/credit/`.
 
 ### Verificación manual planeada (antes de cerrar, con capturas en
-`app/build/screenshots/fase07-*.png`, protocolo igual a Fases 03/05/06)
+`verification/screenshots/fase07-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*, protocolo igual a Fases 03/05/06)
 
 - Alta de clienta (nombre solo, después con teléfono).
 - Venta a crédito completa: elegir contado→crédito, elegir clienta
@@ -6273,7 +6273,7 @@ omisión.
 
 Total: **159 tests, 0 fallos** (127 de Fase 06 + 32 nuevos).
 
-### Verificación manual en el emulador (con capturas, `app/build/screenshots/fase07-*.png`)
+### Verificación manual en el emulador (con capturas, `verification/screenshots/fase07-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*)
 
 Protocolo igual a Fases 03/05/06, con una corrección de método: los
 primeros intentos de tapear por coordenadas estimadas a ojo desde la
@@ -6630,7 +6630,7 @@ inset inferior del contenido a partir de la **altura medida** del
 
 ### Verificación (sección 7.10 de `CLAUDE.md`)
 
-Capturas en los dos modos, guardadas en `app/build/screenshots/`:
+Capturas en los dos modos, guardadas en `verification/screenshots/` *(archivo perdido por un `gradlew clean`, 2026-10-19)*:
 
 - gestos: `adb shell cmd overlay enable com.android.internal.systemui.navbar.gestural`
 - tres botones: `adb shell cmd overlay enable com.android.internal.systemui.navbar.threebutton`
@@ -7098,7 +7098,7 @@ misma pieza producía la clave repetida en los dos. Resuelto con prefijos
 
 Ni el compilador ni los 188 tests lo vieron. Lo encontró correr la app y
 tocar el botón — exactamente la clase de bug que la regla nueva describe.
-Traza completa en `app/build/logs/fix-feedback-crash.txt`.
+Traza completa en `verification/logs/fix-feedback-crash.txt` *(archivo perdido por un `gradlew clean`, 2026-10-19)*.
 
 ## Punto 2 — insets (verificado en los dos modos)
 
@@ -7112,7 +7112,7 @@ Arreglado con un solo modificador:
 No `.navigationBarsPadding().imePadding()`, que duplicarían el padding con
 el teclado abierto.
 
-Capturas (`app/build/screenshots/`):
+Capturas (`verification/screenshots/` *(archivo perdido por un `gradlew clean`, 2026-10-19)*):
 
 | Archivo | Qué muestra |
 |---|---|
@@ -8308,7 +8308,7 @@ entrando y saliendo varias veces:
    vuelta a Inventario, al perfil de edición y a Home, en toda la sesión
    de arriba.
 
-Capturas completas en `app/build/screenshots/fase09-*.png` (39 archivos;
+Capturas completas en `verification/screenshots/fase09-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)* (39 archivos;
 las intermedias son del propio proceso de apuntar coordenadas a mano en
 `adb shell input tap`, no hallazgos — las 9 listadas arriba son las que
 importan).
@@ -8653,7 +8653,7 @@ verificar de punta a punta lo que le importa a esta fase:
    del perfil; "Compartir estado de cuenta" se queda (no depende del
    teléfono). Captura: `fase10-41-no-phone.png`.
 
-Capturas completas en `app/build/screenshots/fase10-*.png` (41 archivos;
+Capturas completas en `verification/screenshots/fase10-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)* (41 archivos;
 varias son reintentos por coordenadas mal calculadas al automatizar los
 taps con `adb shell input tap`, no hallazgos del producto).
 
@@ -9184,8 +9184,8 @@ de `CANCELLED`, la frontera de mes (la única venta de octubre quedó del
 lado correcto) y la suma de las tres ventas vivas para
 `capitalRecuperado`.
 
-Capturas en `app/build/screenshots/fase11-*.png`; consultas y
-resultado completo en `app/build/logs/joyeria-fase11-verify.db` (copia
+Capturas en `verification/screenshots/fase11-*.png` *(archivo perdido por un `gradlew clean`, 2026-10-19)*; consultas y
+resultado completo en `verification/logs/joyeria-fase11-verify.db` *(archivo perdido por un `gradlew clean`, 2026-10-19)* (copia
 de la base real al momento de la verificación, para quien quiera
 repetir la consulta).
 
@@ -9222,3 +9222,248 @@ Ninguna nueva.
 ### Bloqueos / preguntas para el humano
 
 Ninguno. **Falta el tag** (`fase-11-ok`) — lo ponés vos.
+
+
+---
+
+# fix/design-debt — hacer cumplir tres reglas que ya existían (2026-10-19)
+
+Rama `fix/design-debt`, abierta desde `main` (`fase-11-ok`). Un solo commit.
+La ronda de diseño completa (`design/visual-identity`, plan en esa rama)
+queda **pausada**. Esto no toca paleta, tipografía ni formas: solo cumple
+reglas de `CLAUDE.md` que ya estaban escritas, antes de las pantallas nuevas
+de las fases 12 y 13.
+
+## Plan (corto)
+
+1. **`dynamicColor` apagado** en `Theme.kt`. Se borró el parámetro y la rama
+   de color dinámico (no queda código muerto). Se fija el esquema que ya
+   existía (`LightColorScheme`/`DarkColorScheme`, sin cambiar un solo color):
+   la app se ve igual en todos los teléfonos.
+2. **`labelLarge` a 18sp en el tema** (`Type.kt`), confirmado primero en el
+   emulador. Un solo lugar, ninguna pantalla editada para esto.
+3. **Botón de 48dp** de `CustomerProfileScreen` ("Registrar pago") a 56dp, y
+   **las 4 claves de lista sin prefijo** (`CLAUDE.md` sección 5).
+
+## 2 — Confirmación en el emulador (antes de tocar nada)
+
+Emulador `Medium_Phone_API_35`, 1080x2400, 420 dpi (2.625 px/dp), letra 1.0×.
+Se midió el alto del nodo de texto de cada botón con `uiautomator dump`
+(el alto de un nodo de texto es su interlínea):
+
+| Texto | Alto medido | Interlínea | Estilo |
+|---|---|---|---|
+| «Inventario» y los otros 4 enlaces de Inicio | 53px = 20.2dp | 20sp | `labelLarge` de Material 3: **14sp** |
+| «Vender», «Agregar pieza» (referencia) | 63px = 24.0dp | 24sp | `titleMedium`: 16sp |
+
+**Confirmado**: los 5 enlaces de Inicio estaban en 14sp. Después del cambio
+los mismos nodos miden 63px = 24.0dp de interlínea (18sp). Archivos:
+`verification/logs/design-debt-regen-before-home.txt`,
+`verification/logs/design-debt-regen-after-home.txt`,
+`verification/screenshots/design-debt-regen-before-home.png`,
+`verification/screenshots/design-debt-regen-after-home.png`.
+
+## Un hallazgo que no estaba en tu lista y arreglé (mismo tipo: 48dp)
+
+Midiendo Inicio aparecieron **dos botones de 48dp**, no uno: «Agregar pieza»
+(`.height(64.dp).padding(top = 16.dp)`) e «Inventario»
+(`.height(56.dp).padding(top = 8.dp)`). El `padding` iba **después** del
+`height` fijo, así que se comía 16dp y 8dp del alto: medían 126px = 48dp.
+Se cambió el orden (`padding` antes de `height`). Después: «Agregar pieza»
+168px = 64dp e «Inventario» 147px = 56dp. «Vender» no cambió (64dp). Los demás
+sitios con `.height(Ndp)` no tienen el problema (el `height` es el último
+modificador). Es un cambio de dos líneas en `HomeScreen.kt`; si preferís que
+no esté en este commit, se revierte aparte.
+
+## 3 — Claves y botón
+
+| Archivo | Antes | Después |
+|---|---|---|
+| `ProductListScreen:113` | `it.id` | `"product-${it.id}"` |
+| `TodaySalesScreen:100` | `it.id` | `"sale-${it.id}"` |
+| `CustomersScreen:215` | `it.customerId` | `"debt-${it.customerId}"` |
+| `CustomersScreen:296` | `it.id` | `"customer-${it.id}"` |
+| `CustomerProfileScreen:386` | `.height(48.dp)` | `.height(56.dp)` |
+
+Las cuatro claves llevan `$` (el bug de Fase 08): verificado con `grep` sobre
+los 10 sitios `items`/`itemsIndexed` del proyecto; los 10 quedan con prefijo.
+Los prefijos no chocan con los de otras secciones del mismo `LazyColumn`.
+
+## Verificación (§7.10, datos reales en el emulador)
+
+`./gradlew assembleDebug testDebugUnitTest`: compila, **251 tests, 0 fallos,
+0 errores**. Después, en el emulador, con 2 o más filas por lista y sin
+ningún `FATAL` en `logcat -b crash` en toda la sesión:
+
+| Lista | Agregar | Quitar | Salir y volver |
+|---|---|---|---|
+| Inventario (`product-`) | pieza XP-000003 (2 filas) | archivar XP-000002 | ✅ queda 1 fila, sin crash |
+| Ventas de hoy (`sale-`) | 2 ventas de contado (2 filas) | anular una | ✅ queda 1 fila, sin crash |
+| Todas las clientas (`customer-`) | «Rosa» (2 filas) | archivar «Rosa» | ✅ |
+| Quién me debe (`debt-`) | venta a crédito a «Lucia» (2 filas) | abono total desde su perfil | ✅ queda «Dona Maria» |
+
+El botón «Registrar pago» del perfil mide 56dp (nodo `[1206,1353]`, 147px).
+Con letra del sistema 2.0×, Inicio y un diálogo de dos botones se acomodan sin
+recortes (`design-debt-sweep-font2.0-home.png`, `design-debt-sweep-font2.0-dialogo.png`); la
+escala se devolvió a 1.0.
+
+Capturas y logs de esta ronda: ver la sección «Capturas y logs: qué se perdió»
+más abajo. **Los archivos que nombra esta sección se regeneraron** (los
+originales se borraron); el estado de las listas tras agregar/quitar se
+describe en la tabla de arriba y **no tiene captura**.
+
+## Capturas y logs: qué se perdió (error mío, 2026-10-19)
+
+**Corrí `./gradlew clean`, que borra `app/build/`. Ahí vivían, por la sección
+7.10 de `CLAUDE.md`, `app/build/screenshots/` y `app/build/logs/`.** Como
+git ignora `app/build/`, **no hay copia en el repo y no se pueden recuperar
+desde git**; tampoco hay puntos de restauración de Windows que lo cubran.
+Se perdió **todo** lo que había ahí: las capturas y logs de las fases 03 a
+11, de `fix-insets-*`, de la ronda de corrección de uso real y de la primera
+mitad de esta rama. **Quedan 38 rutas distintas de `ESTADO.md` apuntando a
+archivos que ya no existen** (el texto de cada fase sigue describiendo lo
+que mostraban, pero la evidencia en sí no está). **No hay copia y se decidió
+que no importa:** esa evidencia servía para aprobar cada fase en su momento,
+y eso ya pasó; lo que perdura es el texto de qué se midió y qué dio. Cada
+ruta rota quedó apuntando a la ubicación nueva (`verification/`, ver «Ronda
+3») con una nota al lado que dice que el archivo se perdió y por qué.
+Los de las fases 03 a 11 y de las rondas de corrección entre ellas se
+perdieron todos.
+
+Lo que sí regeneré (en `verification/`, ver «Ronda 3»), de esta rama, compilando el commit anterior (`e2132da`) en
+una carpeta aparte y midiendo en el mismo emulador, con el mismo método:
+
+| Archivo | Qué prueba |
+|---|---|
+| `verification/logs/design-debt-regen-before-home.txt`, `…-after-home.txt` | alto de cada nodo de texto de Inicio y botones < 56dp, antes y después |
+| `verification/screenshots/design-debt-regen-before-home.png`, `…-after-home.png` | Inicio antes y después |
+| `verification/screenshots/design-debt-regen-before-tabs-font2.png` | pestañas del commit anterior con letra 2.0× **sin diálogo encima** |
+| `verification/logs/design-debt-sweep.txt` + `design-debt-sweep-*.png` | barrido de 17 pantallas y diálogos: áreas táctiles < 56dp |
+| `verification/logs/design-debt-fonts.txt` + `design-debt-sweep-font*.png` | lo mismo con letra 1.3× y 2.0× |
+| `verification/logs/design-debt-edge-tap.txt` | toque real a 26dp del centro de «Volver» |
+
+**Qué NO se regeneró:** la evidencia de las demás fases y la de agregar/quitar
+en las 4 listas de la primera mitad. El arreglo de fondo (dónde viven los
+artefactos de verificación) está en «Ronda 3».
+
+## Ronda 2 (mismo commit, por `--amend`) — lo que pediste después
+
+Decidiste que el cambio de Inicio se queda y que se adelantan las dos cosas
+que propuse. Hecho, con tres hallazgos que cambian cómo se hace.
+
+### Corrección de algo que afirmé mal
+
+En la sección anterior dije que **con letra 2.0× las pestañas de Clientes
+quedaban «cortadas»**. **Era falso.** Mi captura tenía un diálogo abierto
+encima, y lo que parecía recortado era el diálogo tapando la segunda línea.
+Con el commit anterior y letra 2.0× **sin** diálogo
+(`design-debt-regen-before-tabs-font2.png`), las pestañas **crecen y parten el
+texto en dos líneas**: no hay recorte. El problema real y medido era solo que
+medían 14sp (menos que el piso de 18sp). Se arregló igual, pero **no era el
+«bug de accesibilidad» de recorte** que dije.
+
+### 1. Piso de 56dp en el tema: no alcanza con `LocalMinimumInteractiveComponentSize`
+
+Con solo ese valor en `JoyeriaTheme`, el barrido siguió midiendo **48dp** en la
+barra superior, los diálogos y las pestañas. Leyendo el código de Material 3
+1.4.0 (`Surface.kt`, `IconButton.kt`): ese valor agranda **el espacio que ocupa**
+el componente, pero el `clickable` queda adentro con su tamaño visual, y la zona
+que responde al toque la extiende Compose hasta `minimumTouchTargetSize` de
+`ViewConfiguration`, que también es 48dp. Sin tocar el segundo, el componente se
+ve de 56dp en el layout y **el anillo de afuera de los 48dp no responde**.
+Por eso `ui/theme/TouchTargetFloor.kt` fija **los dos**, y `JoyeriaTheme` lo usa.
+
+Prueba funcional (no solo el reporte de `uiautomator`):
+`verification/logs/design-debt-edge-tap.txt` — un toque a 26dp del centro de
+«Volver» (fuera de los 24dp que había antes, dentro de los 28dp de ahora)
+**respondió**.
+
+Lo que el tema no alcanza, y cómo se resolvió:
+
+| Caso | Por qué no alcanza | Solución |
+|---|---|---|
+| `AlertDialog` (12 sitios en 9 archivos) | un diálogo es otra ventana y **reinicia** `ViewConfiguration`: pierde el segundo valor | `JoyeriaAlertDialog` (mismo archivo), reemplazo mecánico de los 12 sitios |
+| `DropdownMenuItem` (8 sitios en 4 archivos) | Material le fija 48dp de alto mínimo | `JoyeriaDropdownMenuItem` con `heightIn(min = MinTouchTarget)` |
+| `Tab` (2, `CustomersScreen`) | Material le fija 48dp | `Modifier.heightIn(min = MinTouchTarget)` |
+| `DatePickerDialog` (1, `RegisterPurchaseScreen`) | mismo caso que el diálogo | `TouchTargetFloor { }` en sus dos botones |
+| **Calendario (`DatePicker`)** | **Excepción**: ver abajo | vuelve a 48dp, dentro del propio `DatePicker` |
+
+**El piso de 56dp rompía el calendario** (esto es lo que pediste verificar de
+los diálogos). Con `LocalMinimumInteractiveComponentSize = 56.dp` heredado, las
+7 columnas del calendario suman 392dp, no caben, y **la columna del sábado
+quedaba fuera de la pantalla**. Capturado y visto antes de arreglarlo. Se
+resolvió dejando el `DatePicker` (grilla y encabezado) en 48dp, **única excepción
+al piso**, documentada en `CLAUDE.md` 6. Por eso en el barrido el `datepicker`
+muestra 35 nodos de 48dp: todos son el calendario; «Cancelar» y «Aceptar»
+miden 56dp.
+
+### 2. `titleSmall` a 18sp (pestañas)
+
+Una entrada en `Type.kt`, como pediste. Verificado con letra 1.0×, 1.3× y 2.0×:
+las pestañas miden ≥ 56dp en los tres casos, caben en una línea a 1.0× y a 2.0×
+crecen a dos líneas sin recorte (`design-debt-sweep-font2.0-tabs.png`).
+
+### 3. Reglas en `CLAUDE.md`
+
+- **Sección 6:** el piso de 56dp está fijado en el tema (los dos valores, por qué
+  hacen falta los dos, que nadie lo pisa con un `Modifier.size`/`height`/`width`
+  local, `JoyeriaAlertDialog`/`JoyeriaDropdownMenuItem`/`TouchTargetFloor`, el
+  caso `Tab`, la excepción del calendario y que se verifica midiendo). Más el
+  piso de 18sp fijado en el tema, con la **excepción de las etiquetas flotantes
+  de los campos** (decisión tuya: texto secundario, y tocarlas puede afectar a
+  los campos de dinero).
+- **Sección 7, punto 13 (nuevo):** toda verificación manual va en el emulador,
+  nunca en el teléfono físico de la usuaria; con más de un dispositivo, todo
+  `adb` lleva `-s emulator-5554`.
+- **Sección 7.10:** al principio de esta ronda propuse prohibir `clean`; se
+  reemplazó por el arreglo de verdad (ver «Ronda 3»).
+
+### Verificación de esta ronda
+
+`./gradlew clean assembleDebug testDebugUnitTest`: compila, **251 tests, 0
+fallos, 0 errores**. Barrido en el emulador (`design-debt-sweep.txt`): Inicio,
+Clientes (dos pestañas), diálogo de nueva clienta, perfil de
+clienta, Inventario y su menú, filtro de categoría, Categorías, Editar pieza,
+Vender (contado y crédito) y su selector de clienta, Ventas de hoy, Registrar
+compra, selector de fecha y Reportes: **cero nodos < 56dp salvo el
+calendario**. Letra 1.3× y 2.0×: Inicio, pestañas y diálogo sin recortes ni
+nodos < 56dp. Sin ningún `FATAL` en `logcat -b crash`. Todo en el emulador;
+**el teléfono físico no se tocó**.
+
+### Lo que sigue pendiente
+
+- **15 sitios con `.height(Ndp)` fijo** (la regla nueva lo prohíbe en algo con
+  texto). Siguen como estaban: cada uno ya mide ≥ 56dp y ninguno se recortó en
+  las pruebas de 2.0× que hice, pero con letra grande es el riesgo conocido.
+  **Anotados en `FASES.md`, Fase 15**, con la lista de archivos y líneas.
+- **Etiquetas flotantes de los campos**: quedan en ~11–12sp por tu decisión.
+- La **ronda de diseño** (`design/visual-identity`) sigue pausada; su plan
+  ahora puede dar por hecho `dynamicColor` apagado, el piso de 56dp y el de
+  18sp en el tema.
+
+## Bloqueos / preguntas para el humano
+
+Ninguno. Paro acá, sin empezar la Fase 12. El tag y el merge los hacés vos.
+
+## Ronda 3 (mismo commit, por `--amend`) — artefactos de verificación fuera de `build/`
+
+Quitada la regla que prohibía `clean`: el problema no era el comando, era
+el lugar. **«Ignorado por git» y «borrable por `clean`» son la misma
+propiedad** cuando los archivos viven bajo `build/`: lo que git no guarda,
+`clean` no tiene a quién pedirle copia.
+
+1. **Movidos** a `verification/screenshots/` y `verification/logs/` en la raíz
+   del proyecto (20 capturas y 6 logs de esta rama). `.gitignore` tiene su
+   propia entrada, `/verification/`, con un comentario que dice por qué no
+   puede ser `build/`. Siguen fuera del repo; `clean` ya no las toca.
+2. **Las rutas de este archivo** que apuntaban a `app/build/screenshots/` y
+   `app/build/logs/` ahora apuntan a `verification/…`. Las que corresponden a
+   las fases 03 a 11 y a las rondas de corrección entre ellas llevan al lado
+   la nota «archivo perdido por un `gradlew clean`, 2026-10-19»: la ruta con
+   la nota dice más que el silencio. Las de esta rama (`design-debt-*`) existen.
+3. **`CLAUDE.md` 7.10** dice dónde van los artefactos y por qué nunca dentro
+   de `build/`, en vez de «no corras `clean`». Una carpeta ignorada por git
+   no existe en un clon nuevo: quien verifique crea
+   `verification/screenshots` y `verification/logs` con `mkdir -p`.
+4. **`FASES.md`, Fase 15:** anotados los 15 `.height(Ndp)` fijos junto con el
+   resto de la deuda arrastrada (no se tocaron).

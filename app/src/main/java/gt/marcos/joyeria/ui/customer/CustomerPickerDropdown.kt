@@ -3,7 +3,6 @@ package gt.marcos.joyeria.ui.customer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -21,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.Customer
+import gt.marcos.joyeria.ui.theme.JoyeriaDropdownMenuItem
 
 /**
  * Selector de clienta para una venta a crédito (D-042), entre las clientas
@@ -65,7 +65,7 @@ fun CustomerPickerDropdown(
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             customers.forEach { customer ->
-                DropdownMenuItem(
+                JoyeriaDropdownMenuItem(
                     text = { Text(customer.name) },
                     onClick = {
                         onCustomerSelected(customer.id)
@@ -76,7 +76,7 @@ fun CustomerPickerDropdown(
             if (customers.isNotEmpty()) {
                 HorizontalDivider()
             }
-            DropdownMenuItem(
+            JoyeriaDropdownMenuItem(
                 text = { Text(stringResource(R.string.customer_quick_add_menu_item)) },
                 leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
                 onClick = {

@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DatePicker
@@ -48,6 +47,10 @@ import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 import java.text.DateFormat
 import java.util.Date
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
+import gt.marcos.joyeria.ui.theme.TouchTargetFloor
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
 
 /**
  * Pantalla de registro de compra a mayorista (Fase 05). Stateless y
@@ -162,21 +165,34 @@ fun RegisterPurchaseScreen(
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = state.purchasedAtMillis)
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
+            // El diálogo es otra ventana y pierde el piso táctil de 56dp del
+            // tema: se vuelve a poner con TouchTargetFloor (ver ese archivo).
             confirmButton = {
-                TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let(onDateChange)
-                    showDatePicker = false
-                }) {
-                    Text(stringResource(R.string.purchase_date_confirm))
+                TouchTargetFloor {
+                    TextButton(onClick = {
+                        datePickerState.selectedDateMillis?.let(onDateChange)
+                        showDatePicker = false
+                    }) {
+                        Text(stringResource(R.string.purchase_date_confirm))
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
-                    Text(stringResource(R.string.purchase_date_cancel))
+                TouchTargetFloor {
+                    TextButton(onClick = { showDatePicker = false }) {
+                        Text(stringResource(R.string.purchase_date_cancel))
+                    }
                 }
             },
         ) {
-            DatePicker(state = datePickerState)
+            // Única excepción al piso de 56dp: la grilla del calendario tiene 7
+            // columnas, y 7 celdas de 56dp (392dp) no caben en el diálogo de un
+            // teléfono de 360dp: la columna del sábado quedaba fuera de la
+            // pantalla. La grilla vuelve a los 48dp de Material. Los botones
+            // "Cancelar" y "Aceptar" de arriba sí cumplen los 56dp.
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 48.dp) {
+                DatePicker(state = datePickerState)
+            }
         }
     }
 
@@ -236,7 +252,7 @@ private fun PurchaseLineCard(
 
 @Composable
 private fun PurchaseResultDialog(result: RegisterPurchaseResult, onDismiss: () -> Unit) {
-    AlertDialog(
+    JoyeriaAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

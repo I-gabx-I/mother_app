@@ -731,6 +731,31 @@ las observaciones — está en `ESTADO.md`, sección "Auditoría de relojes en
 repositorios (2026-10-10)".** Orden sugerido ahí: 3 y 4 juntos primero (los
 que habilitan tests reales y los que hoy confunden), 1 y 2 después o nunca.
 
+**Deuda arrastrada — alturas fijas con texto (2026-10-19):**
+
+La regla de `CLAUDE.md` sección 6 (el piso de 56dp vive en el tema) prohíbe
+`.height(Ndp)` fijo en algo con texto: con letra grande del sistema el texto
+se recorta en vez de crecer, y un alto fijo local además deshace el piso. Hoy
+quedan **15 sitios** que ya miden ≥ 56dp y no se recortaron en las pruebas
+de letra 2.0× de `fix/design-debt`, pero siguen siendo el riesgo conocido.
+No se tocaron en esa rama (decisión del humano). Pasar cada uno a
+`heightIn(min = ...)`, y verificar con letra 1.0×, 1.3× y 2.0× que el texto
+crece en vez de recortarse:
+
+| Archivo | Líneas (a 2026-10-19) |
+|---|---|
+| `ui/navigation/HomeScreen.kt` | 70, 82, 94, 103, 112, 121, 130 |
+| `ui/credit/CustomerProfileScreen.kt` | 130, 386 |
+| `ui/product/edit/ProductEditScreen.kt` | 156, 165 |
+| `ui/product/add/AddProductScreen.kt` | 143 |
+| `ui/product/category/CategoryManageScreen.kt` | 100 |
+| `ui/purchase/RegisterPurchaseScreen.kt` | 156 |
+| `ui/sale/RegisterSaleScreen.kt` | 343 |
+
+Ojo con `HomeScreen`: el orden de los modificadores importa (`padding` antes de
+`height`, ver `ESTADO.md`, sección `fix/design-debt`). Dos botones de Inicio
+medían 48dp por ese orden y ya se corrigió.
+
 **Criterios de aceptación:**
 1. Build y tests pasan.
 2. Checklist de accesibilidad completo en `ESTADO.md`, pantalla por pantalla.
@@ -747,6 +772,8 @@ que habilitan tests reales y los que hoy confunden), 1 y 2 después o nunca.
    qué faltan o si cree que la app perdió el dato. Si no se entiende, el
    texto cambia -- el problema no es de datos, es de que la app parezca
    rota. Ver `ESTADO.md`, "Fase 08 -- Plan", sección 6.
+7. Los 15 `.height(Ndp)` fijos de la deuda de alturas, resueltos con
+   `heightIn(min = ...)` o justificados uno por uno en `ESTADO.md`.
 
 **Commit:** `fase-15: usability polish` → tag `fase-15-ok`
 

@@ -22,6 +22,25 @@ val Typography = Typography(
         fontSize = 18.sp,
         lineHeight = 26.sp,
         letterSpacing = 0.25.sp
+    ),
+    // Las pestañas (Tab) de Material 3 escriben su texto en titleSmall, que es
+    // de 14sp por defecto: mismo incumplimiento que labelLarge, mismo arreglo.
+    titleSmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.1.sp
+    ),
+    // El texto de Button/TextButton/OutlinedButton sale en labelLarge, que en
+    // Material 3 es de 14sp: por debajo del mínimo de 18sp de CLAUDE.md
+    // sección 6. Se corrige acá, una sola vez, y no pantalla por pantalla.
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.1.sp
     )
     /* Other default text styles to override
     titleLarge = TextStyle(

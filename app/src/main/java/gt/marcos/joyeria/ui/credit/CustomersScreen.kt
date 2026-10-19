@@ -16,7 +16,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -50,6 +49,9 @@ import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
+import androidx.compose.foundation.layout.heightIn
+import gt.marcos.joyeria.ui.theme.MinTouchTarget
 
 // D-041: umbrales fijos en código, no una clave de app_setting -- nadie pidió
 // que sean ajustables, un color de aviso no es una regla de negocio (ver
@@ -113,11 +115,14 @@ fun CustomersScreen(
                 Tab(
                     selected = state.tab == CustomersTab.WHO_OWES_ME,
                     onClick = { onTabSelected(CustomersTab.WHO_OWES_ME) },
+                    // Tab trae un alto fijo de 48dp que el tema no sube.
+                    modifier = Modifier.heightIn(min = MinTouchTarget),
                     text = { Text(stringResource(R.string.customers_tab_who_owes_me)) },
                 )
                 Tab(
                     selected = state.tab == CustomersTab.ALL_CUSTOMERS,
                     onClick = { onTabSelected(CustomersTab.ALL_CUSTOMERS) },
+                    modifier = Modifier.heightIn(min = MinTouchTarget),
                     text = { Text(stringResource(R.string.customers_tab_all)) },
                 )
             }
@@ -154,7 +159,7 @@ fun CustomersScreen(
     }
 
     state.archiveTarget?.let { target ->
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onArchiveDismiss,
             title = { Text(stringResource(R.string.customers_archive_confirm_title)) },
             text = {
@@ -212,7 +217,7 @@ private fun WhoOwesMeTab(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(state.debts, key = { it.customerId }) { debt ->
+                items(state.debts, key = { "debt-${it.customerId}" }) { debt ->
                     DebtRow(
                         debt = debt,
                         onClick = { onDebtClick(debt.customerId) },
@@ -293,7 +298,7 @@ private fun AllCustomersTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(customers, key = { it.id }) { customer ->
+            items(customers, key = { "customer-${it.id}" }) { customer ->
                 CustomerRow(
                     customer = customer,
                     // Fase 08: tocar la fila abre el perfil, no el diálogo

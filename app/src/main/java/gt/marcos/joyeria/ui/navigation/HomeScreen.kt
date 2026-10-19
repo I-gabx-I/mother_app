@@ -76,8 +76,10 @@ fun HomeScreen(
                 onClick = onAddProductClick,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(top = 16.dp),
+                    // El padding va ANTES de height(): después, se comía
+                    // 16dp del alto fijo y el botón medía 48dp, no 64dp.
+                    .padding(top = 16.dp)
+                    .height(64.dp),
             ) {
                 Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.home_add_product), style = MaterialTheme.typography.titleMedium)
@@ -86,8 +88,10 @@ fun HomeScreen(
                 onClick = onInventoryClick,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(top = 8.dp),
+                    // Mismo motivo: padding antes de height() para que el
+                    // botón mida los 56dp mínimos y no 48dp.
+                    .padding(top = 8.dp)
+                    .height(56.dp),
             ) {
                 Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.home_inventory))

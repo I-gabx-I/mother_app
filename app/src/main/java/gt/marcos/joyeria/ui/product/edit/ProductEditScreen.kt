@@ -15,7 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Diamond
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +40,7 @@ import gt.marcos.joyeria.ui.format.MoneyTextField
 import gt.marcos.joyeria.ui.format.QuantityTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.product.CategoryDropdown
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Pantalla de detalle/edición. Stateless y `@Preview`-able (CLAUDE.md
@@ -178,7 +178,7 @@ fun ProductEditScreen(
         }
 
         if (state.showArchiveConfirmation) {
-            AlertDialog(
+            JoyeriaAlertDialog(
                 onDismissRequest = onArchiveDismiss,
                 title = { Text(stringResource(R.string.product_edit_archive_confirm_title)) },
                 text = { Text(stringResource(R.string.product_edit_archive_confirm_message)) },

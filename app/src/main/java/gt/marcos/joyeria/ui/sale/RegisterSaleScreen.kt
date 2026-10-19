@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Diamond
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -55,6 +54,7 @@ import gt.marcos.joyeria.ui.format.MoneyTextField
 import gt.marcos.joyeria.ui.format.QuantityTextField
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Pantalla "Vender" (Fase 06). Stateless y `@Preview`-able (CLAUDE.md
@@ -237,7 +237,7 @@ fun RegisterSaleScreen(
     }
 
     if (state.pendingLossConfirmation) {
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onLossDialogDismissed,
             title = { Text(stringResource(R.string.sale_confirm_dialog_title)) },
             text = {
@@ -278,7 +278,7 @@ fun RegisterSaleScreen(
     }
 
     state.result?.let {
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onResultDismissed,
             title = { Text(stringResource(R.string.sale_saved_confirmation)) },
             confirmButton = {

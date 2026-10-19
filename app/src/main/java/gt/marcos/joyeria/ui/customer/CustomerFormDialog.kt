@@ -3,7 +3,6 @@ package gt.marcos.joyeria.ui.customer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -12,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Alta y edición de una clienta. Vive en `ui/customer/` y no dentro de una
@@ -37,7 +37,7 @@ fun CustomerFormDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    JoyeriaAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

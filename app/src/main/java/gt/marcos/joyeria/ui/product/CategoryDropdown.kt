@@ -1,7 +1,6 @@
 package gt.marcos.joyeria.ui.product
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -17,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.Category
+import gt.marcos.joyeria.ui.theme.JoyeriaDropdownMenuItem
 
 /**
  * Selector de categoría, compartido entre alta rápida (Fase 03/04) y
@@ -51,7 +51,7 @@ fun CategoryDropdown(
                 .fillMaxWidth(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
+            JoyeriaDropdownMenuItem(
                 text = { Text(stringResource(R.string.add_product_category_none)) },
                 onClick = {
                     onCategorySelected(null)
@@ -59,7 +59,7 @@ fun CategoryDropdown(
                 },
             )
             categories.forEach { category ->
-                DropdownMenuItem(
+                JoyeriaDropdownMenuItem(
                     text = { Text(category.displayName()) },
                     onClick = {
                         onCategorySelected(category.id)

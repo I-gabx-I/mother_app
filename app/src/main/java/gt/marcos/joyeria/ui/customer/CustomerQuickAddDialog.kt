@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -14,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Alta rápida de clienta, sin salir de la pantalla de venta (D-040):
@@ -31,7 +31,7 @@ fun CustomerQuickAddDialog(
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AlertDialog(
+    JoyeriaAlertDialog(
         onDismissRequest = onDismiss,
         modifier = modifier,
         title = { Text(stringResource(R.string.customer_quick_add_title)) },

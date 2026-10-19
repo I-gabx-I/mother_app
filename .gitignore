@@ -18,3 +18,8 @@ local.properties
 
 # Claude Code session-local state (not project content)
 .claude/
+
+# Evidencia de verificación manual (capturas y logs de emulador). Fuera del
+# repo, pero NO dentro de build/: `gradlew clean` borra todo build/, y "ignorado
+# por git" + "dentro de build/" = perdible sin copia. Ver CLAUDE.md 7.10.
+/verification/

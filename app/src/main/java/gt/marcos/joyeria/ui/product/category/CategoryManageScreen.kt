@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.Category
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Administración de categorías (Fase 09), a la que se entra desde el menú
@@ -152,7 +152,7 @@ fun CategoryManageScreen(
     }
 
     state.archiveTarget?.let { target ->
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onArchiveDismiss,
             title = { Text(stringResource(R.string.category_manage_archive_confirm_title)) },
             text = { Text(stringResource(R.string.category_manage_archive_confirm_message, target.name)) },

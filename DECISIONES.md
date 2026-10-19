@@ -1339,7 +1339,7 @@ valores de costo/precio al entrar a editar una pieza ya guardada
 (`Money.toEditableText()`, `Locale.ROOT`) — ese texto no es lo que ella
 tecleó, es un dato que la app calculó y le ofrece, y por eso sí tiene
 un formato fijo. Verificado a mano en el emulador, con captura
-(`app/build/screenshots/money-field-*.png`): escribir "20,50" letra por
+(`verification/screenshots/money-field-*.png`) *(archivo perdido por un `gradlew clean`, 2026-10-19)*: escribir "20,50" letra por
 letra no pierde ningún carácter ni el separador en ningún punto de la
 escritura, en las dos pantallas.
 

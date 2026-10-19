@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +39,7 @@ import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 import java.text.DateFormat
 import java.util.Date
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Pantalla "Ventas de hoy" (Fase 06). Stateless y `@Preview`-able
@@ -97,7 +97,7 @@ fun TodaySalesScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(state.sales, key = { it.id }) { sale ->
+                    items(state.sales, key = { "sale-${it.id}" }) { sale ->
                         SaleRow(sale = sale, onClick = { onSaleClick(sale.id) })
                     }
                 }
@@ -106,7 +106,7 @@ fun TodaySalesScreen(
     }
 
     state.selectedSale?.let { detail ->
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onDetailDismissed,
             title = { Text(stringResource(R.string.today_sales_detail_title)) },
             text = {
@@ -170,7 +170,7 @@ fun TodaySalesScreen(
         // pero el campo sigue editable para un motivo propio.
         val reasonReturn = stringResource(R.string.today_sales_cancel_reason_suggestion_return)
         val reasonMistake = stringResource(R.string.today_sales_cancel_reason_suggestion_mistake)
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onCancelDismiss,
             title = { Text(stringResource(R.string.today_sales_cancel_confirm_title)) },
             text = {

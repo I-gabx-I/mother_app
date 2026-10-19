@@ -338,6 +338,46 @@ Estas son requisitos, no sugerencias estéticas.
 - La pantalla de inicio tiene dos acciones grandes y obvias: **Vender** y **Agregar pieza**.
   No es un dashboard de métricas.
 - Tamaño mínimo de texto de cuerpo: 18sp. Área táctil mínima: 56dp.
+- **El piso de 56dp está fijado en el tema, en `ui/theme/TouchTargetFloor.kt`,
+  y `JoyeriaTheme` lo aplica a toda la app.** Son dos valores y los dos hacen
+  falta: `LocalMinimumInteractiveComponentSize` (el espacio que ocupa el
+  componente; Material 3 trae 48dp) y `minimumTouchTargetSize` de
+  `ViewConfiguration` (hasta dónde Compose extiende la zona que de verdad
+  responde al toque; también 48dp). Con solo el primero, el componente se ve
+  de 56dp pero el anillo de afuera de los 48dp no responde. Reglas:
+  - **Nadie lo pisa con un `Modifier.size`, `height` ni `width` local
+    pensando que ayuda.** El piso ya está; un tamaño fijo local solo lo
+    deshace con letra grande (el texto se recorta en vez de crecer) o lo
+    esconde. Si un elemento con texto necesita un alto, es `heightIn(min = ...)`.
+    Tampoco se vuelve a proveer `LocalMinimumInteractiveComponentSize` con otro
+    valor en una pantalla.
+  - **Un diálogo y un menú desplegable son otra ventana** y reinician
+    `ViewConfiguration`: pierden el segundo valor. Por eso se usa
+    `JoyeriaAlertDialog` y `JoyeriaDropdownMenuItem` (en `TouchTargetFloor.kt`),
+    **nunca `AlertDialog` ni `DropdownMenuItem` directo**. Un diálogo nuevo de
+    otro tipo (`DatePickerDialog`, por ejemplo) envuelve sus botones en
+    `TouchTargetFloor { }`.
+  - **Componentes de Material con alto fijo que el tema no sube:** `Tab`
+    (48dp). Se le pasa `Modifier.heightIn(min = MinTouchTarget)`. Si aparece
+    otro componente así, se mide primero (ver abajo) y se hace lo mismo.
+  - **Única excepción: el calendario** (`DatePicker`, grilla y encabezado, en
+    `RegisterPurchaseScreen`). La grilla tiene 7 columnas; 7 celdas de 56dp
+    son 392dp y no caben en un teléfono de 360dp (la columna del sábado
+    quedaba fuera de la pantalla). El `DatePicker` vuelve a los 48dp de
+    Material; sus botones «Cancelar» y «Aceptar» sí miden 56dp. Cualquier otro
+    componente de varias columnas con el mismo problema se trata igual, y se
+    anota acá.
+  - **Se verifica midiendo, no a ojo:** `uiautomator dump` y ningún nodo
+    `clickable` por debajo de 56dp (en px: 56dp x la densidad del emulador).
+- **El piso de 18sp para texto también está fijado en el tema** (`Type.kt`):
+  `bodyLarge`, `bodyMedium`, `labelLarge` (texto de todos los botones) y
+  `titleSmall` (texto de las pestañas). Un componente de Material que escribe
+  en otro estilo hereda su tamaño por defecto, que puede ser menor: si se ve
+  texto chico, se mide el nodo de texto y se corrige el estilo en el tema, no
+  en la pantalla. **Excepción decidida:** las etiquetas flotantes de los
+  campos (`labelSmall`/`labelMedium`, ~11-12sp) quedan como están: son texto
+  secundario junto a un campo cuyo contenido sí está en 18sp, y tocarlas puede
+  afectar a los campos de dinero.
 - La app respeta el tamaño de fuente del sistema (nada de `sp` fijos que ignoren accesibilidad).
 - Toda acción destructiva o irreversible pide confirmación con texto claro en español,
   diciendo exactamente qué va a pasar.
@@ -372,12 +412,22 @@ Estas son requisitos, no sugerencias estéticas.
    en `docs/`; si es el registro de **qué pasó** en una fase, va en `ESTADO.md`.
    Un análisis puntual que no pasa esa prueba no estrena archivo.
 10. **Logs y capturas de una verificación manual (emulador, dispositivo)
-    se guardan dentro del proyecto, en `app/build/logs/` y
-    `app/build/screenshots/` — nunca en `%TEMP%` ni en un directorio fuera
-    del repo.** Quedan ignorados por git al estar bajo `build/` (no hay que
-    tocar `.gitignore`, ya lo cubre) y no chocan con el bloqueo de lecturas
-    fuera del árbol de trabajo. `ESTADO.md` referencia la ruta relativa de
-    cada archivo, no la pega entera ni la deja solo en la consola.
+    se guardan en `verification/screenshots/` y `verification/logs/`, en la
+    raíz del proyecto — nunca dentro de `build/`, nunca en `%TEMP%` ni en un
+    directorio fuera del árbol de trabajo.** Quedan fuera del repo porque
+    `.gitignore` tiene su propia entrada (`/verification/`) y no chocan con el
+    bloqueo de lecturas fuera del árbol de trabajo. `ESTADO.md` referencia la
+    ruta relativa de cada archivo, no la pega entera ni la deja solo en la
+    consola.
+    **Por qué nunca dentro de `build/`:** que algo viva ahí es lo que lo hace
+    «ignorado por git», y es exactamente la misma propiedad que lo hace
+    borrable — `./gradlew clean` borra todo `build/` y git no tiene copia que
+    devolver. Pasó el 2026-10-19: un `clean` se llevó todas las capturas y
+    logs de las fases 03 a 11 y dejó 38 rutas de `ESTADO.md` apuntando a
+    nada. `clean` es un comando normal y se puede correr; lo que no puede
+    pasar es que borre evidencia. Como una carpeta ignorada por git no existe
+    en un clon nuevo, quien verifique la crea con
+    `mkdir -p verification/screenshots verification/logs`.
     **Antes de cerrar una fase hay que abrir cada pantalla nueva que
     tenga una lista y ejercitarla de verdad: agregar un elemento, quitar
     uno, salir y volver a entrar.** No alcanza con que compile y con que
@@ -415,6 +465,17 @@ Estas son requisitos, no sugerencias estéticas.
     entonces se usa — no se asume que el prefijo funciona. Esto deja de
     depender de la costumbre: antes solo estaba implícito en que los comandos
     de `FASES.md` se escriben como `./gradlew`. Ver `docs/PERMISOS.md`.
+13. **Toda verificación manual va en el emulador (`Medium_Phone_API_35`),
+    nunca en el teléfono físico de la usuaria**, que tiene datos reales.
+    Verificar es instalar, abrir, tocar, agregar, archivar y anular: todo eso
+    escribe en la base. Si `adb devices` lista un teléfono físico además del
+    emulador, **todo `adb` lleva `-s emulator-5554`** (o el serial del
+    emulador); nunca `adb` sin `-s` cuando hay más de un dispositivo, y nunca
+    se instala, se limpia ni se abre la app en el físico. Razón: una prueba
+    que agrega y anula ventas en el teléfono de ella deja datos de prueba
+    mezclados con su cuaderno, y no hay forma de separarlos después — nada se
+    borra de verdad (sección 4). Si hace falta ver algo en el teléfono real,
+    lo pide el humano y lo hace él.
 
 ### Git
 

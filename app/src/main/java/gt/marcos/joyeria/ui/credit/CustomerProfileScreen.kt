@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -55,6 +54,7 @@ import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
 import java.text.DateFormat
 import java.util.Date
+import gt.marcos.joyeria.ui.theme.JoyeriaAlertDialog
 
 /**
  * Estado de cuenta de una clienta (FASES.md, Fase 07): todas sus ventas
@@ -246,7 +246,7 @@ fun CustomerProfileScreen(
     }
 
     state.paymentDialogSale?.let { sale ->
-        AlertDialog(
+        JoyeriaAlertDialog(
             onDismissRequest = onPaymentDialogDismiss,
             title = { Text(stringResource(R.string.account_statement_payment_dialog_title)) },
             text = {
@@ -383,7 +383,7 @@ private fun SaleStatementCard(statement: SaleAccountStatement, onRegisterPayment
             )
             OutlinedButton(
                 onClick = onRegisterPaymentClick,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
             ) {
                 Text(stringResource(R.string.account_statement_register_payment_button))
             }

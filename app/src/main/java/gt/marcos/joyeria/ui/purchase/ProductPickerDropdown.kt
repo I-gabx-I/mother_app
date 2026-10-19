@@ -1,7 +1,6 @@
 package gt.marcos.joyeria.ui.purchase
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -17,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.ProductSummary
+import gt.marcos.joyeria.ui.theme.JoyeriaDropdownMenuItem
 
 /** Selector de pieza para una línea de compra, entre las piezas activas del inventario. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,7 +49,7 @@ fun ProductPickerDropdown(
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             products.forEach { product ->
-                DropdownMenuItem(
+                JoyeriaDropdownMenuItem(
                     text = { Text("${product.name} · ${product.uid}") },
                     onClick = {
                         onProductSelected(product.id)

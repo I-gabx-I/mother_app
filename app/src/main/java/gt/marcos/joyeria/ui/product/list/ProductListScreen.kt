@@ -18,7 +18,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -48,6 +47,7 @@ import gt.marcos.joyeria.domain.pricing.PricingCalculator
 import gt.marcos.joyeria.ui.format.format
 import gt.marcos.joyeria.ui.product.displayName
 import gt.marcos.joyeria.ui.theme.JoyeriaTheme
+import gt.marcos.joyeria.ui.theme.JoyeriaDropdownMenuItem
 
 /**
  * Listado de inventario. Stateless y `@Preview`-able (CLAUDE.md sección
@@ -110,7 +110,7 @@ fun ProductListScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(state.products, key = { it.id }) { product ->
+                    items(state.products, key = { "product-${it.id}" }) { product ->
                         ProductRow(product = product, onClick = { onProductClick(product.id) })
                     }
                 }
@@ -143,7 +143,7 @@ private fun CategoryFilterDropdown(
                 .fillMaxWidth(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
+            JoyeriaDropdownMenuItem(
                 text = { Text(stringResource(R.string.product_list_category_filter_all)) },
                 onClick = {
                     onCategorySelected(null)
@@ -151,7 +151,7 @@ private fun CategoryFilterDropdown(
                 },
             )
             categories.forEach { category ->
-                DropdownMenuItem(
+                JoyeriaDropdownMenuItem(
                     text = { Text(category.displayName()) },
                     onClick = {
                         onCategorySelected(category.id)
@@ -175,7 +175,7 @@ private fun ProductListOverflowMenu(onManageCategoriesClick: () -> Unit) {
         Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.product_list_menu))
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        DropdownMenuItem(
+        JoyeriaDropdownMenuItem(
             text = { Text(stringResource(R.string.product_list_manage_categories)) },
             onClick = {
                 expanded = false
