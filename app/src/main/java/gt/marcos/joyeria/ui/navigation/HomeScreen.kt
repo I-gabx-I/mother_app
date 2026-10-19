@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PointOfSale
@@ -48,6 +50,7 @@ fun HomeScreen(
     onTodaySalesClick: () -> Unit,
     onCustomersClick: () -> Unit,
     onReportsClick: () -> Unit,
+    onCatalogClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier) { innerPadding ->
@@ -132,6 +135,17 @@ fun HomeScreen(
                 Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.home_reports))
             }
+            // Fase 12: enlace chico, como Reportes. `heightIn` y no `height`: con
+            // letra grande el texto crece en vez de recortarse (CLAUDE.md sección 6).
+            TextButton(
+                onClick = onCatalogClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp),
+            ) {
+                Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(stringResource(R.string.home_catalog))
+            }
         }
     }
 }
@@ -145,6 +159,7 @@ fun HomeRoute(
     onTodaySalesClick: () -> Unit,
     onCustomersClick: () -> Unit,
     onReportsClick: () -> Unit,
+    onCatalogClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     HomeScreen(
@@ -155,6 +170,7 @@ fun HomeRoute(
         onTodaySalesClick = onTodaySalesClick,
         onCustomersClick = onCustomersClick,
         onReportsClick = onReportsClick,
+        onCatalogClick = onCatalogClick,
         modifier = modifier,
     )
 }
@@ -171,6 +187,7 @@ private fun HomeScreenPreview() {
             onTodaySalesClick = {},
             onCustomersClick = {},
             onReportsClick = {},
+            onCatalogClick = {},
         )
     }
 }

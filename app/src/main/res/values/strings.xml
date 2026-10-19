@@ -251,4 +251,35 @@
     <string name="reports_inventory_invested">Tenés %1$s guardados en piezas que todavía no vendiste</string>
     <string name="reports_inventory_recovered">Ya recuperaste %1$s</string>
     <string name="reports_inventory_recovered_subtitle">Es lo que gastaste comprando las piezas que ya vendiste</string>
+
+    <!-- Fase 12: catálogo compartible -->
+    <string name="home_catalog">Catálogo</string>
+    <string name="catalog_title">Catálogo</string>
+    <string name="catalog_search_label">Buscar por nombre o código</string>
+    <string name="catalog_select_all_visible">Elegir todas las que se ven</string>
+    <string name="catalog_deselect_visible">Quitar las que se ven</string>
+    <plurals name="catalog_deselect_all">
+        <item quantity="one">Quitar la pieza elegida</item>
+        <item quantity="other">Quitar las %1$d elegidas</item>
+    </plurals>
+    <string name="catalog_selected_none">Todavía no elegiste ninguna pieza</string>
+    <plurals name="catalog_selected_count">
+        <item quantity="one">Elegiste %1$d pieza</item>
+        <item quantity="other">Elegiste %1$d piezas</item>
+    </plurals>
+    <string name="catalog_create_button">Crear catálogo</string>
+    <string name="catalog_empty">Todavía no tenés piezas disponibles para poner en el catálogo.</string>
+    <string name="catalog_no_results">No encontré ninguna pieza con eso.</string>
+    <string name="catalog_generating">Armando tu catálogo… %1$d de %2$d</string>
+    <string name="catalog_cancel">Cancelar</string>
+    <string name="catalog_result_hint">Así lo van a ver tus clientas. Revisalo y compartilo.</string>
+    <string name="catalog_page_description">Página %1$d de %2$d del catálogo</string>
+    <string name="catalog_share_button">Compartir</string>
+    <string name="catalog_share_chooser_title">Compartir catálogo</string>
+    <string name="catalog_pick_others">Elegir otras piezas</string>
+    <string name="catalog_error">No se pudo armar el catálogo.</string>
+    <string name="catalog_retry">Intentar de nuevo</string>
+    <!-- Se dibujan DENTRO de la imagen del catálogo -->
+    <string name="catalog_no_photo">Sin foto</string>
+    <string name="catalog_page_of">%1$d de %2$d</string>
 </resources>

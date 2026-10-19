@@ -9818,3 +9818,195 @@ resto de las pantallas, `design/visual-identity` (queda pausada, como pediste).
 4. *(No bloquea.)* **¿Pieza sin nombre se muestra con la categoría?** Es lo que
    propongo para el hallazgo 3. Si preferís otra cosa (por ejemplo, que ella
    escriba el nombre al armar el catálogo), cambia el flujo de la sección 5.
+
+
+---
+
+## Fase 12 — Catálogo compartible
+
+**Inicio:** 2026-10-19
+**Cierre:** 2026-10-19
+**Commit:** `fase-12: shareable catalog` (un solo commit, sin tag todavía — paro antes del tag)
+
+### Qué se hizo
+
+Aprobaste la lista de archivos de la sección 8 del plan (con el `<provider>` y
+`file_paths.xml`) y las cuatro respuestas: **el código de la pieza va en la
+tarjeta** (chico y discreto), la categoría reemplaza al nombre de relleno, y vos
+probás el resultado en WhatsApp. La lista quedó escrita en `FASES.md` (Fase 12,
+«Archivos permitidos») junto con el cambio del entregable.
+
+- **Dominio** (`domain/catalog/`): `CatalogItem` (seis campos, sin costo),
+  `CatalogCaption` (la regla del nombre), `CatalogPaging` (4 piezas por imagen).
+- **Datos:** `CatalogRow` y `ProductDao.observeCatalogRows()` (columnas listadas a
+  mano, sin `SELECT *`; `archived = 0 AND stock_qty > 0`), `CatalogRepository`.
+- **Imágenes** (`ui/catalog/render/`): `CatalogStyle` (aspecto y medidas),
+  `CatalogRenderer` (dibuja con `android.graphics`), `CatalogGenerator` (arma y
+  guarda las JPEG en `cacheDir/catalog/`, cancelable entre páginas),
+  `catalogPriceText` (precio con `Locale.ROOT`).
+- **Pantallas** (`ui/catalog/`): elegir (`CatalogPickerScreen`), armando/error
+  (`CatalogStatusScreen`) y vista previa con «Compartir» (`CatalogResultScreen`);
+  un `ViewModel` con un solo `StateFlow`, `CatalogRoute`, `CatalogShare`
+  (`FileProvider` + `ClipData`). Enlace «Catálogo» en Inicio.
+- **Configuración:** `<provider>` en el manifiesto (ningún `<uses-permission>`),
+  `res/xml/file_paths.xml` (solo `cache/catalog/`), textos en `strings.xml`.
+- **Sin dependencias nuevas, sin cambio de esquema** (`libs.versions.toml` y Room
+  intactos). Decisiones en `DECISIONES.md`, D-058.
+
+### Criterios de aceptación
+
+| # | Criterio | Resultado |
+|---|---|---|
+| 1 | Build y tests pasan | ✅ **300 tests, 0 fallos, 0 errores** (251 anteriores + 49 nuevos) |
+| 2 | **[TESTS OBLIGATORIOS]** el modelo del catálogo no tiene costo ni ganancia | ✅ La garantía es **estructural** (D-058): `CatalogRow` → `CatalogItem` → pantalla → imagen, ninguno tiene el campo. `CatalogItemTest` fija el conjunto exacto de campos (6 de `CatalogItem`, 6 de `CatalogRow`) y que ningún nombre suene a costo/ganancia; `ProductDaoCatalogTest.catalogQuery_withProductCostingQ777_neverReturnsThatNumber` es el test de valores |
+| 3 | 20 piezas en < 5 s, medido | ✅ **1,167 / 363 / 316 ms** (la primera, en frío). Ver abajo |
+
+**Mutación (el cerrojo de verdad detecta lo que dice proteger):** agregarle un campo
+`cost` a `CatalogItem` → 2 tests de `CatalogItemTest` fallan; quitar `AND
+product.stock_qty > 0` de la consulta → 1 test falla; quitar `product.archived = 0` →
+1 falla. Los tres cambios se revirtieron y la suite quedó verde.
+
+**Criterio 3, medido** (`CatalogRenderTimingTest`, emulador `Medium_Phone_API_35`,
+entorno en reposo: 593/600 de CPU ocioso al arrancar, sin build en paralelo,
+`verification/logs/fase12-timing.txt`): 20 piezas con 20 fotos de ~722 KB
+(generadas por el mismo `ImageStorage` que usa el alta, con ruido para que pesen
+lo que pesa una foto), por el mismo repositorio y generador que usa la pantalla,
+de punta a punta (leer de la base + decodificar + dibujar + comprimir 5 imágenes).
+Tres corridas: **1,167 ms, 363 ms, 316 ms**; salida 826 KB en total (5 imágenes de
+145 a 184 KB). Mi meta propia era ≤ 2.5 s: se cumple. **Salvedad:** el teléfono de
+ella casi seguro es más lento que el emulador en esta máquina, y esto no es una
+medición en su teléfono: con 4 veces el tiempo, la corrida en frío daría ~4.7 s (al
+límite) y las siguientes ~1.5 s. La prueba no pasa por la UI: el tiempo desde el
+toque en «Crear catálogo» hasta la vista previa **no se midió**; con 8 piezas la
+pantalla «Armando…» solo se alcanzó a capturar con un `screencap` pegado al toque,
+o sea que dura una fracción de segundo.
+
+**La compuerta de formato** (`verification/logs/fase12-format-gate.txt`): con las
+mismas 20 fotos y el mismo dibujo, **5 imágenes JPEG = 761 KB; un PDF
+(`PdfDocument`) = 15,958 KB**, unas 21 veces más. Imágenes confirmadas. La prueba
+temporal que lo midió se borró.
+
+### Verificación manual en el emulador (`verification/`)
+
+Todo en `emulator-5554`; **el teléfono físico no se tocó** (§7.13). Datos de
+prueba: 10 productos (1 hecho con la cámara virtual, 9 sembrados en la base del
+emulador; fotos generadas: horizontal, vertical alta,
+cuadrada, sobre fondo dorado-crema; nombres largos y de relleno; una archivada con
+stock, una agotada, una sin foto, una con costo único Q777.77 como señuelo).
+
+- **§7.10, listas con datos reales:** elegir 3 (`fase12-03-*`), «Elegir todas» (8),
+  «Quitar las que se ven» (ver «Ajustes tras la aprobación»); buscar por código (`XP-000005` → 1) y por texto (`aretes` →
+  2, incluye una pieza sin nombre que aparece por su categoría); elegir, quitar,
+  «Elegir otras piezas» **conserva lo elegido** (8 → 7), tecla de volver desde
+  «Listo» vuelve a elegir con la selección (7), desde «Elegir» sale a Inicio, y al
+  salir y volver a entrar empieza vacía. Girar el teléfono conserva la selección
+  (`fase12-13-picker-rotated.png`). Sin ningún `FATAL`.
+- **Qué sale en la imagen** (`fase12-page-1-v2.jpg`, `fase12-page-2.jpg`): foto
+  completa sin recortar (horizontal y vertical), nombre, precio, código gris chico;
+  nombre largo con puntos suspensivos; **ningún costo ni ganancia** (la pieza de
+  costo Q777.77 solo muestra su precio Q275.00); «Sin foto» para la pieza sin foto;
+  sin texto de nombre cuando no hay nombre ni categoría.
+- **Compartir** (`fase12-06-share-chooser.png`): el selector de Android abre con
+  «Sharing 2 images» y las dos páginas legibles; `FileProvider` y `ClipData`
+  funcionan, sin ninguna excepción en logcat.
+- **Error** (`fase12-10-error.png`): con la carpeta de caché sin permiso, sale «No se
+  pudo armar el catálogo» con «Intentar de nuevo» y «Elegir otras piezas»; devuelto
+  el permiso, «Intentar de nuevo» arma el catálogo. **Armando**
+  (`fase12-11-generating-1.png`): capturado.
+- **Insets, los 4 casos** (`fase12-insets.txt`, `fase12-08-*`, `fase12-09-*`): barra de
+  tres botones y de gestos, con y sin teclado. El botón «Crear catálogo» queda
+  completo sobre la barra de navegación y sobre el teclado, sin padding doble.
+- **Letra grande** (`fase12-fonts.txt`, `fase12-12-*`): 1.0×, 1.3× y 2.0×. El
+  barrido mide ningún botón < 56dp; el único nodo que sale chico es siempre **la
+  última fila de la lista cortada por el botón de abajo** (se ve a medias al
+  scrollear; no es un área táctil real). Con 2.0× el selector se arregló (ver abajo).
+
+### Hallazgos de esta fase
+
+1. **El nombre en blanco se guarda como «Pieza sin nombre»** (`AddProductRoute`), no
+   como vacío. Resuelto con la regla de categoría (D-058).
+2. **`./gradlew connectedDebugAndroidTest` desinstala la app al terminar y borra sus
+   datos**, en **todos** los dispositivos conectados. Corrió en el emulador (con
+   `ANDROID_SERIAL=emulator-5554`) y borró sus datos de prueba; con el teléfono
+   físico conectado habría borrado los datos reales. Escrito como regla en
+   `CLAUDE.md` 7.13.
+3. **Fase 10, sin arreglar:** el mensaje del recordatorio de WhatsApp
+   (`CustomersScreen`, `reminderMessage`, y su par en `CustomerProfileScreen`) y el
+   texto de «Compartir estado de cuenta» (`ShareAccountStatementButton`) formatean
+   los montos con el idioma del teléfono de ella, pero **viajan al teléfono de otra
+   persona**: el mismo caso que el precio de la imagen (D-058, §3). **Decisión
+   tuya** si se corrige (usar `format(Locale.ROOT)` ahí también).
+4. **Dos defectos que encontré mirando la pantalla, ya corregidos:** «Armando tu
+   catálogo… 0 de 0» (el total se conoce desde el principio) y la fila de «Elegir
+   piezas» con letra 2.0×, donde el precio ocupaba una columna y el código salía
+   partido («XP-0000 / 05»); ahora el precio va debajo del código y el código no se
+   parte. Antes, el contador y «Elegir todas las que se ven» no cabían lado a lado.
+
+### Suposiciones que tomé
+
+- Las piezas sin foto (no deberían existir: la foto es obligatoria en el alta
+  rápida, pero la columna admite nulo) se pueden elegir y salen con un cuadro «Sin
+  foto». Alternativa: no dejar elegirlas.
+- «Elegir todas las que se ven» solo suma y «Quitar las que se ven» solo quita
+  (simétricos, ver «Ajustes tras la aprobación»); vaciar todo es un botón aparte
+  que dice cuántas quita.
+- El orden de la lista es por nombre guardado y código (como Inventario): las de
+  relleno quedan juntas al final.
+
+### Lo que NO hice
+
+- **No probé el catálogo dentro de WhatsApp** (no hay en el emulador): queda a cargo
+  tuyo, ver bloqueos. Tampoco medí en un teléfono real.
+- No toqué los textos de la Fase 10 (hallazgo 3), ni las 15 alturas fijas (Fase 15).
+- No guardé en la galería (pediría permiso de almacenamiento, prohibido por la
+  sección 9).
+
+### Deuda técnica que dejé
+
+- Los dos textos de la Fase 10 que formatean con el idioma del teléfono (hallazgo 3).
+- `CatalogRow`/`CatalogItem` repiten seis campos en dos tipos: es a propósito (cada
+  capa solo conoce el suyo, como pide la estructura de capas).
+
+### Bloqueos / preguntas para el humano
+
+1. **Probar un catálogo en WhatsApp:** lo hacés vos y me contás cómo se lee (texto,
+   recorte, peso). Si algo no se ve bien, se ajusta `CatalogStyle` (tamaño del
+   texto, calidad JPEG 85).
+2. ~~Hallazgo 3~~ **Decidido:** se corrige con `Locale.ROOT` (mismo criterio que D-058)
+   en la rama `fix/share-text-locale`, desde `main` **después** de que mergees esta
+   fase, un solo commit con test. No está hecho.
+3. **Falta el tag** (`fase-12-ok`) y el merge: los hacés vos.
+
+### Ajustes tras la aprobación (2026-10-19, mismo commit)
+
+Fase 12 aprobada, con tres pedidos que entraron en el mismo commit:
+
+1. **«Quitar todas» pasa a ser simétrico de «Elegir todas las que se ven».** Antes
+   «Quitar todas» vaciaba también lo que el buscador esconde: ella filtra, toca
+   «Quitar todas» esperando limpiar lo que ve y pierde, sin enterarse, la selección
+   del resto. Ahora:
+   - **«Quitar las que se ven»** (aparece cuando todas las visibles están elegidas)
+     quita **solo** las visibles y no toca las escondidas.
+   - **«Quitar las N elegidas»** (con plural: «Quitar la pieza elegida») es la
+     opción aparte para vaciar todo, **con la cuenta a la vista**. Se ofrece solo
+     cuando hace falta (hay elegidas que el buscador esconde, o la selección está a
+     medias); cuando «Quitar las que se ven» ya vacía todo sería un botón repetido.
+   - Tests nuevos en `CatalogUiStateTest` (9): quitar visibles con y sin búsqueda,
+     cuántas esconde el buscador, y cuándo se ofrece vaciar todo (5 casos).
+     **Mutación:** si `withVisibleDeselected` vuelve a vaciar todo, falla
+     `withVisibleDeselected_withASearch_removesTheVisibleOnesAndKeepsTheHiddenOnes`.
+   - **Verificado en el emulador** (`verification/screenshots/fase12b-*`): elegir las
+     8, buscar «aretes» (se ven 2, «Quitar las 8 elegidas» aparece), «Quitar las que
+     se ven» → quedan **6** (no 0); borrar la búsqueda: las 6 siguen elegidas;
+     «Quitar las 6 elegidas» → 0; una sola elegida muestra «Quitar la pieza elegida».
+     Con letra 2.0× los botones caben y miden ≥ 56dp (el único nodo chico es, otra
+     vez, la última fila cortada por el botón de abajo).
+2. **`CLAUDE.md` 7.13:** antes de cualquier tarea instrumentada se corre
+   `adb devices`, y si aparece un dispositivo físico se para y se avisa, aunque
+   `ANDROID_SERIAL` esté puesto. Esta verificación lo cumplió: `adb devices` antes de
+   arrancar y con el emulador, solo `emulator-5554`
+   (`verification/logs/fase12b-adb-devices-before.txt`).
+3. **Formato de montos de la Fase 10:** decidido corregirlo con `Locale.ROOT`, en
+   `fix/share-text-locale` desde `main` después del merge. **Pendiente.** Se espera el
+   merge porque D-058 (que se cita en el código y el test) solo existe en esta rama.
+

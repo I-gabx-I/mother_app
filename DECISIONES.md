@@ -2919,6 +2919,112 @@ protege.
 
 ---
 
+## D-058 — Catálogo compartible: el costo no tiene por dónde viajar, imágenes y no PDF, y el precio de la imagen va con `Locale.ROOT`
+
+**Contexto:** Fase 12. El catálogo se manda a clientas (por WhatsApp, desde el
+teléfono de ella) y **nunca puede mostrar costo ni ganancia**: es un requisito
+de seguridad del negocio. Tres decisiones juntas, porque se justifican entre sí.
+
+### 1. La garantía es estructural, no un test de valores
+
+**Decisión:** una cadena de tipos que no tienen el campo, igual que
+`SaleLineInput` (D-045):
+
+- `CatalogRow` (proyección de Room, `ProductDao`): seis columnas, **sin
+  `cost_cents`**, y la consulta `observeCatalogRows()` las lista una por una, sin
+  `SELECT *`. El costo no se filtra después: nunca sale de SQLite hacia el catálogo.
+- `CatalogRepository.observeItems()` devuelve solo `CatalogItem`, y no tiene a
+  mano `ProductEntity`, `ProductSummary` ni `ProductDetail` (los tres llevan costo).
+- `CatalogItem(productId, uid, name, categoryName, photoPath, price)`: el único
+  `Money` es `price`.
+- La pantalla (`CatalogUiState`) y el generador de imágenes (`CatalogRenderer`)
+  solo conocen `CatalogItem`. **También la pantalla privada de elegir piezas**:
+  la lista de Inventario muestra «Ganancia: Q…» por fila, y si la de catálogo
+  reusara ese tipo, el costo estaría a un cambio de distancia de una pantalla
+  que ella apunta hacia una clienta.
+
+**Por qué:** un test que verifica valores es más débil que un tipo que no puede
+representarlos: el test cubre los casos que alguien pensó, el tipo cubre todos.
+
+**Lo que un tipo no puede hacer:** nada impide que mañana alguien le agregue un
+campo `cost` a `CatalogItem`. Por eso `CatalogItemTest` **fija el conjunto exacto
+de campos** de `CatalogItem` y de `CatalogRow`, con un mensaje que cita esta
+regla: agregar uno rompe el test. Es el cerrojo, no el reemplazo del tipo.
+Verificado por mutación (agregar `cost` al tipo: 2 tests fallan; quitar `AND
+product.stock_qty > 0` de la consulta: 1 falla; quitar `product.archived = 0`: 1
+falla; los tres se revirtieron).
+
+**El código de la pieza (`uid`) va en la tarjeta**, chico y discreto (decisión del
+humano, 2026-10-19). El requisito original decía «foto, nombre y precio» y estaba
+incompleto: el alta rápida no pide nombre, así que la mayoría de las piezas no
+tienen uno, y sin el código la clienta ve tarjetas iguales y no puede decir cuál
+quiere. No es un dato sensible como el costo, y conecta con los códigos de barras
+de la Fase 13. `CatalogItem` lo incluye (seis campos, no cinco).
+
+**Nombre de relleno:** un nombre en blanco se guarda como el texto «Pieza sin
+nombre» (`add_product_default_name`, `AddProductRoute`): queda esa frase literal
+en la base. En el catálogo, si el nombre es ese texto se muestra el nombre de la
+categoría; si tampoco hay categoría, no hay texto de nombre (quedan el código y el
+precio). Riesgo: la comparación es contra el texto de relleno actual; si esa frase
+cambia, las piezas ya guardadas con la anterior se mostrarían con ella.
+
+### 2. Imágenes JPEG, no PDF
+
+**Decisión:** 4 piezas por imagen (para 20 piezas, 5 imágenes), compartidas todas
+juntas con `ACTION_SEND_MULTIPLE` (WhatsApp las recibe como un álbum).
+
+**Por qué, medido:** la «compuerta» del plan midió, con las mismas 20 fotos de
+~1MB y el mismo dibujo, **761 KB las 5 imágenes JPEG contra 15,958 KB el PDF**
+(`PdfDocument`): unas 21 veces más. Con la conexión que tenga la clienta, el PDF
+es inviable; además se ve sin abrir nada, y WhatsApp trata distinto una foto y un
+documento (según recuerdo, por defecto las fotos se bajan solas con datos móviles
+y los documentos no; no verificado acá). Medición en
+`verification/logs/fase12-format-gate.txt`.
+
+**Descartado:** PDF; una sola imagen larga (WhatsApp la recorta y la recomprime
+peor); guardar en la galería (pediría permiso de almacenamiento, prohibido por la
+sección 9 de `CLAUDE.md`).
+
+### 3. El precio de la imagen va con `Locale.ROOT`, y no contradice la regla de formato
+
+**Decisión:** `catalogPriceText()` formatea con `Money.format(Locale.ROOT)`:
+`Q1,250.00`.
+
+**Por qué es distinto del resto de la app:** `Money.format()` usa el idioma del
+teléfono para **lo que ella lee en pantalla**, y eso sigue igual (la pantalla de
+elegir piezas muestra el precio con el formato de su teléfono). El texto de la
+imagen **viaja al teléfono de otra persona** y una imagen no se vuelve a formatear
+al llegar: tiene que verse igual sin importar el idioma de quien la genera. Con un
+teléfono en `es-ES`, la clienta vería `Q1.250,00`, que en Guatemala se lee mal. Es
+una razón distinta a la de la regla de `Locale.ROOT` para lo persistido o impreso
+(claves técnicas como el uid), aunque llegue al mismo lugar. Test:
+`CatalogRenderingRulesTest.priceText_*` (`es-ES` y `ar-EG`).
+
+**Hallazgo relacionado, sin arreglar (fuera de alcance):** otros dos textos de la
+Fase 10 también viajan al teléfono de otra persona y formatean los montos con
+`Money.format()` del idioma del teléfono de ella: el mensaje del recordatorio de
+WhatsApp (`CustomersScreen`, `reminderMessage`, y la misma construcción en
+`CustomerProfileScreen`) y el texto de «Compartir estado de cuenta»
+(`ShareAccountStatementButton`). Es el mismo caso que el de la imagen y, en un
+teléfono con otro idioma, el monto saldría con otro separador. Anotado en
+`ESTADO.md` para que decidas si se corrige.
+
+### Apariencia (no sale del tema de la app)
+
+El catálogo es una imagen que se manda a otra gente: sus colores viven en
+`CatalogStyle` y no dependen del modo oscuro ni de la paleta de la app. Como ella
+vende joyería dorada y lo que más resalta en una foto es el dorado, **no usa nada
+que se le parezca**: fondo `#F2F2F2`, tarjeta blanca, texto `#222222` (contraste
+14.2:1 y 15.9:1) y **ningún color de acento**, ni en el precio. La foto se muestra
+completa, nunca recortada.
+
+**Sin dependencias nuevas:** `FileProvider` llega con `core-ktx` (no pide permiso
+de Android) y el dibujo usa `android.graphics`. `libs.versions.toml` no cambia.
+Único cambio de configuración: un `<provider>` en el manifiesto y
+`res/xml/file_paths.xml` (solo `cache/catalog/`).
+
+---
+
 <!--
 ## D-00X — Título
 

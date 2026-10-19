@@ -471,11 +471,23 @@ Estas son requisitos, no sugerencias estéticas.
     escribe en la base. Si `adb devices` lista un teléfono físico además del
     emulador, **todo `adb` lleva `-s emulator-5554`** (o el serial del
     emulador); nunca `adb` sin `-s` cuando hay más de un dispositivo, y nunca
-    se instala, se limpia ni se abre la app en el físico. Razón: una prueba
-    que agrega y anula ventas en el teléfono de ella deja datos de prueba
-    mezclados con su cuaderno, y no hay forma de separarlos después — nada se
-    borra de verdad (sección 4). Si hace falta ver algo en el teléfono real,
-    lo pide el humano y lo hace él.
+    se instala, se limpia ni se abre la app en el físico. **Lo mismo vale para
+    Gradle:** `./gradlew connectedDebugAndroidTest` corre en TODOS los
+    dispositivos conectados y, al terminar, **desinstala la app, lo que borra
+    sus datos** en cada uno. Con un teléfono físico conectado se corre siempre
+    con `ANDROID_SERIAL=emulator-5554` (el emulador, nunca el de ella).
+    Razón de todo esto: una prueba que agrega y anula ventas en el teléfono de
+    ella deja datos de prueba mezclados con su cuaderno, y no hay forma de
+    separarlos después — nada se borra de verdad (sección 4). Si hace falta
+    ver algo en el teléfono real, lo pide el humano y lo hace él.
+    **Antes de cualquier tarea instrumentada** (`connected*AndroidTest`, o
+    cualquier cosa que instale o desinstale la app) **se corre `adb devices`.
+    Si aparece un dispositivo físico (cualquier serial que no empiece con
+    `emulator-`), se para y se le avisa al humano, aunque `ANDROID_SERIAL`
+    esté puesto.** La variable es un candado que se puede no heredar (un shell
+    nuevo, otro proceso, un `export` olvidado) y fallar en silencio, y lo que
+    protege no tiene vuelta atrás. Mirar la lista de dispositivos es lo único
+    que no depende de acordarse de nada.
 
 ### Git
 

@@ -41,4 +41,6 @@ sealed class JoyeriaDestination(val route: String) {
     }
     /** Reportes (Fase 11), enlace chico desde el inicio -- no una de las dos acciones grandes (CLAUDE.md sección 6). */
     data object Reports : JoyeriaDestination("reports")
+    /** Catálogo compartible (Fase 12), enlace chico desde el inicio, como Reportes. */
+    data object Catalog : JoyeriaDestination("catalog")
 }

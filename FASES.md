@@ -589,9 +589,11 @@ corregir ninguna.
 
 **Objetivo:** vender sin que la clienta vaya a la casa.
 
+**Archivos permitidos (aprobados por el humano el 2026-10-19):** `app/src/main/java/**/domain/catalog/**`, `app/src/main/java/**/data/repository/CatalogRepository.kt`, `app/src/main/java/**/data/local/dao/ProductDao.kt` (solo la consulta y la proyección del catálogo), `app/src/main/java/**/ui/catalog/**`, `app/src/main/java/**/ui/navigation/**` (destino nuevo y enlace "Catálogo" en `HomeScreen`), `app/src/main/AndroidManifest.xml` (**solo** un `<provider>` de `FileProvider` para compartir las imágenes: ningún `<uses-permission>`), `app/src/main/res/xml/file_paths.xml` (solo `cache/catalog/`), `strings.xml`, `app/src/test/java/**/domain/**`, `app/src/test/java/**/data/**`, `app/src/test/java/**/ui/**`, `app/src/androidTest/java/**/ui/catalog/**` (la medición del criterio 3 corre en el emulador). Sin dependencias nuevas, sin cambio de esquema de Room.
+
 **Entregable:**
-- Seleccionar piezas y generar una imagen (o PDF) con foto, nombre y **precio de venta**.
-- **Nunca se muestra el costo ni la ganancia en el catálogo.** Requisito de seguridad del negocio.
+- Seleccionar piezas y generar imágenes con foto, nombre, **código de la pieza** (chico y discreto, la foto es la protagonista) y **precio de venta**. El código se agregó el 2026-10-19: con la mayoría de las piezas sin nombre, sin él la clienta ve tarjetas iguales y no puede decir cuál quiere.
+- **Nunca se muestra el costo ni la ganancia en el catálogo.** Requisito de seguridad del negocio. La garantía es estructural: el tipo que viaja a la pantalla y al generador no tiene campo de costo (ver D-058).
 - Compartir por el share sheet de Android.
 
 **Criterios de aceptación:**

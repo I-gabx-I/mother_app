@@ -25,6 +25,22 @@ data class ProductInventorySnapshotRow(
     val lastSaleAt: Long?,
 )
 
+/**
+ * Una pieza tal como la necesita el catálogo compartible (Fase 12): **solo
+ * estas seis columnas**. No hay `cost_cents` acá, y la consulta que la llena
+ * (`observeCatalogRows`) lista cada columna a mano en vez de `SELECT *`: el
+ * costo no sale de SQLite hacia el catálogo. No es un dato que se filtra
+ * después, es un dato que nunca se lee. Ver D-058 y `CatalogItem`.
+ */
+data class CatalogRow(
+    val id: Long,
+    val uid: String,
+    val name: String,
+    val categoryName: String?,
+    val photoPath: String?,
+    val salePriceCents: Long,
+)
+
 @Dao
 interface ProductDao {
     @Insert
@@ -74,4 +90,24 @@ interface ProductDao {
         """,
     )
     fun observeInventorySnapshot(): Flow<List<ProductInventorySnapshotRow>>
+
+    // Fase 12: las piezas que se pueden poner en el catálogo -- las que ella
+    // tiene a la mano para vender. La condición se expresa ENTERA aunque parte
+    // sea hoy redundante (CLAUDE.md sección 4): `archived = 0` y
+    // `stock_qty > 0`. Una pieza archivada que conserva stock existe (archivar
+    // no pide stock en cero), y una activa sin stock también. Las columnas se
+    // listan una por una a propósito: ninguna es de costo (ver `CatalogRow`).
+    // `LEFT JOIN`: una pieza sin categoría igual entra.
+    @Query(
+        """
+        SELECT product.id AS id, product.uid AS uid, product.name AS name,
+               category.name AS categoryName, product.photo_path AS photoPath,
+               product.sale_price_cents AS salePriceCents
+        FROM product
+        LEFT JOIN category ON category.id = product.category_id
+        WHERE product.archived = 0 AND product.stock_qty > 0
+        ORDER BY product.name, product.uid
+        """,
+    )
+    fun observeCatalogRows(): Flow<List<CatalogRow>>
 }

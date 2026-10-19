@@ -28,6 +28,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Fase 12: compartir las imágenes del catálogo. Solo expone
+             cache/catalog/ (ver res/xml/file_paths.xml). No pide ningún
+             permiso de Android y no es accesible desde otras apps salvo por
+             el permiso temporal de lectura que se le da a la app elegida. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>
