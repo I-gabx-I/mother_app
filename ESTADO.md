@@ -10061,3 +10061,84 @@ en Guatemala?) y el pedido era el de los montos. **Decisión tuya.**
 Ninguno bloquea. Paro para que taguees. Pregunta: ¿corregimos también el formato de la
 fecha de esas líneas (`dd/MM/yyyy` fijo)?
 
+
+---
+
+# Fase 13 — Códigos de barras — Plan (antes de escribir código)
+
+Rama `fase/13-barcodes`. **Desvío de lo pedido:** la abrí sobre `fix/share-text-locale` (`b1ef518`) y no sobre `main`, porque pediste arrancar sin esperar el merge del fix y `main` todavía no lo tiene (los dos agregan texto al final de `ESTADO.md` y chocarían). Si preferís `main`: `git rebase --onto main fix/share-text-locale fase/13-barcodes`.
+Los tests están en la sección 8 y el orden de trabajo en la 9.
+
+## 1. Hallazgo que manda: ML Kit choca con la sección 9 de `CLAUDE.md`
+
+Leí los manifiestos y POM reales (no de memoria). `com.google.mlkit:barcode-scanning:17.3.0` (versión más nueva en Google Maven; variante **empaquetada**: modelos en `assets/` y `libbarhopper_v3.so` por ABI, AAR de 9.9 MB; arm64 4.9 MB, armeabi-v7a 3.2 MB, x86/x86_64 ~6 MB) depende de `mlkit:common:18.11.0`, que depende de `transport-backend-cct` (declara el permiso **`INTERNET`**) y `transport-runtime` (declara `JobInfoSchedulerService` y un receptor de alarmas). Es la tubería de telemetría de Google: la app pasaría a pedir `INTERNET` y a programar envíos en segundo plano. Eso viola la sección 9 («Backend, red, analytics, … telemetría de cualquier tipo»; «permisos que no se usen») y la sección 4 (offline total). **El stack fijo de la sección 2 y la sección 9 se contradicen para ML Kit.**
+
+Salida propuesta (**opción A**, la que recomiendo): usar ML Kit empaquetado y **cortar la red por manifiesto**: `tools:node="remove"` sobre `INTERNET`, `ACCESS_NETWORK_STATE`, el servicio y el receptor de planificación de `transport-runtime`. Sin permiso `INTERNET` la app físicamente no puede enviar nada. **Compuerta antes de seguir:** (1) el manifiesto fusionado no tiene `INTERNET` (se verifica con un chequeo, no a ojo); (2) ML Kit lee códigos en el emulador sin ese permiso y sin caerse; (3) la base de eventos de `datatransport` no crece tras muchos escaneos. Si falla, **opción B:** decodificar con ZXing (ya necesario para generar), que cambia el stack de la sección 2 y requiere tu autorización explícita; ZXing lee Code128 de forma aceptable (sección 3) pero con menos margen que ML Kit con códigos chicos y borrosos.
+
+Dependencias nuevas (cada una con su entrada en `DECISIONES.md` y **una a la vez** con `assembleDebug`, sección 2.1): `com.google.zxing:core:3.5.4` (jar Java, Apache 2.0, 610 KB, sin dependencias) y `com.google.mlkit:barcode-scanning:17.3.0`. **No cambia ninguna versión de la línea base.**
+
+## 2. Garantía estructural: el tipo que genera la etiqueta no recibe montos (D-003)
+
+- `ProductUid` (value class en `domain`) valida el formato `XP-` + 6 o más dígitos. `ProductUid.parse("Q90.00")` o `"9000"` devuelve `null`: **un monto no se puede ni construir** como uid.
+- `BarcodeLabel(uid: ProductUid)`: único campo. El generador (`Code128Encoder`) y la hoja de etiquetas solo reciben `BarcodeLabel`. Lo que se codifica y el texto legible debajo son `uid.value`, nada más.
+- Cerrojo (como `CatalogItemTest`): test que fija el conjunto exacto de campos de `BarcodeLabel`, otro que fija que el contenido codificado es **exactamente** `uid.value`. Round-trip (criterio 3) en JVM puro con el decodificador de ZXing: `XP-000042` → imagen → `XP-000042`. Ya probé en un spike (fuera del repo) los 1,999 uid de `XP-000001` a `XP-001999`: **0 fallos**.
+
+## 3. Tamaño real de etiqueta (medido con ZXing, no estimado)
+
+- `XP-000042` ocupa **112 módulos** (122 con la zona de silencio de 10 de ZXing; 123 si el uid pasa a 7 dígitos).
+- **Módulo 0.254 mm** (1/100 de pulgada): son 3 puntos a 300 dpi y 6 a 600 dpi, así que sale parejo en impresoras comunes. Barras de 28.4 mm + zonas de silencio = **33.5 mm**.
+- **Propuesta: etiqueta de 38 × 16 mm** (barras de 8 mm de alto y el código legible debajo, que es lo que ella tipea si no escanea). Hoja Carta (la de Guatemala), PDF **vectorial** (las barras son rectángulos, nítidas a cualquier resolución), varias por página.
+- Cuánto se necesita para leer: con el spike (reducción + desenfoque, ZXing con `TRY_HARDER`) se lee desde **1.75 px por módulo** con desenfoque σ=0.8 y desde 2 con σ=1.0. Una cámara a ~10 cm con análisis a 1080p da ~**3.5 px/módulo** (a 720p, ~2.3: justo): por eso el escáner fija el análisis en 1080p.
+- **No puedo imprimir ni escanear papel real desde acá.** Lo que sí hago: la hoja incluye una hoja de prueba con el mismo código a 4 tamaños de módulo (0.20, 0.254, 0.30, 0.35 mm) y una regla de 50 mm para comprobar que la impresora no escaló. **La prueba impresa la hacés vos** (bloqueo 4).
+
+## 4. Permiso de cámara: cómo convive
+
+Hoy `CameraCaptureOverlay` (Fase 03) lanza el diálogo del sistema **apenas se abre**, con la explicación debajo, y **no tiene salida si ella niega dos veces** (`launch()` vuelve a negar al instante y el botón no hace nada). El `<uses-permission CAMERA>` ya está en el manifiesto y no hay `uses-feature`. Android otorga el permiso **a la app, no a una función**: lo que se acepte en el alta rápida vale para el escáner y viceversa, sin segundo diálogo.
+
+Propuesta: un `CameraPermissionGate` compartido: **ya otorgado → abre la cámara directo** (sin explicación ni diálogo); **sin pedir → pantalla con la explicación en español y un botón «Permitir la cámara»; el diálogo del sistema aparece recién al tocarlo**; **negado una vez → mensaje y reintento**; **negado para siempre → «Abrir ajustes de la app»**. No se pide en el arranque ni al abrir la pantalla de etiquetas. Verificación en el emulador con `pm revoke` y negando dos veces. Usarlo también en el alta rápida arregla ese callejón sin salida pero toca un archivo de la Fase 03 (bloqueo 2).
+
+## 5. Pantallas y flujo (resumen)
+
+- **Escanear:** icono en la barra de Inventario; cámara + `ImageAnalysis`; al leer un uid válido y existente, abre la edición de esa pieza (`product_edit/{id}`). Código desconocido, de otra tienda o pieza archivada: mensaje claro en español, sin caerse y sin cerrar el escáner. Una consulta que expresa toda su condición (`uid` y estado).
+- **Etiquetas:** desde el menú de Inventario: elegir piezas (tipo `BarcodeLabel`, sin precio) → PDF vía `PrintManager` y «Compartir PDF». Piso de 56dp, 18sp, claves con prefijo, `bottomBar` con `safeDrawing`, §7.10 y los 4 casos de insets.
+
+## 6. Archivos (propuesta, a aprobar)
+
+Nuevos: `domain/barcode/` (`ProductUid`, `BarcodeLabel`, paginación), `ui/barcode/` (escáner, etiquetas, `Code128Encoder`, `LabelSheetRenderer`), `ui/permission/CameraPermissionGate.kt`, tests y un `androidTest` de lectura. Existentes: `libs.versions.toml` y `app/build.gradle.kts` (dependencias), `AndroidManifest.xml` (**solo** quitar permisos/servicios de red de ML Kit y agregar el `<provider>` de PDF si hace falta), `res/xml/file_paths.xml`, `strings.xml`, navegación y menú de Inventario, `DECISIONES.md`, `FASES.md` (lista de archivos), y opcionalmente `CameraCaptureView.kt`.
+
+## 7. Bloqueos — la fase no arranca sin la 1 y la 2
+
+1. **ML Kit vs sección 9.** ¿Autorizás la opción A (ML Kit empaquetado con la red cortada por manifiesto, con la compuerta de la sección 1) o preferís la B (ZXing también para leer, cambiando el stack)?
+2. **Aprobar** las dos dependencias nuevas, la lista de archivos de la sección 6 y si el alta rápida pasa a usar el `CameraPermissionGate` (arregla el callejón sin salida).
+3. ¿Qué imprime ella y en qué papel (hoja Carta común cortada con tijera, hojas de etiquetas adhesivas de qué medida, impresora de etiquetas)? Define el tamaño final; mientras tanto 38 × 16 mm.
+4. **La prueba impresa** (hoja de prueba a 4 tamaños y regla de 50 mm) la hacés vos; yo no puedo imprimir.
+5. *(No bloquea.)* ¿«Escanear» solo en Inventario o también un enlace en Inicio?
+
+## 8. Tests (completa la sección 6; los nombres siguen la sección 8 de `CLAUDE.md`)
+
+`FASES.md` Fase 13 **no tiene «Archivos permitidos»** (igual que las fases 11 y 12): la lista de la sección 6 es la propuesta a aprobar y, una vez aprobada, se escribe en `FASES.md`.
+
+| Test | Qué fija |
+|---|---|
+| `ProductUidTest.parse_validSixDigitUid_returnsIt` y `…_sevenDigitUid_returnsIt` | `XP-000042` y `XP-1234567` son uid válidos |
+| `ProductUidTest.parse_priceText_returnsNull` y `…_plainNumber_returnsNull` | `Q90.00` y `9000` **no se pueden construir** como uid: la garantía de D-003 |
+| `ProductUidTest.parse_uidWithSurroundingSpaces_returnsNull` | un uid con espacios no es un uid |
+| `ProductUidTest.generatorOutput_forSeveralSequences_alwaysParses` | todo lo que produce `ProductUidGenerator.format` es un `ProductUid` válido |
+| `BarcodeLabelTest.fields_areExactlyTheUid` | cerrojo del tipo: único campo `uid` (criterio 2) |
+| `Code128EncoderTest.encodedContent_isExactlyTheUid` | lo codificado es `uid.value`, sin monto (criterio 2) |
+| `Code128EncoderTest.roundTrip_XP000042_decodesToItself` | criterio 3, con el decodificador de ZXing en JVM puro |
+| `Code128EncoderTest.roundTrip_everyUidFrom1To1999_decodesToItself` | el spike dio 0 fallos de 1,999 |
+| `Code128EncoderTest.moduleCount_forSixDigitUid_is112` | fija la cuenta de la que sale el tamaño de la etiqueta |
+| `LabelSheetLayoutTest` (varios) | cuántas etiquetas entran por hoja Carta, ninguna se sale del margen ni se pisa, 0/1/N/N+1 piezas dan las páginas esperadas |
+| `LabelSheetLayoutTest.moduleWidth_isNotBelowTheQuarterMillimeterFloor` | el módulo impreso es ≥ 0.254 mm con el tamaño de etiqueta elegido |
+| `ScanResolverTest.resolve_knownUid_returnsFound` / `…_unknownUid_returnsNotFound` / `…_foreignBarcode_returnsNotAPiece` / `…_archivedPiece_returnsArchived` | las cuatro salidas del escáner, cada una con su test: ninguna lanza ni se cae (criterio «código desconocido, sin crash») |
+| `ProductDaoUidLookupTest` (Room en memoria) | la consulta por `uid` expresa toda su condición e incluye el estado de archivada; construye el estado que el sistema no produce |
+| `CameraPermissionStateTest` | la máquina de estados del permiso: otorgado, sin pedir, negado una vez, negado para siempre |
+| `MlKitScanRoundTripTest` (`androidTest`) | ML Kit lee el `BarcodeLabel` renderizado a varios px/módulo en el emulador; anota el mínimo que lee |
+| `NetworkPermissionTest.requestedPermissions_doesNotContainInternet` (`androidTest`) | **la compuerta de la sección 1:** el paquete instalado no pide `INTERNET` |
+
+Mutación, como en la Fase 12: agregar un campo a `BarcodeLabel` y hacer que `parse` acepte un monto deben romper tests.
+
+## 9. Orden de trabajo una vez aprobada
+
+1. Dependencia ZXing → `assembleDebug`. 2. Dominio (`ProductUid`, `BarcodeLabel`) y encoder con sus tests. 3. Dependencia ML Kit **con el manifiesto recortado** → `assembleDebug` → compuerta de la sección 1 (permiso, lectura sin red, base de eventos). **Si la compuerta falla se frena y se consulta.** 4. `CameraPermissionGate`. 5. Escáner. 6. Hoja de etiquetas, PDF e impresión. 7. Verificación en el emulador (`adb devices` antes; `verification/`). 8. `DECISIONES.md`, `FASES.md`, cierre.
