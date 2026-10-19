@@ -9467,3 +9467,354 @@ propiedad** cuando los archivos viven bajo `build/`: lo que git no guarda,
    `verification/screenshots` y `verification/logs` con `mkdir -p`.
 4. **`FASES.md`, Fase 15:** anotados los 15 `.height(Ndp)` fijos junto con el
    resto de la deuda arrastrada (no se tocaron).
+
+
+---
+
+# Fase 12 — Catálogo compartible — Plan (antes de escribir código)
+
+Rama `fase/12-catalog`, abierta desde `main` (`b7de3fc`, con `fix/design-debt`
+ya mergeada). **Esto es solo el plan: no se tocó código.** Primero lo que
+cambia el diseño, después el diseño, y los bloqueos juntos al final.
+
+---
+
+## 0. Antes de la lista de archivos: `FASES.md` no tiene «Archivos permitidos» para esta fase
+
+Igual que pasó con la Fase 11: el bloque de la Fase 12 va de «Entregable» a
+«Criterios de aceptación» sin lista de archivos. La sección 7.3 de `CLAUDE.md`
+dice que solo toco los archivos permitidos. **Propongo la lista en la sección 8
+y pido aprobarla** (bloqueo 1). Incluye dos archivos de configuración que esta
+fase necesita y que ninguna anterior tocó: el `AndroidManifest.xml` (un
+`<provider>` para compartir archivos) y un `res/xml/file_paths.xml`.
+
+No hay conflicto entre `CLAUDE.md` y `FASES.md` en esta fase.
+
+---
+
+## 1. Qué hay hoy, verificado en el código
+
+1. **Las fotos ya están listas para usar.** `ImageStorage` las guarda en
+   `filesDir/photos/` con la rotación **ya aplicada a los píxeles** (no por EXIF,
+   así que no hace falta leer EXIF), con el lado mayor ≤ 1600px y ≤ 1MB. Hay
+   que decodificarlas **reducidas** (`inSampleSize`): 20 fotos de 1600px sin
+   reducir son ~150MB de bitmaps.
+2. **Todo tipo de producto que existe hoy lleva el costo.** `ProductEntity`,
+   `ProductSummary` (la lista de Inventario y la de Vender) y `ProductDetail`
+   tienen `cost`. Reusar cualquiera de los tres para el catálogo dejaría el costo
+   a una línea de código de la pantalla. **El catálogo no puede usarlos.**
+3. **Hallazgo que afecta lo que se ve: un nombre en blanco se guarda como el
+   texto «Pieza sin nombre».** `AddProductRoute` reemplaza el nombre vacío por
+   `R.string.add_product_default_name` **antes de insertar**, así que en la base
+   queda esa frase literal. El alta rápida no pide nombre (CLAUDE.md sección 6),
+   o sea que **la mayoría de las piezas se llaman «Pieza sin nombre»**. Un
+   catálogo que imprime eso debajo de cada foto es inútil y se ve como un error.
+   Resuelto en la sección 4.
+4. **`Money.format()` usa el locale del teléfono** (`Locale.getDefault()`).
+   Para una pantalla es lo correcto; para una **imagen que sale del teléfono hacia
+   las clientas** no: si el teléfono de ella estuviera en `es-ES`, la imagen diría
+   `Q1.250,00` a gente de Guatemala. La función ya acepta un `locale`; el
+   catálogo le pasa `Locale.ROOT` (`Q1,250.00`, la convención de acá). Mismo
+   razonamiento que la regla de `Locale.ROOT` de la sección 5 para lo impreso.
+5. **Compartir archivos no pide ninguna dependencia ni permiso.** `FileProvider`
+   está en `androidx.core`, que ya llega por `core-ktx`; usarlo no pide permiso
+   de Android. Coil (ya en el proyecto) muestra la vista previa. Dibujar la
+   imagen usa `android.graphics` del sistema. **`libs.versions.toml` no cambia.**
+6. **Hay infraestructura de tests en dispositivo** (`androidTest` con Room y
+   `AndroidJUnitRunner`), que es lo que hace falta para medir el criterio 3.
+7. **Precedente de la garantía estructural:** D-045 / `SaleLineInput(productId,
+   qty, unitPrice)` — la entrada de «Vender» no tiene campo de costo, y el costo
+   se lee fresco dentro de la transacción. Es el mismo patrón.
+
+---
+
+## 2. La garantía estructural: el costo no tiene por dónde viajar
+
+Lo que pediste: un tipo que **no pueda representar** un costo, no un test que
+verifique valores. La garantía es una **cadena**; cada eslabón es un tipo que
+no tiene el campo, y ninguno se construye a partir de algo que sí lo tenga:
+
+| Eslabón | Tipo | Por qué no puede cargar un costo |
+|---|---|---|
+| Base | `CatalogRow` (proyección de Room, en `ProductDao`) | Es una clase de 5 columnas (`id`, `name`, `categoryName`, `photoPath`, `salePriceCents`) y la consulta las **lista una por una**, sin `SELECT *`: la columna `cost_cents` **no sale de SQLite** hacia esta función. No es filtrada después, nunca se leyó |
+| Repositorio | `CatalogRepository.observeItems(): Flow<List<CatalogItem>>` | Devuelve solo `CatalogItem`. No tiene `ProductEntity`, `ProductSummary` ni `ProductDetail` a mano para mapear |
+| Dominio | `CatalogItem(productId, name, categoryName, photoPath, price: Money)` | Sin campo de costo, ganancia, margen ni recargo; el único `Money` es `price` |
+| Pantalla | `CatalogUiState` | Solo contiene `List<CatalogItem>` y la selección (ids) |
+| Imagen | `CatalogRenderer.render(items: List<CatalogItem>)` | Recibe `CatalogItem`. No tiene acceso a la base ni al repositorio de productos |
+
+**La pantalla de elegir piezas también usa `CatalogItem`**, no `ProductSummary`.
+Es deliberado: la lista de Inventario muestra «Ganancia: Q…» por fila; si la de
+catálogo reusara ese tipo, el costo estaría a un cambio de distancia de una
+pantalla que ella apunta hacia una clienta. Con `CatalogItem` ni la pantalla
+privada puede mostrarlo.
+
+**Lo que un tipo no puede hacer, dicho sin adornos:** nada impide que alguien,
+mañana, le agregue un campo `cost` a `CatalogItem`. Por eso hay un test que
+**fija el conjunto exacto de campos** (sección 7): agregar uno rompe el test, y
+el mensaje del test explica la regla del negocio. El test no reemplaza al tipo:
+es el cerrojo para que el tipo no se afloje en silencio.
+
+**La consulta expresa toda su condición** (CLAUDE.md sección 4): `archived = 0
+AND stock_qty > 0`, aunque el resto del sistema hoy no deje una pieza archivada
+a la vista. El test construye el estado que el sistema hoy no produce (pieza
+archivada **con** stock; pieza activa **sin** stock) y comprueba que ninguna
+aparece.
+
+---
+
+## 3. Imagen o PDF: imágenes (JPEG), varias, por el selector de Android
+
+**Decisión: imágenes JPEG, 4 piezas por imagen, compartidas todas juntas.**
+Para 20 piezas son 5 imágenes. Razones, pensadas para WhatsApp con la conexión
+que tenga la clienta (y la que tenga ella al mandarlo):
+
+1. **Se ven sin hacer nada.** Una imagen aparece en el chat y se mira. Un PDF
+   llega como un archivo que hay que tocar, esperar a que abra y tener un lector.
+   Para una clienta que decide mirando fotos, ese paso extra pierde ventas.
+2. **El peso lo controlo yo.** Un JPEG a calidad fija pesa lo que pesa. Los PDF
+   que arma `android.graphics.pdf.PdfDocument` suelen quedar mucho más grandes
+   con fotos adentro (según recuerdo, no re-comprime las fotos como JPEG;
+   **no está medido acá**: ver «compuerta» abajo).
+3. **WhatsApp trata distinto una imagen y un documento.** Según recuerdo, por
+   defecto las fotos se bajan solas con datos móviles y los documentos no. Con
+   poca señal, la clienta ve las fotos sin tocar nada.
+4. **Un lote de imágenes se manda como álbum** (`ACTION_SEND_MULTIPLE`), un solo
+   gesto de compartir para las 5.
+
+**Compuerta antes de comprometer la decisión:** el primer paso de la
+implementación mide, con 20 fotos reales de ≤1MB, el peso total de las 5
+imágenes JPEG (calidad 85) **y** el de un PDF equivalente. Si el PDF resultara
+más chico **y** se mostrara bien, paro y lo consulto antes de seguir; si las
+imágenes pesan más de ~2MB en total, bajo la calidad a 80 y vuelvo a medir. Las
+dos cifras quedan en `ESTADO.md`.
+
+**Lo que no puedo verificar en el emulador:** cómo se ve el resultado **dentro
+de WhatsApp**. WhatsApp recomprime las imágenes (según recuerdo, a ~1600px por
+lado) y recorta la vista previa de las muy altas. No hay WhatsApp en el emulador.
+Por eso las páginas son de 1080×~1640 (proporción 1:1.5, que cabe en el chat sin
+recortarse) y el texto es grande (sección 4): sobrevive a una recompresión. Una
+prueba real enviando el catálogo a un chat de prueba queda **a cargo tuyo**
+(pregunta 3).
+
+---
+
+## 4. Cómo se ve: que el catálogo no compita con la joya
+
+Joyería dorada: lo que más resalta en una foto es el dorado, así que **el
+catálogo no usa nada que se le parezca**.
+
+- **Fondo y tarjetas: neutros, sin tinte.** Fondo gris muy claro `#F2F2F2`,
+  tarjeta blanca `#FFFFFF`. Nada cálido (ni crema, ni beige, ni amarillo, ni
+  naranja), que se confundiría con el baño de oro y lo apagaría.
+- **Texto: casi negro neutro** `#222222`. Contraste 14.2:1 sobre el fondo y
+  15.9:1 sobre la tarjeta. El precio **no es dorado ni de color**: es el mismo
+  casi negro, en negrita. El único otro texto es «1 de 5» en gris `#6B6B6B`
+  (4.8:1 sobre el fondo).
+- **Cero acentos:** sin bordes de color, sin íconos, sin logotipo, sin marca de
+  agua, sin título decorativo. Lo único que lleva color en el catálogo es la foto.
+- **La foto se muestra completa, nunca recortada** («contain» dentro de un
+  cuadrado blanco, no «cover»): un collar largo o un anillo en una foto vertical
+  no pueden perder un pedazo. Las franjas vacías quedan blancas.
+- **Independiente de la app:** estos colores viven en un solo objeto del
+  renderizador y **no** salen del tema de la app, ni del modo oscuro del
+  teléfono. El catálogo sale igual en cualquier teléfono, y no cambia cuando la
+  ronda de diseño cambie la paleta de la app.
+- **Tamaños en la imagen** (página de 1080px de ancho; en un teléfono de 360dp
+  son 3px por dp): nombre 54px (≈18dp, hasta 2 líneas, con puntos suspensivos),
+  precio 66px en negrita (≈22dp). Grande a propósito: la clienta lo ve chico, y
+  WhatsApp lo comprime.
+- **Qué lleva cada pieza, y nada más:** foto, nombre y precio de venta
+  (`Q1,250.00`, con `Locale.ROOT`). **Ni el código de la pieza, ni el stock, ni
+  la categoría como dato aparte.**
+- **El nombre (el hallazgo 3):** si el nombre es el de relleno («Pieza sin
+  nombre»), se muestra el **nombre de la categoría** (`Anillos`, `Aretes`…). Si
+  tampoco hay categoría, solo la foto y el precio, sin texto de nombre. La
+  pantalla de elegir muestra **exactamente el texto que va a salir** en la
+  imagen, para que ella no se sorprenda. Riesgo conocido: la comparación es
+  contra el texto de relleno actual; si algún día cambia esa frase, las piezas ya
+  guardadas con la anterior se mostrarían con ella (un test fija la regla).
+- **Sin foto** (no debería pasar: la foto es obligatoria en el alta rápida, pero
+  `photo_path` es nulo en el esquema): la tarjeta lleva un cuadro gris neutro con
+  el texto «Sin foto». No tira la app ni se salta la pieza.
+
+---
+
+## 5. Pantallas y flujo
+
+Todo nace con el piso de 56dp y de 18sp del tema (`CLAUDE.md` sección 6), usa
+`JoyeriaAlertDialog` y `JoyeriaDropdownMenuItem` si hubiera diálogo o menú, y
+no pone ningún `.height(Ndp)` fijo en nada con texto (la deuda de la Fase 15 no
+se agranda).
+
+1. **Inicio:** un enlace chico «Catálogo», como «Reportes» (no una de las dos
+   acciones grandes, sección 6).
+2. **Elegir piezas** (`CatalogPickerScreen`): lista de las piezas con stock y no
+   archivadas: foto chica, el texto que va a salir, el precio y una casilla.
+   Buscador por nombre (con teclado: se verifica en los 2 modos de navegación).
+   «Elegir todas las que se ven» / «Quitar todas». Contador «Elegiste 7 piezas».
+   Botón «Crear catálogo» anclado al fondo, deshabilitado sin ninguna elegida,
+   con el manejo de insets de `RegisterSaleScreen` (`safeDrawing` abajo, no
+   `navigationBarsPadding` + `imePadding`).
+3. **Armando** (mismo estado, no una pantalla nueva): indicador de progreso y
+   «Armando tu catálogo… 3 de 5». Trabaja fuera del hilo principal; tiene botón
+   «Cancelar». Si una foto no se puede leer, esa tarjeta sale como «Sin foto»
+   y el resto sigue: nunca se cae por una pieza.
+4. **Listo** (`CatalogResultScreen`): vista previa de las páginas (se pueden mirar
+   antes de mandar) y un botón grande **«Compartir»** que abre el selector de
+   Android con las imágenes. Botón «Elegir otras piezas» (vuelve sin perder lo
+   elegido). Si hay un error, un mensaje en español y «Intentar de nuevo».
+
+Un `ViewModel` con un solo `StateFlow<CatalogUiState>`; los composables reciben
+estado y lambdas y llevan `@Preview`. Un archivo por pantalla (< ~300 líneas).
+Claves de lista con prefijo por sección: `"catalog-${id}"` para piezas y
+`"page-${n}"` para páginas; **ninguna clave pelada** (sección 5).
+
+**Compartir:** un `FileProvider` (`<provider>` en el manifiesto y
+`res/xml/file_paths.xml` apuntando solo a `cache/catalog/`) y `ACTION_SEND` (una
+página) o `ACTION_SEND_MULTIPLE` (varias) con `ClipData` y
+`FLAG_GRANT_READ_URI_PERMISSION` (sin `ClipData`, el selector de Android no
+transfiere el permiso de lectura a la app destino en versiones recientes). Las
+imágenes viven en la caché de la app y se borran al armar un catálogo nuevo. No
+se guardan en la galería: eso pediría permiso de almacenamiento, y la sección 9
+prohíbe pedir permisos que no hagan falta.
+
+---
+
+## 6. Criterio 3: 20 piezas en menos de 5 segundos — medido, no estimado
+
+- **Cómo:** un test instrumentado (`androidTest`) corre en el emulador
+  `Medium_Phone_API_35`: crea 20 piezas con 20 fotos JPEG reales de ~1MB y
+  1600px (ruido aleatorio para que pesen lo que pesa una foto), las pasa por el
+  **mismo** repositorio y renderizador que usa la pantalla, y mide con
+  `System.nanoTime` de punta a punta (leer de la base + decodificar + dibujar +
+  comprimir las 5 imágenes). Imprime el tiempo y el peso total.
+- **Entorno en reposo** (sección 7.11): sin build de Gradle corriendo en
+  paralelo, `adb shell top` ocioso. Una medición con contención se descarta y se
+  repite, aunque salga favorable.
+- **Se repite 3 veces** y se anotan las tres; la primera suele ser la más lenta
+  (arranque en frío de la JVM del dispositivo).
+- **Margen de seguridad (propuesta mía):** el criterio es 5 s en el emulador,
+  pero el teléfono de ella casi seguro es más lento. Apunto a **≤ 2.5 s** en el
+  emulador; si sale entre 2.5 y 5 s, lo anoto como riesgo.
+- **Lo que esa medición NO cubre:** el toque «Crear catálogo» hasta ver la
+  primera vista previa en la pantalla (la prueba instrumentada no pasa por la
+  UI). Esa parte se mira a mano en el emulador con las piezas que haya; el
+  número oficial del criterio es el de la prueba.
+
+---
+
+## 7. Tests
+
+Fase sin la etiqueta de `[TESTS OBLIGATORIOS]` en el título, pero el criterio 2
+sí la lleva. Los nombres siguen la sección 8: afirman solo lo que el cuerpo
+ejercita.
+
+| Test | Qué fija |
+|---|---|
+| `CatalogItemTest.catalogItem_fieldsAreExactlyTheFiveAllowed` | **El cerrojo del tipo (criterio 2).** Por reflexión, el conjunto de campos de `CatalogItem` es exactamente `{productId, name, categoryName, photoPath, price}`; el único de tipo `Money` es `price`. Agregar un campo lo rompe, con un mensaje que cita la regla del catálogo |
+| `CatalogItemTest.catalogRow_columnsAreExactlyTheFiveAllowed` | Lo mismo para la proyección `CatalogRow`: ninguna columna de costo |
+| `ProductDaoCatalogTest.catalogQuery_withProductCostingQ777_neverReturnsThatNumber` | Room en memoria: una pieza con costo `77777` (Q777.77) y precio `5000`; se arma el `CatalogItem`, y ni él ni su `toString()` contienen `77777`. Es el test de valores que complementa al tipo |
+| `ProductDaoCatalogTest.catalogQuery_excludesArchivedPieceThatStillHasStock` | El estado que el sistema hoy no produce: archivada **con** stock |
+| `ProductDaoCatalogTest.catalogQuery_excludesActivePieceWithZeroStock` | La otra mitad de la condición: activa **sin** stock |
+| `CatalogCaptionTest.caption_forPlaceholderName_isCategoryName` y `…_forPlaceholderNameWithoutCategory_isEmpty` y `…_forRealName_isTheName` | Las tres ramas de la regla del nombre (hallazgo 3), cada una con su test |
+| `CatalogPaginationTest` (varios) | 0, 1, 4, 5, 8, 9 y 20 piezas dan 0, 1, 1, 2, 2, 3 y 5 páginas; ninguna pieza se pierde ni se repite; el orden se conserva |
+| `CatalogPriceTextTest.priceText_usesRootLocale_evenWhenDeviceLocaleDiffers` | Con locale `es-ES` por defecto, el texto del precio sigue siendo `Q1,250.00` |
+| `CatalogRenderTimingTest.render_twentyPieces_finishesUnderFiveSeconds` (`androidTest`) | El criterio 3, en el emulador; imprime el tiempo y el peso |
+
+Los de `domain`/`util` puros van en JUnit4 sin Robolectric (sección 8). Los de la
+consulta usan Room en memoria. **Verifico por mutación** que el test de campos
+(`fieldsAreExactlyTheFiveAllowed`) falla de verdad al agregarle `cost` al tipo, y
+que el de la consulta falla si se quita `AND stock_qty > 0`, y lo anoto.
+
+---
+
+## 8. Archivos que toca (propuesta, para aprobar)
+
+**Nuevos**
+- `domain/catalog/CatalogItem.kt` — el tipo (sin Android).
+- `domain/catalog/CatalogPaging.kt` — paginación pura (4 por página).
+- `data/repository/CatalogRepository.kt` — `observeItems()`.
+- `ui/catalog/`: `CatalogUiState.kt`, `CatalogViewModel.kt`, `CatalogRoute.kt`,
+  `CatalogPickerScreen.kt`, `CatalogResultScreen.kt`, `CatalogShare.kt`.
+- `ui/catalog/render/CatalogRenderer.kt` y `CatalogStyle.kt` — dibuja con
+  `android.graphics`; los colores y tamaños de la sección 4 viven solo en `CatalogStyle`.
+- `res/xml/file_paths.xml` — el `FileProvider`, solo `cache/catalog/`.
+- Tests de la sección 7.
+
+**Existentes que se modifican (mínimo)**
+- `data/local/dao/ProductDao.kt` — la consulta `observeCatalogRows()` y la
+  proyección `CatalogRow`.
+- `AndroidManifest.xml` — **solo** agregar el `<provider>`. No se agrega ningún
+  `<uses-permission>`.
+- `res/values/strings.xml` — todos los textos nuevos, en español.
+- `ui/navigation/JoyeriaDestination.kt`, `JoyeriaNavHost.kt`, `HomeScreen.kt` —
+  el destino y el enlace.
+- `DECISIONES.md` (entrada nueva), `ESTADO.md`.
+
+**No se toca:** esquema de Room (no hay migración: no se agrega tabla ni
+columna), `libs.versions.toml` (ninguna dependencia nueva), `ui/theme/`, el
+resto de las pantallas, `design/visual-identity` (queda pausada, como pediste).
+
+---
+
+## 9. Cómo se verifica (todo en el emulador, artefactos en `verification/`)
+
+`adb` siempre con `-s emulator-5554`; el teléfono físico no se toca (sección
+7.13). Capturas y logs a `verification/screenshots/` y `verification/logs/`
+(`mkdir -p` primero: la carpeta no existe en un clon nuevo).
+
+1. **§7.10 completo en las dos pantallas con lista:** en «Elegir piezas»,
+   elegir una, elegir otra, quitar una, salir y volver; en «Listo», recorrer las
+   páginas. Con datos reales y al menos 2 filas (una clave literal sin
+   interpolar solo se ve al dibujar la segunda).
+2. **Insets, los 4 casos:** barra de tres botones y barra de gestos, cada una
+   con y sin teclado (el buscador abre el teclado; el botón «Crear catálogo» y
+   «Compartir» están al fondo).
+3. **Letra grande:** 1.0×, 1.3× y 2.0× en las dos pantallas; el texto crece, no
+   se recorta.
+4. **Áreas táctiles:** `uiautomator dump` y ningún nodo `clickable` < 56dp (el
+   tema ya lo garantiza; se mide igual, como en `fix/design-debt`).
+5. **Lo que sale en la imagen:** abrir las páginas generadas y mirarlas a ojo
+   con una foto clara, una oscura y una vertical, y con un nombre largo; buscar
+   que no aparezca ningún costo (con una pieza de costo único, `Q777.77`, visible
+   en Inventario como «Ganancia»).
+6. **Compartir:** que el selector de Android abra con las N imágenes. Mandarlas
+   a WhatsApp **no** se puede probar en el emulador (pregunta 3).
+7. **Medición del criterio 3** como en la sección 6.
+8. **Todo `./gradlew`** con `Bash` (7.12). **No `./gradlew clean`**: ya no borra
+   evidencia, pero tampoco hace falta.
+
+---
+
+## 10. Decisiones mías (reversibles), para que las objetes
+
+| Decisión | Alternativa |
+|---|---|
+| Imágenes JPEG, 4 por página, no PDF (con compuerta de medición) | PDF: un solo archivo, pero más pesado y no se ve sin abrirlo |
+| Página de 1080×~1640 (1:1.5) | Una sola imagen larga: WhatsApp la recorta y la recomprime peor |
+| Fondo `#F2F2F2`, tarjeta blanca, texto `#222222`, sin acentos | Fondo oscuro: más «vitrina», pero compite con fotos claras y WhatsApp lo comprime peor |
+| Foto «contain», nunca recortada | «Cover» cuadrado: más parejo, pero corta collares y fotos verticales |
+| Nombre de relleno → se muestra la categoría; sin categoría, sin texto | Dejar «Pieza sin nombre» (feo) o pedirle que escriba un nombre por pieza al armar el catálogo (más pasos) |
+| Solo piezas con stock y no archivadas | Incluir las agotadas, pero no se pueden vender |
+| Sin código de la pieza en la tarjeta | Mostrarlo para que la clienta diga «quiero la XP-000012» (ver pregunta 2) |
+| Buscador + «Elegir todas las que se ven» en la pantalla de elegir | Solo lista con casillas: más simple, pero con 100 piezas es lento |
+| Imágenes en la caché de la app, no en la galería | Galería: pediría permiso de almacenamiento (prohibido, sección 9) |
+| Sin dependencias nuevas (`FileProvider` y `android.graphics` del sistema) | — |
+
+---
+
+## 11. Bloqueos — la fase no arranca sin la primera
+
+1. **Aprobar la lista de archivos de la sección 8**, incluido el cambio al
+   `AndroidManifest.xml` (solo un `<provider>`, ningún permiso) y el
+   `res/xml/file_paths.xml`. `FASES.md` no trae lista para esta fase.
+2. *(No bloquea.)* **¿Querés el código de la pieza (`XP-000012`) en la tarjeta?**
+   Sirve para que la clienta diga cuál quiere sin describirla. Contra: es un
+   dato interno y el requisito dice «solo foto, nombre y precio». Hoy: no.
+3. *(No bloquea.)* **¿Quién prueba el resultado dentro de WhatsApp?** En el
+   emulador no hay WhatsApp. Propongo que, cuando la fase esté lista, mandes un
+   catálogo de prueba a un chat tuyo y me digas si se lee bien (texto, recorte,
+   peso). Si algo no se ve bien, se ajusta el tamaño del texto o la calidad.
+4. *(No bloquea.)* **¿Pieza sin nombre se muestra con la categoría?** Es lo que
+   propongo para el hallazgo 3. Si preferís otra cosa (por ejemplo, que ella
+   escriba el nombre al armar el catálogo), cambia el flujo de la sección 5.
