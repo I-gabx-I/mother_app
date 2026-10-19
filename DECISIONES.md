@@ -3133,6 +3133,110 @@ inexistente o de una pieza archivada tiene su mensaje y no cierra ni tira la app
 
 ---
 
+## D-061 — Respaldo, importar y exportar a Excel (Fase 14)
+
+**Contexto:** Fase 14. Perder el teléfono no puede ser peor que perder el cuaderno. La app no tiene red
+ni cuentas (CLAUDE.md sección 4), así que el respaldo es **un archivo** que ella misma guarda donde quiera.
+
+**Decisión:**
+- **Formato:** un `.zip` con `manifest.json` (versión de formato, versión de esquema, versión de la app, fecha,
+  `encryption: "none"`, cantidad de filas por tabla, huella SHA-256 de los datos y de cada foto), `data.json` y
+  `photos/<nombre>`. Solo `org.json` + `java.util.zip` + `MessageDigest` del sistema: **ninguna dependencia nueva**.
+- **Volcado genérico:** las tablas y columnas salen de `sqlite_master` y `PRAGMA table_info`, no de una lista
+  escrita a mano. Una tabla o columna nueva entra al respaldo sola; el lector rechaza un archivo cuyas tablas o
+  columnas no sean EXACTAMENTE las de la base viva. Valores solo enteros, textos y `null`: un decimal o un blob
+  en la base se rechaza (D-001).
+- **Los ids se conservan** (las claves foráneas apuntan a ellos). La única columna con una ruta absoluta es
+  `product.photo_path`: viaja como nombre de archivo y la importación la reescribe a `filesDir/photos/` de ESE teléfono.
+- **Importar = reemplazar, no mezclar.** Mezclar necesita un modelo de conflictos (¿la misma pieza editada en
+  los dos lados?) que no tiene una respuesta correcta para una vendedora sola. Sin contraseña.
+- **Orden de una importación:** (1) se lee y valida TODO el archivo sin tocar nada (zip → entradas seguras y con
+  tope → manifiesto → versión de formato → versión de esquema → huella de los datos → huella de cada foto → forma
+  de cada fila contra el esquema vivo); (2) vista previa con cantidades y confirmación; si el archivo es **más
+  viejo** que lo último que hay en el teléfono, una **segunda** confirmación con cuánto se perdería; (3) copia
+  previa de lo que hay, en **`filesDir/backups/`** (no en la caché: Android puede vaciarla sola y un «Deshacer»
+  sin archivo detrás es peor que no ofrecerlo), ya validada — si no se puede guardar, **no se importa**
+  (`SAFETY_COPY_FAILED`); (4) las fotos se extraen a una carpeta temporal y se verifican; (5) UNA transacción
+  (`defer_foreign_keys`) borra todo, inserta el archivo, comprueba `foreign_key_check` y las categorías; (6) con
+  la transacción cerrada se mueven las fotos y se borran las huérfanas. Lo que falle en (1) o (5) deja la base y
+  las fotos exactamente como estaban (probado tabla por tabla, `BackupRejectionTest`). Una vez empezada,
+  la importación es `NonCancellable`: salir de la pantalla a mitad no la corta entre «la base cambió» y «las
+  fotos llegaron».
+- **«Deshacer»** restaura la copia previa más reciente (que conserva `last_backup_at`) y la consume; las copias
+  se borran al hacer un respaldo nuevo o a los 30 días. Se mantiene solo la última.
+- **Versiones:** misma versión → importa; **más nueva → se rechaza antes de interpretar los datos**; más vieja →
+  cadena de mejoradores `BackupUpgraders` (hoy ninguno: la primera versión exportada es la 2, `FIRST_EXPORTED_SCHEMA`);
+  si falta un mejorador → se rechaza. `DATABASE_SCHEMA_VERSION` es una constante única que usan `@Database` y el
+  respaldo; **subirla sin escribir el mejorador rompe `BackupVersionTest.everyPastSchemaVersion_hasAnUpgrader`
+  a propósito**. El archivo dorado `golden-backup-schema2.zip` (un respaldo real del esquema 2, commiteado) tiene
+  que seguir importándose: no se arregla regenerándolo.
+- **Zip seguro:** se rechazan entradas con `..`, rutas absolutas, `\`, repetidas o fuera del formato; topes de
+  entradas, de tamaño por entrada (se cuenta lo que se LEE, no lo que el zip declara) y total.
+- **Categorías (D-057):** la importación pasa por debajo de `CategoryRepository`, así que revisa cada categoría
+  activa con **la misma consulta** (`CategoryDao.countActiveWithName(name, excludeId)`), no con una segunda
+  expresión SQL que pudiera diverger. Dos activas con el mismo nombre → `CATEGORY_CONFLICT`, todo se deshace.
+  Una archivada que repite el nombre de una activa SÍ se importa (la regla solo cubre las activas).
+  *Sobre `LOWER()`:* se sospechó que SQLite solo entendía ASCII (`Niñas` ≠ `NIÑAS`). **No se confirmó**: en el
+  SQLite del emulador (Android 15) y en el de Robolectric entiende ñ y tildes (`verification/logs/fixunicode-probe.txt`);
+  no hubo bug que arreglar. Se agregaron los tests que faltaban (ñ y tildes EN MAYÚSCULA), también en el emulador
+  (`CategoryNameCaseInstrumentedTest`).
+- **`last_backup_at`:** clave nueva de `app_setting` que **no se siembra** (ausente = «nunca»; no cambia el
+  esquema, sin migración). No viaja dentro del archivo. Se marca al abrir el selector de Android con el respaldo
+  (no hay forma de saber si ella llegó a mandarlo: es la única señal honesta). Una importación la deja en la fecha
+  del archivo. El recordatorio avisa a **más de 15 días** (estrictamente) y, si nunca hizo uno, cuenta desde la
+  primera pieza cargada.
+- **CSV (inventario y ventas):** coma de separador (Guatemala usa punto decimal), UTF-8 **con BOM**, fin de línea
+  CRLF, montos `75.90` con aritmética entera (nunca `Double`), fechas `dd/MM/yyyy HH:mm` en hora de Guatemala,
+  celdas que empiezan con `=`, `+`, `-` o `@` neutralizadas con apóstrofe (un nombre de pieza no se vuelve una
+  fórmula). Las ventas salen **de los snapshots de la línea** (CLAUDE.md 3.7), una fila por línea; el descuento de
+  legado va solo en la primera línea de su venta. Los CSV son solo para mirar: no se importan.
+
+**Por qué:** el volcado genérico evita el bug típico de un respaldo escrito a mano (una columna nueva que nadie
+agregó a la lista y que se pierde en silencio, descubierto el día que hace falta). La copia previa y la
+transacción única existen porque esta operación reemplaza la base de una persona que no puede deshacerla sola.
+
+**Descartado:** mezclar (sin modelo de conflictos); contraseña (la perdería y con ella todo; el archivo trae
+nombres y teléfonos de clientas, ver abajo); copiar el archivo `.db` crudo (frágil entre versiones de Room y
+arrastra rutas); Room/Gson/kotlinx-serialization para el JSON (dependencia nueva sin necesidad); una segunda
+expresión SQL para validar las categorías (dos implementaciones que pueden divergir).
+
+**Consecuencias / límites:**
+- **El respaldo NO va cifrado** y trae datos de terceros (nombre y teléfono de las clientas, lo que deben): quien
+  reciba el archivo ve todo. La pantalla dice «Mandátelo por WhatsApp o guardalo en Drive» (a sí misma), no lo ofrece para otras personas.
+- Importar necesita espacio libre de **unas tres veces** lo que pesa el respaldo (el archivo elegido, la copia
+  previa y las fotos extraídas, además de las fotos finales). Medido en el emulador con 150 fotos de 1 MB
+  (150 MB): respaldar 10 s; importar 6 s hasta la vista previa y 16 s hasta terminar.
+- Las fotos que una pieza nombra y que ya no están en el teléfono no entran al respaldo (`photosMissing`); la fila
+  conserva el nombre, igual que antes.
+- Las fotos que ninguna pieza usa se borran al importar (están en la copia previa por si se deshace).
+
+---
+
+## D-062 — Copia automática de Android apagada (`allowBackup="false"`)
+
+**Contexto:** Fase 14. El manifiesto traía `allowBackup="true"` con los dos archivos de reglas de ejemplo del
+asistente (`data_extraction_rules.xml`, `backup_rules.xml`, sin tocar). Con eso Android copia la base y las fotos a
+la cuenta de Google de la usuaria y las **restaura solo** al instalar en otro teléfono, sin avisar ni mostrar
+qué trae, y sobre una base que quizá ya tenga datos nuevos.
+
+**Decisión:** `allowBackup="false"`; se quitan `dataExtractionRules` y `fullBackupContent` y se borran los dos
+XML. `AutoBackupPolicyTest` (androidTest, mira el manifiesto fusionado) falla si algo lo vuelve a encender.
+
+**Por qué:** una restauración silenciosa y automática es lo contrario de lo que esta fase construye (ver lo que se
+va a restaurar y confirmarlo). Además no estaba pedida, no se probó nunca, y tiene topes y condiciones propios
+(tamaño, Wi-Fi, cuenta, versión de Android) que nadie controla.
+
+**Consecuencia — lo que se pierde, dicho sin adornos:** **esto saca la única protección pasiva que tenía la
+usuaria.** Hasta hoy, si perdía el teléfono, había una probabilidad razonable (no verificada) de que Google le
+devolviera algo al configurar el nuevo. Desde esta fase, **la única red es el recordatorio de 15 días** y que
+ella lo atienda. Hasta que exista un respaldo automático fuera del teléfono (Fase 16 opcional en `FASES.md`:
+copia a Supabase Storage), un teléfono perdido sin respaldo manual reciente pierde los datos.
+
+**Descartado:** dejarlo encendido «por si acaso» (restauración silenciosa); encenderlo con reglas propias (más
+superficie sin que nadie lo pidiera y sin forma de probarlo contra una cuenta real).
+
+---
+
 <!--
 ## D-00X — Título
 

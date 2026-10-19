@@ -45,4 +45,6 @@ sealed class JoyeriaDestination(val route: String) {
     data object Catalog : JoyeriaDestination("catalog")
     /** Hoja de etiquetas con código de barras (Fase 13), desde el menú de Inventario. */
     data object Labels : JoyeriaDestination("labels")
+    /** Respaldo, recuperar y Excel (Fase 14), desde el engranaje del inicio. */
+    data object Backup : JoyeriaDestination("backup")
 }

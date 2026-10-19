@@ -10554,3 +10554,109 @@ validación de categorías deben romper tests.
    engranaje en Inicio.
 5. *(No bloquea.)* **El Excel de ella:** ¿separa columnas con coma o con punto y coma? Se confirma con su archivo
    real una vez hecho. Y el límite de ~100 MB de WhatsApp para archivos, que es de memoria y se verifica.
+
+
+---
+
+## Fase 14 — Respaldo, exportar e importar
+
+**Inicio:** 2026-10-19
+**Cierre:** 2026-10-19
+**Commit:** `fase-14: backup and export` (un solo commit sobre el del plan, sin tag todavía — paro antes del tag)
+
+### Qué se hizo
+
+Aprobaste los bloqueos del plan: `allowBackup="false"` (D-062, con la nota de que saca la única protección
+pasiva y de que hasta la Fase 16 opcional la única red es el recordatorio), sin contraseña y «reemplazar, no
+mezclar», **con la copia previa en `filesDir`**, la lista de archivos y el engranaje, CSV con coma y BOM. Detalle
+completo del diseño en **D-061** y **D-062**.
+
+- **Dominio puro** (`domain/backup/`): formato y topes, mejoradores de versión (`BackupUpgraders`, hoy ninguno),
+  recordatorio de 15 días, contador de códigos tras importar, formato CSV, «actividad más reciente» de unos datos.
+- **Datos** (`data/backup/`): volcado genérico desde `sqlite_master`, exportador (zip: manifiesto + datos +
+  fotos, con huellas SHA-256), lector/validador (todo antes de tocar nada), importador (vista previa → copia previa
+  validada → fotos a carpeta temporal → UNA transacción → fotos al lugar), «Deshacer», exportador de CSV.
+- **UI** (`ui/backup/`): pantalla «Respaldo» (guardar, recuperar, Deshacer, dos archivos para Excel), vista previa
+  con cantidades, segunda confirmación si el archivo es más viejo, un mensaje en español por cada causa de fallo.
+  Inicio: **engranaje** de 56 dp y, pasados 15 días, una tarjeta de aviso. Inicio ahora se puede desplazar
+  (con letra 2.0× el aviso empuja los enlaces fuera de pantalla).
+- **Manifiesto:** `allowBackup="false"`, se borran `data_extraction_rules.xml` y `backup_rules.xml`; `file_paths.xml`
+  expone `cache/backups/`. **Sin dependencias nuevas, sin permisos nuevos, sin migración** (`last_backup_at` es una
+  clave que no se siembra; ausente = «nunca»).
+- **`DATABASE_SCHEMA_VERSION`**: constante única para `@Database` y el respaldo.
+
+### Criterios de aceptación
+
+| # | Criterio | Resultado |
+|---|---|---|
+| 1 | Build y tests pasan | ✅ `assembleDebug` verde; **471 tests unitarios, 0 fallos** (368 + 103 nuevos); **14 de `androidTest` en el emulador, 0 fallos** |
+| 2 | Round-trip campo por campo | ✅ `BackupRoundTripTest` (todas las columnas de todas las tablas, casos raros) y **contra una base real**: `RealDatabaseRoundTripTest` sobre `verification/db/emulador-fase14.db` (la del emulador cargada con los casos raros; no hay copia de la base de ella). **Y en el emulador, de punta a punta:** respaldo → modifico la base → importo desde el selector → comparo con Python las 10 tablas contra la base original: **todas iguales** (`verification/logs/fase14-import-vs-original.txt`); «Deshacer» → igual a la base de antes de importar (`fase14-undo-vs-modified.txt`) |
+| 3 | Archivo corrupto o de otra versión falla claro y deja la base intacta | ✅ 23 pruebas de rechazo (`BackupRejectionTest`: no es zip, sin manifiesto, cortado, huella de datos o de foto mala, esquema más nuevo, más viejo sin mejorador, formato o cifrado desconocidos, `..`, ruta absoluta, `\`, ruta de foto absoluta, tipo equivocado, estado desconocido, columna de más, tabla faltante, nulo, foránea rota, clave repetida, categorías duplicadas): cada una compara **las filas de todas las tablas, las fotos y que no quede copia previa colgada**. En el emulador: archivo cortado y archivo de «esquema 3» → mensaje en español y la base idéntica (`fase14-after-bad-files.txt`) |
+| 4 | El CSV abre con tildes (UTF-8 con BOM) | ✅ Bytes `EF BB BF` verificados en los dos archivos generados en el emulador y ñ/Á/tildes en UTF-8 (`verification/csv/`). **No lo abrí en Excel** (no hay Excel en el emulador) |
+| 5 | Recordatorio a los 15 días | ✅ `BackupReminderTest` (estrictamente más de 15; cuenta desde la primera pieza si nunca hizo uno) y en el emulador la tarjeta de Inicio: «374 días» con la base cargada, y desaparece al guardar un respaldo |
+| 6 | (agregado) `NetworkPermissionTest` sigue verde | ✅ |
+| 7 | (agregado) `AutoBackupPolicyTest`: la copia automática sigue apagada | ✅ **Mutación:** con `allowBackup="true"` falla; restaurado |
+
+### Mutaciones (`verification/logs/fase14-mutaciones.txt`)
+
+1. Quitar el `DELETE` de todas las tablas al importar → fallan 10+ tests.
+2. Quitar la validación de categorías → falla `twoActiveCategoriesThatDifferOnlyInCase_rollBackTheWholeImport`.
+3. No borrar la copia previa cuando la importación falla → fallan `aFailedImport_doesNotLeaveASafetyCopyBehind` y tres rechazos de la transacción.
+4. `allowBackup="true"` → falla `AutoBackupPolicyTest`.
+Todas revertidas. **Una que NO muta:** quitar `PRAGMA foreign_key_check` no rompe ningún test, porque con `defer_foreign_keys` la base misma rechaza la foránea rota al cerrar la transacción (el resultado es el mismo `INVALID_DATA`); la comprobación explícita solo da un mensaje más claro.
+
+### Verificación manual en el emulador (`adb devices` antes: solo `emulator-5554`; `verification/`)
+
+Base del emulador cargada con: nombres con tildes y ñ (incluida una categoría «MAYÚSCULAS» y otra archivada con una pieza), piezas sin foto y sin categoría, una pieza con precio menor al costo, un nombre que empieza con `=`, una venta con descuento de legado, créditos con abonos a medias, uno sin abonos, uno pagado, una venta anulada, una venta de varias líneas.
+
+- **Guardar:** el archivo del emulador (8 piezas, 6 ventas, 6 fotos) lo verifiqué **aparte con Python**: zip íntegro, huella de datos y de las seis fotos correctas, ninguna ruta absoluta (`fase14-02..03`).
+- **Recuperar:** selector de archivos de Android → vista previa con cantidades (`fase14-06`) → como el teléfono tenía algo posterior, **segunda confirmación** con lo que se perdería (`fase14-07`) → «Listo» (`fase14-08`) → copia previa en `files/backups/` (no en caché) → **Deshacer** (`fase14-09..10`) y la copia se consume y el botón desaparece.
+- **Errores** (`fase14-11..12`), **CSV** (`verification/csv/`: el descuento de legado solo en la primera línea de su venta, la anulada marcada, fechas en hora de Guatemala).
+- **Letra 2.0×** (`fase14-14..15`), insets con navegación por gestos y de 3 botones (`fase14-16..17`): todos los botones ≥ 56 dp medidos con `uiautomator` (`fase14-home-clickables.txt`, `fase14-dialog-targets.txt`, `fase14-backup-targets-font20.txt`).
+- **Tiempos con 150 fotos de 1 MB (150 MB), medidos con el emulador en reposo** (595 % de CPU libre; `fase14-timing-*.txt`): guardar **10.2 s**; importar **5.8 s** hasta la vista previa + **15.7 s** hasta terminar. Una primera medición de importar se descartó: el servidor de `adb` se cayó a mitad (no el emulador) y se repitió entera.
+- Sin ningún `FATAL`. **El teléfono físico no se tocó.**
+
+### Hallazgos
+
+1. **`LOWER()` no era un bug** (lo pediste verificar primero): el SQLite del emulador y el de Robolectric entienden ñ y tildes; no hay rama `fix/category-unicode`. Agregué los tests que faltaban, con ñ y tildes en mayúscula, en JVM y en el emulador. Mi plan decía de memoria que era solo ASCII: estaba mal.
+2. **Android Auto Backup estaba encendido** con las reglas de ejemplo (D-062).
+3. **Una inserción duplicada no devuelve `-1`** en Robolectric: lanza `SQLiteConstraintException`; en el teléfono la API devuelve `-1`. El importador cubre las dos.
+4. **`AppSettingDao.setValue` es un UPDATE**: no sirve para una clave que no existe; agregué `upsert`.
+5. **Importar necesita ~3× el tamaño del respaldo de espacio libre** (archivo elegido + copia previa + fotos extraídas): con 150 MB el emulador pasó de 1.2 GB a 712 MB libres. Si falta espacio, falla por `SAFETY_COPY_FAILED` **antes** de tocar nada (la rama está cubierta por diseño, **no la probé con el disco lleno**).
+6. La importación es `NonCancellable`: salir de la pantalla a mitad no la corta entre «la base cambió» y «las fotos llegaron».
+
+### Archivos fuera de la lista aprobada (te pido que lo apruebes o lo revierto)
+
+- `data/local/dao/ProductDao.kt` (`observeFirstCreatedAt`) y `data/local/dao/AppSettingDao.kt` (`observeValue`, `upsert`): hacen falta para el recordatorio y para guardar una clave que no existe.
+- `data/repository/BackupStatusRepository.kt` **nuevo** (en vez de ampliar `AppSettingRepository`) y `ui/navigation/HomeViewModel.kt` **nuevo** (Inicio no tenía ViewModel).
+- **No toqué `CategoryDao.kt`** aunque estaba en la lista: la importación usa la consulta que ya existía (`countActiveWithName`), como pediste (una sola definición), en vez del `activeNameConflicts()` que yo había propuesto.
+- `app/src/androidTest/.../AutoBackupPolicyTest.kt` (nuevo) y los tests de `CategoryDaoTest`/`CategoryNameCaseInstrumentedTest`.
+
+### Lo que NO está verificado
+
+- **Mandar el respaldo por WhatsApp o Drive de verdad**: en el emulador solo vi el selector de Android con el archivo. Tampoco **recibirlo en el teléfono nuevo** y elegirlo con «Recuperar» desde WhatsApp (el selector de archivos lo ve en Descargas; no agregué un «abrir con» desde otra app: habría que declarar una entrada exportada).
+- **Abrir los CSV en Excel o Sheets** (solo los bytes). Si su Excel espera `;` en vez de `,`, el archivo se abre en una sola columna: se resuelve en 5 minutos con su archivo real.
+- **La base real de ella**: no hay copia. Todo se probó con la del emulador cargada a mano (las fotos de la semilla son PNG con extensión `.jpg`: para el respaldo da igual, que es copiar bytes). Cuando haya datos reales: copiar su base a `verification/db/` y correr `RealDatabaseRoundTripTest`.
+- Importar con el disco casi lleno; importar a un teléfono con otra carpeta de fotos (el reescrito de rutas está probado en JVM con una ruta distinta a la del emulador, no entre dos aparatos reales).
+- La pantalla de respaldo **no tiene listas**, así que el ejercicio de «agregar, quitar, salir y volver» de `CLAUDE.md` 7.10 no aplica; sí recorrí cada flujo (guardar, recuperar, rechazar, deshacer, Excel).
+- Las pruebas instrumentadas desinstalan la app y borran sus datos: el emulador quedó sin la base cargada (los archivos de `verification/db/` la reconstruyen).
+
+### Suposiciones que tomé
+
+- El respaldo se marca como hecho **al abrir el selector de Android** (no hay forma de saber si ella lo mandó).
+- «Más viejo» = hay en el teléfono algo con fecha posterior a lo último que trae el archivo (cualquier columna `_at`).
+- Las copias previas duran hasta el próximo respaldo o 30 días; solo se ofrece deshacer la última.
+- El CSV de inventario incluye las piezas archivadas (columna «Archivada») y el de ventas las anuladas (columna «Estado»).
+
+### Lo que NO hice
+
+- Ni contraseña ni cifrado (D-061 lo dice sin adornos: el archivo trae nombres y teléfonos de las clientas).
+- No toqué `design/visual-identity` ni la deuda de la Fase 15 (las alturas fijas de Inicio siguen: solo agregué el desplazamiento).
+- No implementé la Fase 16 (solo quedó anotada, opcional, en `FASES.md`, con la advertencia de que necesita enmendar `CLAUDE.md`).
+
+### Bloqueos / preguntas para el humano
+
+1. **Archivos fuera de la lista** (sección de arriba): ¿los aceptás o los reviso?
+2. **Su Excel:** ¿separa con coma o con punto y coma? Se confirma con su archivo real.
+3. Cuando exista una base real con datos, copiala a `verification/db/` y corremos el round-trip contra esa.
+4. **Falta el tag** (`fase-14-ok`): lo ponés vos.

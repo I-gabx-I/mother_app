@@ -9,4 +9,8 @@
     <cache-path
         name="labels"
         path="labels/" />
+    <!-- Fase 14: el respaldo (.zip) y los CSV que se comparten. Se pueden vaciar: son copias de salida. -->
+    <cache-path
+        name="backups"
+        path="backups/" />
 </paths>

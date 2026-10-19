@@ -645,6 +645,8 @@ corregir ninguna.
 3. Test: importar un archivo corrupto o de otra versión falla con mensaje claro y **deja la base intacta**.
 4. El CSV abre correctamente con tildes (UTF-8 con BOM).
 
+**Archivos permitidos** (esta fase no traía lista; la propuso el plan y la aprobó el humano): `app/src/main/java/**/domain/backup/**`, `app/src/main/java/**/data/backup/**`, `app/src/main/java/**/ui/backup/**`, `app/src/main/java/**/data/repository/BackupStatusRepository.kt`, `app/src/main/java/**/data/local/AppDatabase.kt` (solo la constante de versión), `app/src/main/java/**/data/local/AppSettingKeys.kt`, `app/src/main/java/**/ui/navigation/**` (engranaje, tarjeta, destino), `app/src/main/res/values/strings.xml`, `app/src/main/res/xml/file_paths.xml`, `app/src/main/AndroidManifest.xml` y los dos archivos de reglas de respaldo (se borran, D-062), `app/src/test/**/data/backup/**`, `app/src/test/**/domain/backup/**`, `app/src/test/resources/backup/**`, `app/src/androidTest/**`, `ESQUEMA.md`, `DECISIONES.md`, `ESTADO.md`, `FASES.md`, el KDoc de `CategoryRepository.kt`.
+
 **Commit:** `fase-14: backup and export` → tag `fase-14-ok`
 
 ---
@@ -782,6 +784,26 @@ medían 48dp por ese orden y ya se corrigió.
    `heightIn(min = ...)` o justificados uno por uno en `ESTADO.md`.
 
 **Commit:** `fase-15: usability polish` → tag `fase-15-ok`
+
+---
+
+## Fase 16 — Copia automática del respaldo fuera del teléfono (OPCIONAL)
+
+**Objetivo:** que un teléfono perdido sin respaldo manual reciente no pierda los datos. Cierra el hueco que abrió
+apagar la copia automática de Android (D-062): hoy la única red es el recordatorio de 15 días.
+
+**Entregable (esbozo, sin diseñar):**
+- Dejar automáticamente una copia del mismo `.zip` de la Fase 14 en **Supabase Storage**.
+- **El teléfono sigue siendo la única fuente de verdad; la nube es solo un cajón donde se deja la copia.**
+  Sin sincronización: nunca se lee de la nube para fusionar nada; recuperar es bajar el archivo y pasarlo por el
+  mismo flujo de «Recuperar un respaldo» (con su vista previa y su confirmación).
+
+**Antes de empezar, hace falta (no es de esta fase decidirlo):** autorización explícita del humano y **una enmienda a
+`CLAUDE.md`**, que hoy prohíbe red y backend (secciones 4 y 9) y obliga a `NetworkPermissionTest` a fallar si aparece
+`INTERNET`; decidir **cifrado** (el archivo trae nombre y teléfono de las clientas y lo que deben) y de quién es la
+cuenta de Supabase.
+
+**Commit:** `fase-16: cloud backup copy` → tag `fase-16-ok`
 
 ---
 

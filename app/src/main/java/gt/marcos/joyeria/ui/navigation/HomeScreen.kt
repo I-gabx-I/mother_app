@@ -1,6 +1,19 @@
 package gt.marcos.joyeria.ui.navigation
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import gt.marcos.joyeria.domain.backup.BackupReminder
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +64,8 @@ fun HomeScreen(
     onCustomersClick: () -> Unit,
     onReportsClick: () -> Unit,
     onCatalogClick: () -> Unit,
+    onBackupClick: () -> Unit,
+    backupReminder: BackupReminder.Due?,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier) { innerPadding ->
@@ -58,14 +73,29 @@ fun HomeScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
+                // Con letra grande el aviso de respaldo y los enlaces ya no caben: que se pueda bajar.
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = 32.dp),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                // Engranaje: respaldo y Excel (Fase 14). Chico y aparte, no compite con Vender/Agregar pieza.
+                IconButton(onClick = onBackupClick, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.home_backup_description))
+                }
+            }
+            if (backupReminder != null) {
+                BackupReminderCard(backupReminder, onBackupClick)
+            }
             Button(
                 onClick = onSellClick,
                 modifier = Modifier
@@ -151,6 +181,28 @@ fun HomeScreen(
 }
 
 @Composable
+private fun BackupReminderCard(reminder: BackupReminder.Due, onBackupClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = if (reminder.neverBackedUp) {
+                    stringResource(R.string.home_backup_reminder_never, reminder.days)
+                } else {
+                    stringResource(R.string.home_backup_reminder, reminder.days)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            TextButton(onClick = onBackupClick, modifier = Modifier.heightIn(min = 56.dp)) {
+                Text(stringResource(R.string.home_backup_reminder_action))
+            }
+        }
+    }
+}
+
+@Composable
 fun HomeRoute(
     onSellClick: () -> Unit,
     onAddProductClick: () -> Unit,
@@ -160,8 +212,11 @@ fun HomeRoute(
     onCustomersClick: () -> Unit,
     onReportsClick: () -> Unit,
     onCatalogClick: () -> Unit,
+    onBackupClick: () -> Unit,
     modifier: Modifier = Modifier,
+    viewModel: HomeViewModel = hiltViewModel(),
 ) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     HomeScreen(
         onSellClick = onSellClick,
         onAddProductClick = onAddProductClick,
@@ -171,6 +226,8 @@ fun HomeRoute(
         onCustomersClick = onCustomersClick,
         onReportsClick = onReportsClick,
         onCatalogClick = onCatalogClick,
+        onBackupClick = onBackupClick,
+        backupReminder = state.backupReminder,
         modifier = modifier,
     )
 }
@@ -188,6 +245,8 @@ private fun HomeScreenPreview() {
             onCustomersClick = {},
             onReportsClick = {},
             onCatalogClick = {},
+            onBackupClick = {},
+            backupReminder = BackupReminder.Due(days = 21, neverBackedUp = false),
         )
     }
 }

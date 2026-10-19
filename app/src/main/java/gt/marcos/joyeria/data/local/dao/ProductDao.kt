@@ -57,6 +57,10 @@ data class LabelRow(
 
 @Dao
 interface ProductDao {
+    // Fase 14: desde cuándo hay datos que respaldar (el recordatorio cuenta desde la primera pieza si nunca hizo uno).
+    @Query("SELECT MIN(created_at) FROM product")
+    fun observeFirstCreatedAt(): Flow<Long?>
+
     @Insert
     suspend fun insert(product: ProductEntity): Long
 

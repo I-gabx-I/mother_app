@@ -94,8 +94,9 @@ solo repositorio, en código Kotlin, no una restricción de esquema.
 `CategoryRepository`:** puede crear duplicados sin que nada lo impida.
 La semilla (`AppDatabase.SeedCallback`, `execSQL` directo) no corre este
 chequeo, pero inserta nombres fijos y distintos entre sí, así que no
-colisiona. **Una importación de respaldo (Fase 14, futura) sí tiene que
-validar los nombres de categoría que traiga contra esta misma regla** —
+colisiona. **Una importación de respaldo (Fase 14, hecha) sí valida
+los nombres de categoría que traiga contra esta misma regla** (`BackupImporter.checkCategories`, con la misma
+consulta `countActiveWithName`; dos activas iguales → se rechaza todo el archivo, D-061) —
 si importa pasando por debajo de `CategoryRepository` (`execSQL`/`insert`
 directo a la tabla, por velocidad o por restaurar ids exactos), nada en
 la base la va a frenar de crear dos "Pulseras" activas.
@@ -346,6 +347,11 @@ Claves iniciales:
 | `next_product_uid_seq` | `1` | contador del `uid` |
 | `owner_name` | `""` | para encabezar catálogos y estados de cuenta |
 | `min_margin_bp` | `2500` | piso de margen sobre venta, en puntos básicos (D-031). Por debajo de esto, Fase 05 muestra una ADVERTENCIA al registrar una compra. `2500` = 25.00%: con `default_markup_bp = 10000` (recargo 100%, margen 50%), ganar menos de la mitad de lo normal. Agregada en versión 2 (Fase 05) |
+
+**Clave que NO se siembra** (Fase 14, D-061): `last_backup_at` — milisegundos de la última vez que armó y
+entregó un respaldo, o la fecha del respaldo que importó. **Ausente significa «nunca»**: por eso no hay migración
+ni cambio de esquema. No viaja dentro del archivo de respaldo. La escribe `BackupStatusRepository` (con
+`INSERT OR REPLACE`: `setValue` es un UPDATE y no haría nada si la fila no está).
 
 **Los valores de `app_setting` se parsean siempre a `Long` o `Int`, nunca a
 `Double`** (ver D-010 en `DECISIONES.md`). `value` se persiste como `String`

@@ -28,6 +28,13 @@ import gt.marcos.joyeria.data.local.entity.SaleItemEntity
 // Todas las tablas de ESQUEMA.md se declaran en la versión 1 (D-011), aunque
 // solo category/product/app_setting tienen DAO en esta fase. Las demás
 // entidades quedan declaradas y sin DAO hasta la fase que las use.
+/**
+ * La versión del esquema de Room, en un solo lugar: la usa `@Database` y el respaldo (Fase 14) la escribe en el
+ * archivo. Subirla sin escribir antes el mejorador de respaldos de la versión anterior rompe
+ * `BackupVersionTest` a propósito (D-061).
+ */
+const val DATABASE_SCHEMA_VERSION = 2
+
 @Database(
     entities = [
         CategoryEntity::class,
@@ -41,7 +48,7 @@ import gt.marcos.joyeria.data.local.entity.SaleItemEntity
         PaymentEntity::class,
         AppSettingEntity::class,
     ],
-    version = 2,
+    version = DATABASE_SCHEMA_VERSION,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

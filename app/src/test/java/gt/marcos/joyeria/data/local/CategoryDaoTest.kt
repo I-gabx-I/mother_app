@@ -117,6 +117,25 @@ class CategoryDaoTest {
         assertThat(db.categoryDao().countActiveWithName("Pendientes", excludeId = -1L)).isEqualTo(0)
     }
 
+    // Ningún test anterior usaba ñ ni tildes en MAYÚSCULA, que es donde un LOWER() solo-ASCII fallaría
+    // (en el emulador se comprobó que el SQLite de Android sí las entiende: ver CategoryNameCaseInstrumentedTest).
+    @Test
+    fun countActiveWithName_matchesUppercaseEnyeAndAccentsAgainstTheirLowercase() = runTest {
+        db.categoryDao().insert(CategoryEntity(name = "Niñas"))
+        db.categoryDao().insert(CategoryEntity(name = "Ángeles"))
+
+        assertThat(db.categoryDao().countActiveWithName("NIÑAS", excludeId = -1)).isEqualTo(1)
+        assertThat(db.categoryDao().countActiveWithName("ÁNGELES", excludeId = -1)).isEqualTo(1)
+        assertThat(db.categoryDao().countActiveWithName("ángeles", excludeId = -1)).isEqualTo(1)
+    }
+
+    @Test
+    fun countActiveWithName_treatsADifferentAccentAsADifferentName() = runTest {
+        db.categoryDao().insert(CategoryEntity(name = "Anillos"))
+
+        assertThat(db.categoryDao().countActiveWithName("Ánillos", excludeId = -1)).isEqualTo(0)
+    }
+
     @Test
     fun countActiveWithName_excludesTheCategoryItself_byExcludeId() = runTest {
         val id = db.categoryDao().insert(CategoryEntity(name = "Dijes"))

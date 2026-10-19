@@ -16,4 +16,9 @@ object AppSettingKeys {
     // Agregada en versión 2 (Fase 05, D-031): piso de margen sobre venta,
     // en puntos básicos. Ver MIGRATION_1_2 en AppDatabase.kt.
     const val MIN_MARGIN_BP = "min_margin_bp"
+
+    // Fase 14: la última vez que armó y entregó un respaldo (milisegundos). NO viaja dentro del
+    // archivo de respaldo y NO se siembra: ausente significa «nunca» (no cambia el esquema ni pide
+    // migración). Ver D-061.
+    const val LAST_BACKUP_AT = "last_backup_at"
 }

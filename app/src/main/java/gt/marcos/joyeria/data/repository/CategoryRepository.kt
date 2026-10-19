@@ -27,9 +27,11 @@ private const val NO_CATEGORY_TO_EXCLUDE = -1L
  *
  * `category.name` **no tiene restricción de unicidad en la base** (D-057):
  * la garantiza únicamente `add()`/`rename()`, acá. Cualquier escritura que
- * no pase por este repositorio (una migración, una importación futura de
+ * no pase por este repositorio (una migración, la importación de
  * Fase 14) puede crear dos categorías activas con el mismo nombre sin que
  * nada lo impida -- ver la nota completa en `ESQUEMA.md`, tabla `category`.
+ * La importación de respaldos (Fase 14) pasa por debajo de este repositorio y por eso revisa las categorías
+ * activas con la misma consulta (`CategoryDao.countActiveWithName`), no con una segunda definición (D-061).
  */
 class CategoryRepository @Inject constructor(
     private val categoryDao: CategoryDao,

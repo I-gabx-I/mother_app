@@ -315,4 +315,105 @@
     <!-- Se dibujan DENTRO de la imagen del catálogo -->
     <string name="catalog_no_photo">Sin foto</string>
     <string name="catalog_page_of">%1$d de %2$d</string>
+
+    <!-- Fase 14: respaldo, recuperar y Excel -->
+    <string name="home_backup_description">Respaldo y archivos para Excel</string>
+    <string name="home_backup_reminder">Hace %1$d días que no guardás un respaldo. Si se pierde o se rompe el teléfono, se pierde todo.</string>
+    <string name="home_backup_reminder_never">Todavía no guardaste ningún respaldo y ya tenés piezas cargadas desde hace %1$d días. Si se pierde o se rompe el teléfono, se pierde todo.</string>
+    <string name="home_backup_reminder_action">Guardar un respaldo</string>
+
+    <string name="backup_title">Respaldo</string>
+    <string name="backup_status_never">Todavía no guardaste ningún respaldo.</string>
+    <string name="backup_status_last">Último respaldo: %1$s</string>
+    <string name="backup_reminder_days">Hace %1$d días de eso. Conviene guardar uno nuevo.</string>
+    <string name="backup_reminder_never">Ya tenés piezas cargadas desde hace %1$d días. Conviene guardar uno ahora.</string>
+
+    <string name="backup_section_save">Guardar una copia</string>
+    <string name="backup_save_hint">Se arma un archivo con tus piezas, ventas, clientas y fotos. Mandátelo por WhatsApp o guardalo en Drive: si se pierde el teléfono, ahí queda todo.</string>
+    <string name="backup_save_button">Guardar un respaldo</string>
+    <string name="backup_share_chooser">Guardar el respaldo</string>
+
+    <string name="backup_section_restore">Recuperar una copia</string>
+    <string name="backup_restore_hint">Sirve para pasar todo a otro teléfono. Atención: reemplaza TODO lo que hay en este teléfono por lo que trae el archivo.</string>
+    <string name="backup_restore_button">Recuperar un respaldo</string>
+    <string name="backup_undo_button">Deshacer la última recuperación (%1$s)</string>
+
+    <string name="backup_section_excel">Para Excel</string>
+    <string name="backup_excel_hint">Archivos para abrir en Excel o en Google Sheets. Son solo para mirar: no se pueden volver a cargar en la app.</string>
+    <string name="backup_excel_inventory">Inventario (Excel)</string>
+    <string name="backup_excel_sales">Ventas (Excel)</string>
+
+    <string name="backup_working_export">Armando el respaldo…</string>
+    <string name="backup_working_csv">Armando el archivo…</string>
+    <string name="backup_working_read">Revisando el archivo…</string>
+    <string name="backup_working_import">Recuperando el respaldo…</string>
+    <string name="backup_working_undo">Deshaciendo…</string>
+
+    <string name="backup_msg_exported">El respaldo está listo (piezas: %1$d, ventas: %2$d, fotos: %3$d). Elegí dónde guardarlo: WhatsApp, Drive, correo…</string>
+    <string name="backup_msg_sheet_ready">El archivo está listo. Elegí con qué abrirlo o dónde guardarlo.</string>
+    <string name="backup_msg_imported">Listo. Ahora el teléfono tiene lo del respaldo (piezas: %1$d, ventas: %2$d, clientas: %3$d). Si te equivocaste, tocá «Deshacer».</string>
+    <string name="backup_msg_undone">Listo. Todo volvió a como estaba antes de recuperar el respaldo.</string>
+    <string name="backup_msg_close">Cerrar</string>
+
+    <string name="backup_confirm_title">¿Recuperar este respaldo?</string>
+    <string name="backup_confirm_body">Respaldo del %1$s.\n\nEl archivo trae: piezas %2$d, ventas %3$d, clientas %4$d y fotos %5$d.\n\nAhora en este teléfono hay: piezas %6$d, ventas %7$d y clientas %8$d.\n\nTodo lo que hay ahora en este teléfono se va a REEMPLAZAR por lo del respaldo. Antes se guarda una copia por si querés deshacerlo.</string>
+    <string name="backup_confirm_yes">Sí, reemplazar todo</string>
+    <string name="backup_confirm_no">No, cancelar</string>
+    <string name="backup_older_title">Este respaldo es más viejo</string>
+    <string name="backup_older_body">En este teléfono hay cosas que se registraron DESPUÉS del respaldo del %1$s, y se van a perder: piezas de más %2$d, ventas de más %3$d, clientas de más %4$d. También se pierden los cambios que hiciste después de esa fecha.\n\n¿Querés recuperarlo de todas formas?</string>
+    <string name="backup_older_yes">Sí, perder lo más nuevo</string>
+    <string name="backup_undo_title">¿Deshacer la recuperación?</string>
+    <string name="backup_undo_body">El teléfono va a volver a como estaba el %1$s, justo antes de recuperar el respaldo. Lo que hayas registrado desde entonces se va a perder.</string>
+    <string name="backup_undo_yes">Sí, deshacer</string>
+    <string name="backup_undo_no">No</string>
+
+    <string name="backup_error_generic">No se pudo. No se cambió nada en el teléfono. Probá de nuevo.</string>
+    <string name="backup_error_not_a_backup">Ese archivo no es un respaldo de esta app, o está dañado. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_corrupt">El archivo está dañado (se cortó al mandarlo o al bajarlo). Pedí que te lo manden de nuevo. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_unsupported">Este respaldo se hizo con otra forma de guardar que esta versión no entiende. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_too_new">Este respaldo es de una versión más nueva de la app. Actualizá la app y probá de nuevo. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_too_old">Este respaldo es de una versión muy vieja que ya no se puede recuperar. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_unsafe">Ese archivo trae cosas que la app no acepta, por seguridad. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_too_big">Ese archivo es demasiado grande para ser un respaldo de esta app. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_invalid">El respaldo tiene datos que no cuadran, así que no se recuperó. No se cambió nada en el teléfono.</string>
+    <string name="backup_error_categories">El respaldo tiene dos categorías con el mismo nombre. No se recuperó nada y no se cambió nada en el teléfono.</string>
+    <string name="backup_error_safety_copy">No se pudo guardar la copia de seguridad de lo que hay ahora (¿falta espacio en el teléfono?). Por eso no se recuperó nada. Liberá espacio y probá de nuevo.</string>
+    <string name="backup_error_nothing_to_undo">Ya no hay nada que deshacer.</string>
+
+    <string-array name="csv_inventory_headers">
+        <item>Código de la pieza</item>
+        <item>Nombre</item>
+        <item>Categoría</item>
+        <item>Cantidad</item>
+        <item>Costo (Q)</item>
+        <item>Precio de venta (Q)</item>
+        <item>Ganancia por pieza (Q)</item>
+        <item>Proveedor</item>
+        <item>Notas</item>
+        <item>Archivada</item>
+    </string-array>
+    <string-array name="csv_sales_headers">
+        <item>Número de venta</item>
+        <item>Fecha</item>
+        <item>Clienta</item>
+        <item>Tipo de venta</item>
+        <item>Estado</item>
+        <item>Código de la pieza</item>
+        <item>Pieza</item>
+        <item>Cantidad</item>
+        <item>Precio de venta (Q)</item>
+        <item>Costo (Q)</item>
+        <item>Total de la línea (Q)</item>
+        <item>Ganancia de la línea (Q)</item>
+        <item>Descuento de la venta (Q)</item>
+        <item>Notas de la venta</item>
+    </string-array>
+    <string name="csv_no_category">Sin categoría</string>
+    <string name="csv_yes">Sí</string>
+    <string name="csv_no">No</string>
+    <string name="csv_type_cash">Contado</string>
+    <string name="csv_type_credit">A plazos</string>
+    <string name="csv_status_paid">Pagada</string>
+    <string name="csv_status_pending">Pendiente</string>
+    <string name="csv_status_cancelled">Anulada</string>
 </resources>
