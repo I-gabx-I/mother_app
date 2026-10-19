@@ -1,8 +1,7 @@
 package gt.marcos.joyeria.ui.catalog.render
 
 import gt.marcos.joyeria.domain.model.Money
-import gt.marcos.joyeria.ui.format.format
-import java.util.Locale
+import gt.marcos.joyeria.ui.format.formatForOtherPhone
 
 /**
  * El precio tal como se dibuja en la imagen del catálogo: `Q1,250.00`, con
@@ -16,4 +15,4 @@ import java.util.Locale
  * en `es-ES` la clienta vería `Q1.250,00`, que en Guatemala se lee mal. Ver
  * D-058.
  */
-internal fun catalogPriceText(price: Money): String = price.format(Locale.ROOT)
+internal fun catalogPriceText(price: Money): String = price.formatForOtherPhone()

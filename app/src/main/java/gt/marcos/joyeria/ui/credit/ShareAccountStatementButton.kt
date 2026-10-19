@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.dp
 import gt.marcos.joyeria.R
 import gt.marcos.joyeria.data.repository.SaleAccountStatement
 import gt.marcos.joyeria.domain.model.Money
-import gt.marcos.joyeria.ui.format.format
 import java.text.DateFormat
 import java.util.Date
 
@@ -39,15 +38,21 @@ fun ShareAccountStatementButton(
     val context = LocalContext.current
     val chooserTitle = stringResource(R.string.account_statement_share_chooser_title)
     val header = stringResource(R.string.account_statement_share_header, customerName)
+    // Este texto viaja al teléfono de otra persona: los montos van con `Locale.ROOT`
+    // (`OutgoingText`), no con el idioma del teléfono de ella (D-058).
+    val lineTemplate = stringResource(R.string.account_statement_share_line)
     val lines = statements.map { statement ->
-        stringResource(
-            R.string.account_statement_share_line,
-            formatDate(statement.soldAt),
-            (statement.total - statement.discount).format(),
-            statement.balance.format(),
+        OutgoingText.statementLine(
+            template = lineTemplate,
+            date = formatDate(statement.soldAt),
+            total = statement.total - statement.discount,
+            balance = statement.balance,
         )
     }
-    val totalLine = stringResource(R.string.account_statement_share_total, totalBalance.format())
+    val totalLine = OutgoingText.statementTotal(
+        template = stringResource(R.string.account_statement_share_total),
+        totalBalance = totalBalance,
+    )
 
     OutlinedButton(
         onClick = {

@@ -144,10 +144,12 @@ fun CustomerProfileScreen(
                     )
                 }
                 item {
-                    val reminderMessage = stringResource(
-                        R.string.whatsapp_reminder_message,
-                        state.customerName,
-                        state.totalBalance.format(),
+                    // El monto del mensaje va con `Locale.ROOT` (viaja a otro teléfono); el
+                    // que ella ve en pantalla sigue con `format()` (D-058).
+                    val reminderMessage = OutgoingText.reminderMessage(
+                        template = stringResource(R.string.whatsapp_reminder_message),
+                        customerName = state.customerName,
+                        balance = state.totalBalance,
                     )
                     val invalidPhoneMessage = stringResource(
                         R.string.whatsapp_reminder_invalid_phone,

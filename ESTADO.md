@@ -10010,3 +10010,54 @@ Fase 12 aprobada, con tres pedidos que entraron en el mismo commit:
    `fix/share-text-locale` desde `main` después del merge. **Pendiente.** Se espera el
    merge porque D-058 (que se cita en el código y el test) solo existe en esta rama.
 
+---
+
+## Corrección — formato de montos en los textos de la Fase 10 que viajan a otro teléfono (2026-10-19)
+
+Rama `fix/share-text-locale`, desde `main` (`fase-12-ok`). Un solo commit con test.
+Decidido por el humano al cerrar la Fase 12 (hallazgo 3): mismo criterio que D-058.
+
+### Qué se hizo
+
+- `Money.formatForOtherPhone()` en `ui/format/MoneyFormat.kt` (el único archivo de
+  formato de dinero, CLAUDE.md 3.3): `format(Locale.ROOT)`, `Q1,250.00` en cualquier
+  teléfono. `catalogPriceText` (Fase 12) ahora delega en ella: una sola definición.
+- `ui/credit/OutgoingText.kt` (nuevo, puro, sin `Context`): arma el mensaje del
+  recordatorio de WhatsApp, cada línea del estado de cuenta y su total. Recibe la
+  plantilla de `strings.xml` sin formatear y la completa con `Locale.ROOT`.
+- Los tres sitios dejaron de usar `Money.format()` para el texto que sale:
+  `CustomersScreen` (recordatorio por fila), `CustomerProfileScreen` (recordatorio
+  del perfil) y `ShareAccountStatementButton` (líneas y saldo total). **Lo que ella
+  ve en su pantalla no cambió** y sigue con `format()`.
+- `DECISIONES.md`: D-058 pasa de «hallazgo sin arreglar» a «aplicado».
+
+### Verificación
+
+- `./gradlew testDebugUnitTest`: **307 tests, 0 fallos** (300 + 7 de `OutgoingTextTest`,
+  con las plantillas de `strings.xml`: teléfono en `es-ES`, en `ar-EG`, acentos en el
+  nombre, línea y total del estado de cuenta).
+- **Mutación:** `formatForOtherPhone` con el idioma del teléfono → 8 de los 14 tests
+  corridos fallan (entre `OutgoingTextTest` y los de precio de
+  `CatalogRenderingRulesTest`); el recordatorio usando `format()` directo → 2 de 7 de
+  `OutgoingTextTest` fallan. Los dos cambios se revirtieron y la suite quedó verde.
+- **Emulador** (`adb devices` antes: solo `emulator-5554`; teléfono físico no tocado),
+  con la app puesta en `es-ES` (`cmd locale set-app-locales`): su pantalla dice
+  `Saldo total: Q17.900,00` y el texto del selector de Android dice
+  `Saldo total: Q17,900.00` y `Total: Q9,000.00 — Saldo: Q8,900.00`
+  (`verification/screenshots/fixlocale-01..03-*.png`). La URL de `wa.me` del
+  recordatorio **no se pudo ver** (Android la oculta en el log): ese camino queda
+  cubierto por los tests de `OutgoingText`. El idioma de la app se devolvió.
+
+### Hallazgo, sin arreglar: las fechas del estado de cuenta también dependen del teléfono
+
+Cada línea del estado de cuenta lleva la fecha con `DateFormat.SHORT` del teléfono
+de ella: se vio `20/9/26` con el teléfono en `es-ES` (y `9/20/26` en `en-US`). Es el
+mismo caso que los montos: `3/4/26` se lee abril o marzo según de dónde sea quien
+lo recibe. **No lo toqué:** hay que decidir el formato (¿`dd/MM/yyyy`, como se escribe
+en Guatemala?) y el pedido era el de los montos. **Decisión tuya.**
+
+### Bloqueos / preguntas para el humano
+
+Ninguno bloquea. Paro para que taguees. Pregunta: ¿corregimos también el formato de la
+fecha de esas líneas (`dd/MM/yyyy` fijo)?
+

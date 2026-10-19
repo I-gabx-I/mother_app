@@ -29,3 +29,17 @@ fun Money.format(locale: Locale = Locale.getDefault()): String {
 
     return "${sign}Q$quetzalesFormatted$decimalSeparator$centavosFormatted"
 }
+
+/**
+ * El monto para un texto o una imagen que **sale a otro teléfono**: `Q1,250.00`,
+ * con `Locale.ROOT`, igual en cualquier teléfono.
+ *
+ * No contradice [format]: ese usa el idioma del teléfono para lo que ELLA lee en
+ * pantalla. Esto viaja al teléfono de otra persona (el catálogo, el recordatorio
+ * de WhatsApp, el estado de cuenta compartido) y no se vuelve a formatear al
+ * llegar, así que tiene que verse igual sin importar el idioma de quien lo
+ * genera: con un teléfono en `es-ES` la clienta vería `Q1.250,00`, que en
+ * Guatemala se lee mal. Es una razón distinta a la de la regla de `Locale.ROOT`
+ * para lo persistido o impreso (claves técnicas como el uid). Ver D-058.
+ */
+fun Money.formatForOtherPhone(): String = format(Locale.ROOT)

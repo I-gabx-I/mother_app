@@ -3000,14 +3000,16 @@ una razón distinta a la de la regla de `Locale.ROOT` para lo persistido o impre
 (claves técnicas como el uid), aunque llegue al mismo lugar. Test:
 `CatalogRenderingRulesTest.priceText_*` (`es-ES` y `ar-EG`).
 
-**Hallazgo relacionado, sin arreglar (fuera de alcance):** otros dos textos de la
-Fase 10 también viajan al teléfono de otra persona y formatean los montos con
-`Money.format()` del idioma del teléfono de ella: el mensaje del recordatorio de
-WhatsApp (`CustomersScreen`, `reminderMessage`, y la misma construcción en
-`CustomerProfileScreen`) y el texto de «Compartir estado de cuenta»
-(`ShareAccountStatementButton`). Es el mismo caso que el de la imagen y, en un
-teléfono con otro idioma, el monto saldría con otro separador. Anotado en
-`ESTADO.md` para que decidas si se corrige.
+**Aplicado también a los textos de la Fase 10 (`fix/share-text-locale`):** el
+mensaje del recordatorio de WhatsApp (`CustomersScreen` y `CustomerProfileScreen`)
+y el texto de «Compartir estado de cuenta» (`ShareAccountStatementButton`)
+también viajan al teléfono de otra persona y formateaban los montos con
+`Money.format()` del idioma del teléfono de ella. Es el mismo caso que el de la
+imagen y ahora usan la misma función: `Money.formatForOtherPhone()` (en
+`MoneyFormat.kt`, el único archivo de formato de dinero), que es `format(Locale.ROOT)`.
+El armado de esos textos vive en `OutgoingText`, puro y sin Android, y
+`catalogPriceText` delega en la misma función: **la regla tiene una sola
+definición.** Lo que ella lee en SU pantalla sigue con `format()`.
 
 ### Apariencia (no sale del tema de la app)
 

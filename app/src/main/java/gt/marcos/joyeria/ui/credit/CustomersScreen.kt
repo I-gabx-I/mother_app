@@ -243,7 +243,13 @@ private fun DebtRow(
     }
     // Fase 10: mismo texto que el botón del perfil, armado acá porque
     // necesita el nombre y el saldo de esta fila puntual.
-    val reminderMessage = stringResource(R.string.whatsapp_reminder_message, debt.customerName, debt.totalBalance.format())
+    // El monto del mensaje va con `Locale.ROOT` (viaja a otro teléfono); el que
+    // ella ve en la fila sigue con `format()` (D-058).
+    val reminderMessage = OutgoingText.reminderMessage(
+        template = stringResource(R.string.whatsapp_reminder_message),
+        customerName = debt.customerName,
+        balance = debt.totalBalance,
+    )
     val invalidPhoneMessage = stringResource(R.string.whatsapp_reminder_invalid_phone, debt.customerName)
 
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
