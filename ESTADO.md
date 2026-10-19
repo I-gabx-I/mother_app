@@ -10237,3 +10237,320 @@ selector de piezas de Vender. Pediste además las fechas fijas en `dd/MM/yyyy`.
 1. **Tu prueba impresa:** imprimí la hoja de prueba en tamaño real («sin ajustar a la página»), comprobá que la línea mide 50 mm y escaneá con la app cada módulo; decime el más chico que lee bien. Con eso se confirma o se ajusta el tamaño (hoy 0.254 mm).
 2. Cuando sepas con qué imprime, decime el modelo/medida de la hoja de etiquetas adhesivas (`LabelSheetSpec` se ajusta).
 3. **Falta el tag** (`fase-13-ok`): lo ponés vos.
+
+
+---
+
+# Fase 14 — Respaldo, exportar e importar — Plan (antes de escribir código)
+
+Rama `fase/14-backup`, desde `main` (`fase-13-ok`). **Esto es solo el plan: no se tocó código.** Primero lo que
+encontré, después tus cinco puntos, y los bloqueos juntos al final. Ninguna prueba va a un dispositivo físico:
+`adb devices` antes de todo y solo `emulator-5554` (`CLAUDE.md` 7.13); esta fase sobreescribe la base.
+
+---
+
+## 0. Cuatro hallazgos que cambian el diseño
+
+1. **No hay ninguna base real en `verification/`** (tu punto 5). Busqué: la carpeta solo tiene capturas y logs.
+   La única copia de una base que existió, `joyeria-fase11-verify.db`, estaba en `app/build/logs/` y se perdió en
+   el incidente del `clean`; y era una base **del emulador**, no la de ella. Lo trato en la sección 6 y es el
+   bloqueo 3.
+2. **El respaldo automático de Android ya está prendido.** El manifiesto tiene `allowBackup="true"` y los dos
+   archivos de reglas (`data_extraction_rules.xml`, `backup_rules.xml`) son las **plantillas de ejemplo sin
+   tocar**. Por defecto eso copia la base y los archivos de la app a la cuenta de Google de ella (con un tope de
+   ~25 MB: si las fotos lo pasan, el respaldo no se hace o queda a medias) y la **restaura sola** al reinstalar.
+   Es relevante dos veces: son datos de terceras (tu punto 1) que ya salen del teléfono sin que nadie lo haya
+   decidido, y una restauración automática vieja encima de una instalación nueva es exactamente el escenario del
+   punto 2, pero sin vista previa ni confirmación. Es el bloqueo 1.
+3. **`product.photo_path` guarda una ruta absoluta** (`/data/user/0/gt.marcos.joyeria/files/photos/…`). Copiarla
+   tal cual a otro teléfono deja todas las fotos apuntando a la nada. El respaldo guarda **solo el nombre del
+   archivo** y la importación reescribe la ruta a la carpeta del teléfono donde se importa. Un test verifica que
+   ninguna ruta absoluta viaje en el archivo.
+4. **El `LOWER()` de SQLite solo conoce ASCII.** La regla de nombres de categoría (D-057) usa
+   `LOWER(TRIM(name))`: `Niñas` y `NIÑAS` son nombres distintos para la base y para `CategoryRepository`. Si la
+   importación validara con `lowercase()` de Kotlin (que sí junta `ñ` y `Ñ`), aceptaría o rechazaría distinto que
+   el repositorio. Por eso la validación de la importación usa **la misma consulta SQL** (sección 4). (Esto es de
+   memoria: se comprueba con una consulta en el emulador y un test antes de apoyarse en ello.)
+
+---
+
+## 1. El formato del archivo
+
+Un `.zip` llamado `respaldo-joyeria-AAAA-MM-DD.zip` (sin nombres de personas), con:
+
+| Entrada | Qué lleva |
+|---|---|
+| `manifest.json` | `formatVersion`, `schemaVersion` (la versión de Room, hoy 2), `appVersion`, `exportedAt`, `encryption: "none"`, la cuenta de filas por tabla, la lista de fotos y el **SHA-256 de `data.json` y de cada foto** |
+| `data.json` | todas las tablas, fila por fila, con sus `id` originales (los ids de ventas, abonos y piezas se referencian entre sí). Dinero en centavos (`Long`), booleanos como `0/1`, `null` como `null`. Nada de `Double` |
+| `photos/<nombre>.jpg` | las fotos de las piezas referenciadas, sin comprimir de nuevo (un JPEG no se comprime y así es más rápido) |
+
+**El volcado es genérico, no una lista de entidades.** El exportador recorre `sqlite_master` y vuelca **toda
+tabla de usuario con todas sus columnas** (menos las de sistema de Room y de SQLite), y el importador inserta
+por nombre de columna. Razón: cuando la versión 3 agregue una columna o una tabla, **entra al respaldo sola**; con
+una lista escrita a mano, alguien se olvidaría y el respaldo perdería ese dato en silencio hasta el día que haga
+falta. El test de ida y vuelta (sección 6) también descubre las tablas de `sqlite_master`, así que no puede
+olvidarse de ninguna.
+
+**`app_setting`:** se respalda entera, con dos reglas: `next_product_uid_seq` se restaura como **el mayor entre
+el del archivo y 1 + el mayor uid numérico que haya** (si no, la próxima pieza repetiría un código que ya está
+pegado en una etiqueta), y `last_backup_at` no viaja en el archivo (se explica en la sección 8).
+
+**Sin dependencias nuevas:** `java.util.zip`, `org.json` (de Android; en los tests lo da Robolectric, que ya usan
+los tests de Room), `java.security.MessageDigest`. Permisos: ninguno (el archivo sale por `FileProvider`, y se
+elige con el selector de archivos de Android, que no pide permiso).
+
+---
+
+## 2. Punto 1 — Datos de terceros: qué protección tiene el archivo
+
+El archivo lleva nombres y teléfonos de las clientas, **lo que debe cada una**, y los costos y ganancias de ella.
+Termina en su Drive o en un chat.
+
+**Recomendación: sin contraseña en esta fase, con cuatro medidas que sí reducen el riesgo real, y el formato
+preparado para agregarla.** El argumento:
+
+- **El riesgo realista no es que alguien rompa un zip: es mandarlo al chat equivocado.** Una contraseña lo
+  mitigaría, y la mitigación equivocada es la que le hace daño a *esta* usuaria: no es técnica, y **un respaldo
+  que no se puede abrir porque olvidó la contraseña es peor que un respaldo que se filtró**: es el cuaderno
+  perdido, que es exactamente lo que esta fase quiere evitar. No hay forma de recuperar una contraseña olvidada
+  (ni debe haberla: eso sería una puerta trasera).
+- Su Drive ya está protegido por su cuenta de Google; el teléfono, por su bloqueo de pantalla.
+- Cifrar bien (AES-GCM con clave derivada con PBKDF2, con `javax.crypto`, sin dependencia) es factible, pero cada
+  pantalla de contraseña, cada «¿repetí bien?» y cada «la olvidé» es superficie para equivocarse.
+
+**Las cuatro medidas:**
+1. **Antes de compartir, un aviso en español**, con la acción en el botón y sin jerga: «Este archivo tiene los
+   datos de tus clientas y tus costos. Mandalo solo a tu propio Drive o a vos misma».
+2. El archivo se arma en la **caché de la app** y se comparte por `FileProvider`; **nunca** se escribe en la
+   galería ni en una carpeta pública, y se borra al armar el siguiente.
+3. **El nombre no lleva nada personal.**
+4. **El respaldo de Android sigue sus propias reglas** (hallazgo 2): se decide en el bloqueo 1, no se deja como está.
+
+**El formato reserva el campo `encryption`** (hoy siempre `"none"`) para que una versión futura pueda agregar una
+contraseña opcional **sin romper los respaldos viejos**. Si preferís la contraseña ya (opcional, apagada por
+defecto, con un aviso de «si la olvidás no se puede recuperar»), es el bloqueo 2.
+
+---
+
+## 3. Punto 2 — Importar: reemplaza todo, no mezcla
+
+**Recomiendo reemplazar.** Mezclar dos historias contables no tiene respuesta correcta: los `id` chocan (una
+venta 40 del respaldo y una venta 40 de hoy son ventas distintas), los códigos `XP-…` se repiten, el stock se
+duplicaría, y un abono podría quedar colgado de una venta que no es la suya. Resolver eso exige un modelo de
+conflictos que una fase de respaldo no puede validar. **Reemplazar es lo que quiere decir «restaurar»**: dejar
+la app como estaba el día del respaldo.
+
+**El flujo, pensado para que ninguna etapa deje la base a medias:**
+1. **Elegir el archivo** (selector de Android).
+2. **Validar todo antes de tocar nada:** estructura del zip, `manifest.json`, versión, SHA-256 de cada pieza, que
+   cada tabla y columna exista, tipos, valores de los campos de texto con valores fijos (`type`, `status`,
+   `method`), que ninguna fila apunte a una que no existe, que no haya dos categorías activas con el mismo nombre
+   (sección 4). **Todo esto sobre el archivo; la base no se toca.**
+3. **Vista previa** con lo que se va a restaurar y lo que se va a perder: «Respaldo del 03/10/2026: 120 piezas,
+   45 ventas, 18 clientas. Tus datos de ahora: 130 piezas, 60 ventas, 19 clientas».
+4. **Confirmación explícita** con un texto que dice exactamente qué va a pasar (`JoyeriaAlertDialog`, sección 6 de
+   `CLAUDE.md`).
+5. **Copia de seguridad previa automática:** antes de reemplazar, la app arma un respaldo de **los datos de ahora**
+   y lo guarda en su carpeta interna.
+6. **Una sola transacción de Room** que vacía todas las tablas e inserta todo; antes de confirmarla corre
+   `PRAGMA foreign_key_check`. Si algo falla, **la transacción se revierte entera**.
+7. Las **fotos se copian antes** (con su nombre; agregar archivos no daña nada si la importación falla y se
+   limpian); las fotos que ya no referencia ninguna fila se borran **solo después** de que la transacción terminó
+   bien.
+
+**Si ella importa por error un respaldo viejo encima de datos nuevos** (la pregunta de verdad):
+- **La vista previa lo detecta y lo dice:** si en su base de ahora hay algo posterior a la fecha del respaldo (una
+  venta, un abono o una pieza más nuevos), sale un aviso rojo con la cuenta exacta: **«Este respaldo es más viejo
+  que tus datos. Si seguís, vas a perder 15 ventas, 2 abonos y 6 piezas que hiciste después del 03/10»** y la
+  confirmación pide un segundo toque a un botón distinto («Sí, perder lo de después»), no el mismo botón de
+  siempre.
+- **Aunque confirme, se puede deshacer:** la copia previa del paso 5 queda disponible como **«Deshacer la
+  importación»** en la pantalla de resultado, que restaura exactamente lo de antes (por el mismo camino de
+  importación, y se verifica con el mismo test de ida y vuelta campo por campo). Se conserva la última hasta el
+  próximo respaldo exitoso o 30 días.
+- Si el respaldo es **más nuevo** o de la misma fecha, sale el aviso normal.
+
+---
+
+## 4. Punto 3 — Las categorías: la importación valida con la misma consulta que `CategoryRepository`
+
+La regla de D-057: **dos categorías activas no pueden tener el mismo nombre** (`LOWER(TRIM(name))`; una archivada
+sí puede compartirlo con una activa). La base no la protege; la garantiza solo `CategoryRepository`, y D-057
+dejó escrito que una importación de la Fase 14 es el caso que la puede romper.
+
+La importación **no puede pasar por `CategoryRepository.add()`**: eso le asignaría ids nuevos, y las piezas
+apuntan a los ids originales. Pero **tampoco reimplementa la regla**: dentro de la transacción, después de
+insertar las categorías, corre **una consulta nueva de `CategoryDao`** (`activeNameConflicts()`, un auto-join por
+`LOWER(TRIM(name))` entre activas) con la **misma expresión SQL** que `countActiveWithName`. Si devuelve algo, **la
+importación se rechaza entera** con el mensaje «El respaldo trae dos categorías activas llamadas "X"» y la base
+queda intacta.
+
+- Una sola definición de la regla en SQL (hallazgo 4): lo que el repositorio acepta, la importación lo acepta; lo
+  que rechaza, lo rechaza.
+- Test de acuerdo: un conjunto de nombres (`Niñas`/`NIÑAS`, espacios al borde, `Anillos`/`anillos`, archivada +
+  activa con el mismo nombre) se pasa por `CategoryRepository.add()` y por la importación, y **los dos deciden
+  igual**. Y un test construye el **estado que el sistema no produce** (un archivo con dos activas del mismo
+  nombre) y verifica el rechazo (`CLAUDE.md` sección 4, corolario).
+- `ESQUEMA.md` y `CategoryRepository` ya advierten sobre esto: se actualizan para decir que la importación valida.
+
+---
+
+## 5. Punto 4 — Archivos de otra versión del esquema: funciona o falla claro, nunca a medias
+
+La base ya es la versión 2. El respaldo lleva `schemaVersion` (la de Room) y `formatVersion` (la del contenedor).
+
+| El archivo… | Qué pasa |
+|---|---|
+| tiene la **misma** versión | se importa |
+| es de una versión **más nueva** que la app | **se rechaza antes de tocar nada**: «Este respaldo se hizo con una versión más nueva de la app. Actualizá la app y probá de nuevo» |
+| es de una versión **más vieja** | se pasa por una **cadena de mejoradores** (`1 → 2 → 3 …`, cada uno transforma el JSON de una versión a la siguiente: agrega la columna con su valor por defecto) y recién entonces se importa. **Hoy no hay ninguno: el primer respaldo que existe ya es de la versión 2**; el primero se escribe junto con la migración 2 → 3, y no antes |
+| es de una versión vieja **sin mejorador** | se rechaza con un mensaje claro: nunca se importa un esquema que no se sabe interpretar |
+| tiene un `formatVersion` desconocido, o le falta el manifiesto, o está truncado, o el SHA-256 no coincide | se rechaza con su mensaje |
+
+**Cómo se garantiza que «un respaldo hecho hoy, importado en una versión futura, funciona»:**
+- Se commitea un **respaldo dorado** (`golden-backup-schema2.zip`, armado una vez con datos que cubren todas las
+  tablas) en los recursos de test, y un test lo importa. El día que alguien pase la base a la versión 3, **ese
+  test falla hasta que escriba el mejorador 2 → 3**: no se puede olvidar, y el respaldo de hoy sigue importando.
+- Un test falla si la versión de Room cambia sin que exista un mejorador para cada versión anterior.
+- La versión del esquema que escribe el exportador sale de **la misma constante** que usa `@Database(version = …)`
+  (hoy un `2` suelto): una sola fuente.
+
+---
+
+## 6. Punto 5 — La ida y vuelta campo por campo, también contra una base real
+
+**Contra datos armados (criterio 2):** una base en memoria con filas en **todas** las tablas, incluidos los casos
+incómodos (`null`, `Long` grandes, textos con `ñ`, tildes, comillas y saltos de línea, ventas anuladas, clientas
+archivadas, una venta con abonos), se exporta, se importa en una base vacía y se compara **cada columna de cada
+fila de cada tabla** con `SELECT *` (las tablas salen de `sqlite_master`; si el exportador olvidara una, el test
+la ve). El test exige que **ninguna tabla esté vacía en la base armada**, para que no pase por vacío.
+
+**Contra una base real (tu pedido):** como no hay ninguna en `verification/` (hallazgo 1), propongo:
+- **Hoy:** la base del **emulador** (`Medium_Phone_API_35`), que tiene los datos de todas las fases cargados a
+  mano: la copio a `verification/db/` (la carpeta ya está fuera de git) con el comando documentado en
+  `ESTADO.md`, y un test de ida y vuelta corre sobre **cada `.db` de esa carpeta**. Es una base con datos reales de
+  uso del esquema, **no** los de ella.
+- **Si querés que sea la de ella:** copiarla vos misma a `verification/db/` (yo no toco su teléfono). Con la app
+  de debug instalada se hace con `adb exec-out run-as gt.marcos.joyeria cat databases/joyeria.db` (más el `-wal`).
+  El test la toma sola. **Esa base trae datos de terceras:** se queda en `verification/`, que no se sube a git.
+- Honestidad sobre el test: depende de un archivo local que no está en el repositorio, así que **se omite con un
+  aviso si la carpeta está vacía** (no falla en un clon limpio) y `ESTADO.md` anota con cuántas bases corrió y el
+  resultado. Corre también sobre cada base la importación **dos veces seguidas** (la segunda debe dejar lo mismo).
+- Además de la ida y vuelta, **la prueba de realidad del importador:** se exporta la base real, se importa en una
+  base vacía, y se compara con `PRAGMA integrity_check` y `foreign_key_check` ambos limpios.
+
+---
+
+## 7. CSV para Excel
+
+Dos archivos: **inventario** y **ventas**, UTF-8 **con BOM** (`EF BB BF`, criterio 4) para que Excel respete las
+tildes. Columnas en español; el inventario trae código, nombre, categoría, costo, precio, existencias; las ventas,
+**una fila por línea de venta** (fecha, código, nombre y precios **del momento de la venta**, cantidad, ganancia
+de la línea, clienta, tipo y estado), porque las ganancias históricas salen de los snapshots de `sale_item`
+(`CLAUDE.md` 3.7), nunca del precio de hoy. Montos como `75.90` con `Locale.ROOT` (número, no texto con `Q`); fechas
+`dd/MM/yyyy HH:mm`, hora de Guatemala. Se escapan comas, comillas y saltos de línea, y **una celda que empiece con
+`=`, `+`, `-` o `@` se neutraliza** (un nombre de pieza no puede convertirse en fórmula al abrirse en Excel).
+Salen por el selector de Android igual que el respaldo, con el mismo aviso (llevan costos y nombres de clientas).
+Riesgo conocido: si el Excel de ella separa por `;` en vez de `,`, las columnas salen juntas; se prueba con su
+archivo real (pregunta 5).
+
+---
+
+## 8. Recordatorio y pantallas
+
+- **Dónde:** un icono de engranaje en Inicio (arriba a la derecha) que abre **«Respaldo»**; ahí «Guardar un
+  respaldo», «Exportar para Excel» y «Restaurar un respaldo». No sumo otro enlace a una lista de Inicio que ya
+  tiene seis. Si pasaron **más de 15 días**, Inicio muestra una tarjeta sobre los dos botones grandes: «Hace 23
+  días que no hacés un respaldo» con un botón «Hacer respaldo» (56dp, 18sp). Solo aparece cuando corresponde.
+- **`last_backup_at`:** una clave nueva de `app_setting` (**no cambia el esquema ni pide migración**: ausente
+  significa «nunca»). **No viaja dentro del archivo** (un respaldo no puede saber cuándo terminó de guardarse). Se
+  marca cuando se arma y se entrega el archivo (Android no avisa si ella terminó de compartirlo: es la mejor señal
+  disponible, y se dice así). Si nunca hizo uno, se avisa cuando la primera pieza tiene más de 15 días. Tras
+  importar, `last_backup_at` = la fecha del respaldo importado (ella tiene ese archivo). Los repositorios no leen
+  el reloj (D-055): `now` lo pasa quien llama.
+- Todas las pantallas nacen con el piso de 56dp y 18sp del tema, usan `JoyeriaAlertDialog` para toda confirmación,
+  claves de lista con prefijo, `bottomBar` con `safeDrawing`, y §7.10 + los 4 casos de insets.
+- **Peso:** las fotos pesan hasta 1 MB cada una. Con 300 piezas, un respaldo de unos 300 MB. La pantalla muestra
+  el tamaño antes de compartir y avisa que WhatsApp no manda archivos de más de ~100 MB (según recuerdo, a
+  verificar); Drive no tiene ese problema. Se mide el tiempo con 300 fotos en el emulador.
+
+---
+
+## 9. Tests
+
+Fase con **[TESTS OBLIGATORIOS]**. Nombres según la sección 8 de `CLAUDE.md`. Los de Room, con Robolectric y base
+en memoria; los de formato y reglas, JUnit puro.
+
+| Test | Qué fija |
+|---|---|
+| `BackupRoundTripTest.everyColumnOfEveryTable_isIdenticalAfterExportAndImport` | criterio 2, genérico por `sqlite_master` |
+| `…tablesExported_areExactlyTheUserTablesOfTheDatabase` y `…fixtureHasRowsInEveryTable` | no se puede olvidar una tabla ni pasar por vacío |
+| `…photoPathsInTheFile_areRelativeNeverAbsolute` y `…photosAfterImport_areByteIdenticalAndPointToTheNewFolder` | hallazgo 3 |
+| `…nextProductUid_afterImport_neverRepeatsAnImportedCode` | el contador de códigos |
+| `BackupRealDbRoundTripTest` (cada `.db` de `verification/db/`) | sección 6 |
+| `BackupRejectsTest.<cada causa>_failsWithClearMessageAndLeavesDatabaseUntouched` | **criterio 3**: zip truncado, sin manifiesto, SHA-256 alterado, JSON roto, entrada con `..` (zip-slip), demasiadas entradas, `status` inválido, fila huérfana, uid duplicado, foto faltante, **cada uno con el hash de todas las tablas antes y después**. Uno por causa, no uno que las promete a todas |
+| `BackupRejectsTest.failureInTheLastTable_rollsBackEverything` | la atomicidad (falla inyectada al final) |
+| `BackupVersionTest.newerSchema_isRejectedBeforeTouchingAnything` / `olderSchemaWithoutUpgrader_isRejected` / `goldenBackupOfSchema2_stillImports` / `everyPastSchemaVersion_hasAnUpgrader` | sección 5 |
+| `BackupCategoriesTest.duplicateActiveNames_areRejected…` y `…agreesWithCategoryRepository_forEveryNameInTheTable` | sección 4, incluida `Niñas`/`NIÑAS` |
+| `BackupImportGuardTest.olderBackupThanData_warnsWithTheExactCounts` / `safetyCopy_isMadeBeforeReplacing` / `undo_restoresPreviousStateFieldByField` | sección 3 |
+| `BackupPreviewTest` | la vista previa cuenta lo que dice |
+| `CsvExportTest` | los bytes empiezan con `EF BB BF`; tildes y `ñ` intactas; comas, comillas y saltos escapados; `=cmd` neutralizado; montos `75.90` con `es-ES` de locale; fechas `dd/MM/yyyy`; una fila por línea de venta con snapshots |
+| `BackupReminderTest` | frontera de 15 días exactos, «nunca», sin datos |
+| `NetworkPermissionTest` (ya existe) | sigue verde: esta fase no pide `INTERNET` |
+
+**Mutación**, como en las fases 12 y 13: sacar una tabla del volcado, dejar pasar una ruta absoluta y quitar la
+validación de categorías deben romper tests.
+
+---
+
+## 10. Archivos (propuesta, a aprobar)
+
+`FASES.md` no trae «Archivos permitidos» para esta fase; esta es la propuesta.
+
+**Nuevos:** `domain/backup/` (formato, manifiesto, reglas de versión y mejoradores, recordatorio: puro),
+`data/backup/` (exportador y importador genéricos sobre `SupportSQLiteDatabase`, validación, copia previa),
+`ui/backup/` (pantalla, vista previa, resultado, CSV), recursos de test (respaldo dorado), tests de la sección 9.
+
+**Existentes:** `CategoryDao.kt` (`activeNameConflicts()`), `AppDatabase.kt` (la constante de versión),
+`AppSettingKeys.kt` y `AppSettingRepository.kt` (`last_backup_at`), `HomeScreen.kt`/`JoyeriaNavHost.kt`/
+`JoyeriaDestination.kt` (engranaje, tarjeta, destino), `res/xml/file_paths.xml` (`cache/backups/`), `strings.xml`,
+`ESQUEMA.md` (la clave nueva y la nota de las categorías), `CategoryRepository.kt` (solo el KDoc), `DECISIONES.md`,
+`FASES.md`, y —según el bloqueo 1— `AndroidManifest.xml` y los dos archivos de reglas de respaldo.
+
+**No se toca:** el esquema de Room (no hay migración), `libs.versions.toml` (sin dependencias nuevas),
+`ui/theme/`, `design/visual-identity`.
+
+---
+
+## 11. Decisiones mías (reversibles)
+
+| Decisión | Alternativa |
+|---|---|
+| Reemplazar, no mezclar | Mezclar: sin modelo de conflictos no tiene respuesta correcta (sección 3) |
+| Volcado genérico por `sqlite_master` | Lista de entidades a mano: más tipada, pero se olvida de las columnas nuevas |
+| Fotos con nombre relativo | Ruta absoluta: rompe en otro teléfono |
+| Copia previa automática + «Deshacer» | Solo la confirmación: si se equivoca, no hay vuelta atrás |
+| Engranaje en Inicio + tarjeta solo cuando toca | Otro enlace en la lista de Inicio |
+| `last_backup_at` en `app_setting`, sin migración | Una columna o tabla nueva: pide migración y test |
+| CSV con una fila por línea de venta | Una fila por venta: no se puede ver qué pieza ni su ganancia |
+
+---
+
+## 12. Bloqueos — la fase no arranca sin la 1 y la 2
+
+1. **El respaldo automático de Android (hallazgo 2).** `allowBackup="true"` con reglas vacías ya puede estar
+   copiando la base a la cuenta de Google de ella y restaurándola sola al reinstalar (con tope de ~25 MB). Mi
+   recomendación: **apagarlo** (`allowBackup="false"` y quitar los dos archivos de reglas): esta fase le da un
+   único camino de respaldo, controlado, con validación, vista previa y vuelta atrás; la restauración automática
+   no tiene nada de eso, puede dejar la base sin fotos si pasan el tope, y manda datos de terceras a Google sin que
+   ella lo decida. Lo que se pierde: una red gratis para quien no haga respaldos a mano; lo compensa el
+   recordatorio de 15 días. La alternativa es dejarlo prendido y escribir reglas explícitas (solo la base, sin
+   fotos). **Hoy eso está sin decidir y lo decidís vos.**
+2. **Protección del archivo (sección 2):** ¿sin contraseña y con las cuatro medidas (mi recomendación), o
+   contraseña opcional ya? Y aprobar **reemplazar, no mezclar** con la copia previa y «Deshacer» de la sección 3.
+3. **La base real (sección 6):** no hay ninguna en `verification/`. ¿Alcanza con la del emulador como base de
+   prueba hoy, o la copiás vos de su teléfono a `verification/db/`? Yo no lo hago (nada en el dispositivo físico).
+4. **Aprobar la lista de archivos de la sección 10**, sin dependencias nuevas y sin permisos nuevos, y el
+   engranaje en Inicio.
+5. *(No bloquea.)* **El Excel de ella:** ¿separa columnas con coma o con punto y coma? Se confirma con su archivo
+   real una vez hecho. Y el límite de ~100 MB de WhatsApp para archivos, que es de memoria y se verifica.
